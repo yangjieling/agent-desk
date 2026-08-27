@@ -104,3 +104,49 @@ export const DEFAULT_ABORT_REPLIES = new Set([
   "不修了",
   "不处理",
 ]);
+
+export type WorkflowRunStatus =
+  | "pending"
+  | "running"
+  | "awaiting"
+  | "done"
+  | "failed"
+  | "stopped";
+
+export type WorkflowRunNodeStatus =
+  | "pending"
+  | "running"
+  | "awaiting"
+  | "done"
+  | "failed"
+  | "skipped"
+  | "stopped";
+
+export interface WorkflowRunNode {
+  nodeId: string;
+  skill: string;
+  title: string;
+  prompt: string;
+  taskId: string;
+  status: WorkflowRunNodeStatus;
+  result?: string;
+  error?: string;
+}
+
+export interface WorkflowRun {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  mode: WorkflowMode;
+  projectDir: string;
+  inputPrompt: string;
+  issueCode: string;
+  parentTaskId: string;
+  status: WorkflowRunStatus;
+  currentIndex: number;
+  sharedContext: string;
+  awaitingTaskId: string;
+  nodes: WorkflowRunNode[];
+  createdAt: number;
+  updatedAt: number;
+}

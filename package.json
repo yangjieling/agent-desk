@@ -10,12 +10,13 @@
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm --filter @agent-desk/server run dev",
-    "cli": "pnpm --filter @agent-desk/cli exec agent-desk",
+    "cli": "pnpm --filter @agent-desk/cli run agent-desk --",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r exec rm -rf dist"
   },
   "packageManager": "pnpm@9.15.0",
   "devDependencies": {
+    "@agent-desk/cli": "workspace:*",
     "@types/node": "^22.13.10",
     "typescript": "^5.8.2"
   }

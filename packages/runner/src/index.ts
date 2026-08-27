@@ -34,6 +34,19 @@ export interface RunnerOptions {
 
 const running = new Map<string, AbortController>();
 
+type TaskCompleteHandler = (task: Task) => void | Promise<void>;
+const completeHandlers: TaskCompleteHandler[] = [];
+
+export function onTaskComplete(handler: TaskCompleteHandler): void {
+  completeHandlers.push(handler);
+}
+
+async function emitTaskComplete(task: Task): Promise<void> {
+  for (const handler of completeHandlers) {
+    await handler(task);
+  }
+}
+
 export function createTask(input: CreateTaskInput, settings: Settings): Task {
   const now = Date.now();
   return {
@@ -149,9 +162,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       sessionId,
       result: output,
     });
-    if (updated && status === "awaiting") {
-      await maybeNotifyGate(updated, opts.settings);
-      opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+    if (updated) {
+      if (status === "awaiting") {
+        await maybeNotifyGate(updated, opts.settings);
+        opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+      }
+      await emitTaskComplete(updated);
     }
   });
 
@@ -180,6 +196,7 @@ export async function resumeTask(
       status: "stopped",
       result: `${task.result}\n\n[user abort: ${reply}]`,
     });
+    if (updated) await emitTaskComplete(updated);
     return updated!;
   }
 

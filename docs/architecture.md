@@ -12,7 +12,12 @@
 flowchart TB
   cli --> server
   cli --> runner
+  cli --> workflow
   server --> runner
+  server --> workflow
+  server --> ui
+  workflow --> runner
+  workflow --> core
   runner --> core
   runner --> db
   runner --> provider-agent
@@ -59,9 +64,9 @@ The runner parses `hb-choices`, sets status to `awaiting`, and optionally sends 
 
 Abort replies (`skip`, `cancel`, `先不修`, …) stop the task instead of advancing.
 
-## Phase 2 (not in v0.1)
+## Phase 2 (partially done in v0.2)
 
-- Web UI package (`@agent-desk/ui`)
-- Workflow engine (multi-step YAML from `templates/workflows/`)
-- OpenAPI spec under `schemas/openapi.yaml`
+- Web UI package (`@agent-desk/ui`) — task list, gates, workflow runs
+- Workflow engine — shared / independent modes, YAML templates
+- OpenAPI spec under `schemas/openapi.yaml` (planned)
 - Additional providers (GitHub Issues, Slack, Cursor SDK)

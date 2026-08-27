@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agent Desk</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<aside class="sidebar">
+  <div class="brand">Agent Desk<span class="ver" id="ver"></span></div>
+  <div class="nav-item active" data-view="tasks">任务</div>
+  <div class="nav-item" data-view="workflows">流程</div>
+  <div class="nav-item" data-view="new-task">新建</div>
+  <div class="nav-item" data-view="settings">设置</div>
+</aside>
+<main class="main">
+  <header class="page-head">
+    <div>
+      <h1 id="pageTitle">任务</h1>
+      <p class="sub" id="pageSub">查看与管理 Agent 任务</p>
+    </div>
+    <button class="btn secondary" id="btnRefresh">刷新</button>
+  </header>
+
+  <section id="view-tasks" class="view">
+    <div id="taskList" class="card-list"></div>
+  </section>
+
+  <section id="view-task-detail" class="view hidden">
+    <div class="detail-grid">
+      <div class="card">
+        <div class="detail-head">
+          <h2 id="detailTitle">—</h2>
+          <span class="badge" id="detailStatus">—</span>
+        </div>
+        <p class="meta" id="detailMeta"></p>
+        <div class="actions" id="detailActions"></div>
+        <div class="wf-steps hidden" id="wfStepsPanel">
+          <h3>流程步骤</h3>
+          <ol id="wfSteps"></ol>
+        </div>
+        <div class="gate-panel hidden" id="gatePanel">
+          <h3 id="gateHeading">闸门</h3>
+          <div id="gateChoices"></div>
+        </div>
+      </div>
+      <div class="card output-card">
+        <h3>输出</h3>
+        <pre id="detailOutput"></pre>
+      </div>
+    </div>
+  </section>
+
+  <section id="view-workflows" class="view hidden">
+    <div id="workflowList" class="card-list"></div>
+  </section>
+
+  <section id="view-new-task" class="view hidden">
+    <div class="form-card">
+      <label>类型</label>
+      <select id="formType">
+        <option value="skill">单技能任务</option>
+        <option value="workflow">流程编排</option>
+      </select>
+      <div id="formWorkflowWrap" class="hidden">
+        <label>流程模板</label>
+        <select id="formWorkflow"></select>
+      </div>
+      <label>项目目录</label>
+      <input id="formDir" placeholder="/path/to/project">
+      <label>标题（最多 80 字）</label>
+      <input id="formTitle" maxlength="80">
+      <label>描述 / Prompt（最多 8000 字）</label>
+      <textarea id="formPrompt" rows="8" maxlength="8000"></textarea>
+      <div class="actions">
+        <button class="btn primary" id="btnCreate" type="button">创建并启动</button>
+      </div>
+      <p class="hint" id="formHint"></p>
+    </div>
+  </section>
+
+  <section id="view-settings" class="view hidden">
+    <div class="form-card">
+      <label><input type="checkbox" id="setNotify"> 启用通知</label>
+      <label><input type="checkbox" id="setAutoGate"> 自动确认闸门</label>
+      <label>Web Base URL</label>
+      <input id="setWebUrl">
+      <label>Agent</label>
+      <input id="setAgent" readonly>
+      <button class="btn primary" id="btnSaveSettings" type="button">保存</button>
+    </div>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -10,7 +10,11 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "agent-desk": "node ./dist/index.js",
+    "tasks:list": "node ./dist/index.js tasks list",
+    "tasks:create": "node ./dist/index.js tasks create",
+    "web": "node ./dist/index.js web"
   },
   "dependencies": {
     "@agent-desk/core": "workspace:*",
@@ -20,6 +24,7 @@
     "@agent-desk/provider-notify-webhook": "workspace:*",
     "@agent-desk/runner": "workspace:*",
     "@agent-desk/server": "workspace:*",
+    "@agent-desk/workflow": "workspace:*",
     "commander": "^13.1.0"
   },
   "files": ["dist"]

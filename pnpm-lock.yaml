@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@agent-desk/cli':
+        specifier: workspace:*
+        version: link:packages/cli
       '@types/node':
         specifier: ^22.13.10
         version: 22.20.1
@@ -38,6 +41,9 @@ importers:
       '@agent-desk/server':
         specifier: workspace:*
         version: link:../server
+      '@agent-desk/workflow':
+        specifier: workspace:*
+        version: link:../workflow
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -116,11 +122,40 @@ importers:
       '@agent-desk/runner':
         specifier: workspace:*
         version: link:../runner
+      '@agent-desk/ui':
+        specifier: workspace:*
+        version: link:../ui
+      '@agent-desk/workflow':
+        specifier: workspace:*
+        version: link:../workflow
+      '@fastify/static':
+        specifier: ^8.1.1
+        version: 8.3.0
       fastify:
         specifier: ^5.2.1
         version: 5.12.1
 
+  packages/ui: {}
+
+  packages/workflow:
+    dependencies:
+      '@agent-desk/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agent-desk/db':
+        specifier: workspace:*
+        version: link:../db
+      '@agent-desk/runner':
+        specifier: workspace:*
+        version: link:../runner
+      yaml:
+        specifier: ^2.7.0
+        version: 2.9.0
+
 packages:
+
+  '@fastify/accept-negotiator@2.1.0':
+    resolution: {integrity: sha1-Q6D71N6zD2WWfVgjod0JSV3cQOU=, tarball: http://registry.m.jd.com/@fastify/accept-negotiator/download/@fastify/accept-negotiator-2.1.0.tgz}
 
   '@fastify/ajv-compiler@4.0.6':
     resolution: {integrity: sha1-9PHqmU1/s+BZBvfLoAAgAyfQxKk=, tarball: http://registry.m.jd.com/@fastify/ajv-compiler/download/@fastify/ajv-compiler-4.0.6.tgz}
@@ -139,6 +174,20 @@ packages:
 
   '@fastify/proxy-addr@5.1.0':
     resolution: {integrity: sha1-9TYLXdg8fePUG0Fb5Kq4SuRKoQY=, tarball: http://registry.m.jd.com/@fastify/proxy-addr/download/@fastify/proxy-addr-5.1.0.tgz}
+
+  '@fastify/send@4.1.1':
+    resolution: {integrity: sha1-/MauwGedTi0pkqykFjdOV1Zcj+A=, tarball: http://registry.m.jd.com/@fastify/send/download/@fastify/send-4.1.1.tgz}
+
+  '@fastify/static@8.3.0':
+    resolution: {integrity: sha1-0NK8BpAV4yK0o3KmSBBXMZ3i5ao=, tarball: http://registry.m.jd.com/@fastify/static/download/@fastify/static-8.3.0.tgz}
+
+  '@isaacs/cliui@9.0.0':
+    resolution: {integrity: sha1-TQo/EnBYBDvy5+4Wnq8w7ZATAvM=, tarball: http://registry.m.jd.com/@isaacs/cliui/download/@isaacs/cliui-9.0.0.tgz}
+    engines: {node: '>=18'}
+
+  '@lukeed/ms@2.0.2':
+    resolution: {integrity: sha1-B/CeWadMUvTYjG21wQVOgZU44qg=, tarball: http://registry.m.jd.com/@lukeed/ms/download/@lukeed/ms-2.0.2.tgz}
+    engines: {node: '>=8'}
 
   '@pinojs/redact@0.4.0':
     resolution: {integrity: sha1-w94GDdEmQNzIOFFqoqaAPMey6dY=, tarball: http://registry.m.jd.com/@pinojs/redact/download/@pinojs/redact-0.4.0.tgz}
@@ -170,6 +219,10 @@ packages:
   avvio@9.3.0:
     resolution: {integrity: sha1-5LwzzikakIhzrq1ybHOqtv82TxI=, tarball: http://registry.m.jd.com/avvio/download/avvio-9.3.0.tgz}
 
+  balanced-match@4.0.4:
+    resolution: {integrity: sha1-v7EGYv7tgZaixi58aOF3IMJ0F5o=, tarball: http://registry.m.jd.com/balanced-match/download/balanced-match-4.0.4.tgz}
+    engines: {node: 18 || 20 || >=22}
+
   base64-js@1.5.1:
     resolution: {integrity: sha1-GxtEAWClv3rUC2UPCVljSBkDkwo=, tarball: http://registry.m.jd.com/base64-js/download/base64-js-1.5.1.tgz}
 
@@ -182,6 +235,10 @@ packages:
   bl@4.1.0:
     resolution: {integrity: sha1-RRU1JkGCvsL7vIOmKrmM8R2fezo=, tarball: http://registry.m.jd.com/bl/download/bl-4.1.0.tgz}
 
+  brace-expansion@5.0.9:
+    resolution: {integrity: sha1-fHJDiAm1+lur9UGZofHCgaaYT88=, tarball: http://registry.m.jd.com/brace-expansion/download/brace-expansion-5.0.9.tgz}
+    engines: {node: 20 || >=22}
+
   buffer@5.7.1:
     resolution: {integrity: sha1-umLnwTEzBTWCGXFghRqPZI6Z7tA=, tarball: http://registry.m.jd.com/buffer/download/buffer-5.7.1.tgz}
 
@@ -192,9 +249,17 @@ packages:
     resolution: {integrity: sha1-d2Fn22jHjzjczh+bjXuLmkiKv0Y=, tarball: http://registry.m.jd.com/commander/download/commander-13.1.0.tgz}
     engines: {node: '>=18'}
 
+  content-disposition@0.5.4:
+    resolution: {integrity: sha1-i4K076yCUSoCuwsdzsnSxejrW/4=, tarball: http://registry.m.jd.com/content-disposition/download/content-disposition-0.5.4.tgz}
+    engines: {node: '>= 0.6'}
+
   cookie@1.1.1:
     resolution: {integrity: sha1-O7m9/II2nbnC9pyTycPOsxDIizw=, tarball: http://registry.m.jd.com/cookie/download/cookie-1.1.1.tgz}
     engines: {node: '>=18'}
+
+  cross-spawn@7.0.6:
+    resolution: {integrity: sha1-ilj+ePANzXDDcEUXWd+/rwPo7p8=, tarball: http://registry.m.jd.com/cross-spawn/download/cross-spawn-7.0.6.tgz}
+    engines: {node: '>= 8'}
 
   decompress-response@6.0.0:
     resolution: {integrity: sha1-yjh2Et234QS9FthaqwDV7PCcZvw=, tarball: http://registry.m.jd.com/decompress-response/download/decompress-response-6.0.0.tgz}
@@ -203,6 +268,10 @@ packages:
   deep-extend@0.6.0:
     resolution: {integrity: sha1-xPp8lUBKF6nD6Mp+FTcxK3NjMKw=, tarball: http://registry.m.jd.com/deep-extend/download/deep-extend-0.6.0.tgz}
     engines: {node: '>=4.0.0'}
+
+  depd@2.0.0:
+    resolution: {integrity: sha1-tpYWPMdXVg0JzyLMj60Vcbeedt8=, tarball: http://registry.m.jd.com/depd/download/depd-2.0.0.tgz}
+    engines: {node: '>= 0.8'}
 
   dequal@2.0.3:
     resolution: {integrity: sha1-JkQhTxmX057Q7g7OcjNUkKesZ74=, tarball: http://registry.m.jd.com/dequal/download/dequal-2.0.3.tgz}
@@ -214,6 +283,9 @@ packages:
 
   end-of-stream@1.4.5:
     resolution: {integrity: sha1-c0TXEd6kDgt0q8LtSXeHQ8ztsIw=, tarball: http://registry.m.jd.com/end-of-stream/download/end-of-stream-1.4.5.tgz}
+
+  escape-html@1.0.3:
+    resolution: {integrity: sha1-Aljq5NPQwJdN4cFpGI7wBR0dGYg=, tarball: http://registry.m.jd.com/escape-html/download/escape-html-1.0.3.tgz}
 
   expand-template@2.0.3:
     resolution: {integrity: sha1-bhSz/O4POmNA7LV9LokYaSBSpHw=, tarball: http://registry.m.jd.com/expand-template/download/expand-template-2.0.3.tgz}
@@ -237,6 +309,9 @@ packages:
   fast-uri@4.1.3:
     resolution: {integrity: sha1-VuPhkAmVda92N7skJGaCc3NINtI=, tarball: http://registry.m.jd.com/fast-uri/download/fast-uri-4.1.3.tgz}
 
+  fastify-plugin@5.1.0:
+    resolution: {integrity: sha1-cIPgOdZBhBX5pmn4wl5y/Fvy0+c=, tarball: http://registry.m.jd.com/fastify-plugin/download/fastify-plugin-5.1.0.tgz}
+
   fastify@5.12.1:
     resolution: {integrity: sha1-06c27Q1lbY/+7ZCccJmAmyS58Ag=, tarball: http://registry.m.jd.com/fastify/download/fastify-5.12.1.tgz}
 
@@ -250,11 +325,24 @@ packages:
     resolution: {integrity: sha1-+DpUF409g6bXUpFafU8jnbV8SBI=, tarball: http://registry.m.jd.com/find-my-way/download/find-my-way-9.8.0.tgz}
     engines: {node: '>=20'}
 
+  foreground-child@3.3.1:
+    resolution: {integrity: sha1-Mujp7Rtoo0l777msK2rfkqY4V28=, tarball: http://registry.m.jd.com/foreground-child/download/foreground-child-3.3.1.tgz}
+    engines: {node: '>=14'}
+
   fs-constants@1.0.0:
     resolution: {integrity: sha1-a+Dem+mYzhavivwkSXue6bfM2a0=, tarball: http://registry.m.jd.com/fs-constants/download/fs-constants-1.0.0.tgz}
 
   github-from-package@0.0.0:
     resolution: {integrity: sha1-l/tdlr/eiXMxPyDoKI75oWf6ZM4=, tarball: http://registry.m.jd.com/github-from-package/download/github-from-package-0.0.0.tgz}
+
+  glob@11.1.0:
+    resolution: {integrity: sha1-T4JlduTrmcfa04N5PS+fCPZ+UKY=, tarball: http://registry.m.jd.com/glob/download/glob-11.1.0.tgz}
+    engines: {node: 20 || >=22}
+    hasBin: true
+
+  http-errors@2.0.1:
+    resolution: {integrity: sha1-NtL2W8kJyHkAGN02+02T2myq4Gs=, tarball: http://registry.m.jd.com/http-errors/download/http-errors-2.0.1.tgz}
+    engines: {node: '>= 0.8'}
 
   ieee754@1.2.1:
     resolution: {integrity: sha1-jrehCmP/8l0VpXsAFYbRd9Gw01I=, tarball: http://registry.m.jd.com/ieee754/download/ieee754-1.2.1.tgz}
@@ -269,6 +357,13 @@ packages:
     resolution: {integrity: sha1-fUtsOfk5L7Yc+AfebkJeIsEOBh8=, tarball: http://registry.m.jd.com/ipaddr.js/download/ipaddr.js-2.5.0.tgz}
     engines: {node: '>= 10'}
 
+  isexe@2.0.0:
+    resolution: {integrity: sha1-6PvzdNxVb/iUehDcsFctYz8s+hA=, tarball: http://registry.m.jd.com/isexe/download/isexe-2.0.0.tgz}
+
+  jackspeak@4.2.3:
+    resolution: {integrity: sha1-J++A8zuTQSA3w76k+O3fgOGTFIM=, tarball: http://registry.m.jd.com/jackspeak/download/jackspeak-4.2.3.tgz}
+    engines: {node: 20 || >=22}
+
   json-schema-ref-resolver@3.0.0:
     resolution: {integrity: sha1-KPakEBIs3pI4dipekpb6o4vihwg=, tarball: http://registry.m.jd.com/json-schema-ref-resolver/download/json-schema-ref-resolver-3.0.0.tgz}
 
@@ -278,12 +373,29 @@ packages:
   light-my-request@6.6.0:
     resolution: {integrity: sha1-yUSHcjI/ZfM3IPtZeceEHxQGCt0=, tarball: http://registry.m.jd.com/light-my-request/download/light-my-request-6.6.0.tgz}
 
+  lru-cache@11.5.2:
+    resolution: {integrity: sha1-AOFmZckMYg+6FKPDaHMql2ST92A=, tarball: http://registry.m.jd.com/lru-cache/download/lru-cache-11.5.2.tgz}
+    engines: {node: 20 || >=22}
+
+  mime@3.0.0:
+    resolution: {integrity: sha1-s3RVDco6DBhEOwyVCmpY8ZMc96c=, tarball: http://registry.m.jd.com/mime/download/mime-3.0.0.tgz}
+    engines: {node: '>=10.0.0'}
+    hasBin: true
+
   mimic-response@3.1.0:
     resolution: {integrity: sha1-LR1Zr5wbEpgVrMwsRqAipc4fo8k=, tarball: http://registry.m.jd.com/mimic-response/download/mimic-response-3.1.0.tgz}
     engines: {node: '>=10'}
 
+  minimatch@10.2.6:
+    resolution: {integrity: sha1-/ZVrvgt3JB6fFaxdzLHGOAYJaO8=, tarball: http://registry.m.jd.com/minimatch/download/minimatch-10.2.6.tgz}
+    engines: {node: 18 || 20 || >=22}
+
   minimist@1.2.8:
     resolution: {integrity: sha1-waRk52kzAuCCoHXO4MBXdBrEdyw=, tarball: http://registry.m.jd.com/minimist/download/minimist-1.2.8.tgz}
+
+  minipass@7.1.3:
+    resolution: {integrity: sha1-eTibTrG7LQA6m7qH1JLyvTe9xls=, tarball: http://registry.m.jd.com/minipass/download/minipass-7.1.3.tgz}
+    engines: {node: '>=16 || 14 >=14.17'}
 
   mkdirp-classic@0.5.3:
     resolution: {integrity: sha1-+hDJEVzG2IZb4iG6R+6b7XhgERM=, tarball: http://registry.m.jd.com/mkdirp-classic/download/mkdirp-classic-0.5.3.tgz}
@@ -301,6 +413,17 @@ packages:
 
   once@1.4.0:
     resolution: {integrity: sha1-WDsap3WWHUsROsF9nFC6753Xa9E=, tarball: http://registry.m.jd.com/once/download/once-1.4.0.tgz}
+
+  package-json-from-dist@1.0.1:
+    resolution: {integrity: sha1-TxRxoBCCeob5TP2bByfjbSZ95QU=, tarball: http://registry.m.jd.com/package-json-from-dist/download/package-json-from-dist-1.0.1.tgz}
+
+  path-key@3.1.1:
+    resolution: {integrity: sha1-WB9q3mWMu6ZaDTOA3ndTKVBU83U=, tarball: http://registry.m.jd.com/path-key/download/path-key-3.1.1.tgz}
+    engines: {node: '>=8'}
+
+  path-scurry@2.0.2:
+    resolution: {integrity: sha1-a+DQ7gKhDZ4N56mLrmXhgskGH4U=, tarball: http://registry.m.jd.com/path-scurry/download/path-scurry-2.0.2.tgz}
+    engines: {node: 18 || 20 || >=22}
 
   pino-abstract-transport@3.0.0:
     resolution: {integrity: sha1-sh5fM6KX6MTJFcYrPOXdSoelLCM=, tarball: http://registry.m.jd.com/pino-abstract-transport/download/pino-abstract-transport-3.0.0.tgz}
@@ -382,6 +505,21 @@ packages:
   set-cookie-parser@2.7.2:
     resolution: {integrity: sha1-zNCGc6muXS5E6iot4lCJ5nx+32g=, tarball: http://registry.m.jd.com/set-cookie-parser/download/set-cookie-parser-2.7.2.tgz}
 
+  setprototypeof@1.2.0:
+    resolution: {integrity: sha1-ZsmiSnP5/CjL5msJ/tPTPcrxtCQ=, tarball: http://registry.m.jd.com/setprototypeof/download/setprototypeof-1.2.0.tgz}
+
+  shebang-command@2.0.0:
+    resolution: {integrity: sha1-zNCvT4g1+9wmW4JGGq8MNmY/NOo=, tarball: http://registry.m.jd.com/shebang-command/download/shebang-command-2.0.0.tgz}
+    engines: {node: '>=8'}
+
+  shebang-regex@3.0.0:
+    resolution: {integrity: sha1-rhbxZE2HPsrYQ7AwexQzYtTEIXI=, tarball: http://registry.m.jd.com/shebang-regex/download/shebang-regex-3.0.0.tgz}
+    engines: {node: '>=8'}
+
+  signal-exit@4.1.0:
+    resolution: {integrity: sha1-lSGIwcvVRgcOLdIND0HArgUwywQ=, tarball: http://registry.m.jd.com/signal-exit/download/signal-exit-4.1.0.tgz}
+    engines: {node: '>=14'}
+
   simple-concat@1.0.1:
     resolution: {integrity: sha1-9Gl2CCujXCJj8cirXt/ibEHJVS8=, tarball: http://registry.m.jd.com/simple-concat/download/simple-concat-1.0.1.tgz}
 
@@ -394,6 +532,10 @@ packages:
   split2@4.2.0:
     resolution: {integrity: sha1-ycWSCQTRSLqwufZxRfJFqGqtv6Q=, tarball: http://registry.m.jd.com/split2/download/split2-4.2.0.tgz}
     engines: {node: '>= 10.x'}
+
+  statuses@2.0.2:
+    resolution: {integrity: sha1-j3XuzvdlteHPzcCA2llAntQk44I=, tarball: http://registry.m.jd.com/statuses/download/statuses-2.0.2.tgz}
+    engines: {node: '>= 0.8'}
 
   string_decoder@1.3.0:
     resolution: {integrity: sha1-QvEUWUpGzxqOMLCoT1bHjD7awh4=, tarball: http://registry.m.jd.com/string_decoder/download/string_decoder-1.3.0.tgz}
@@ -417,6 +559,10 @@ packages:
     resolution: {integrity: sha1-IR5yYFu3hi38aOHA350P49wt7Ac=, tarball: http://registry.m.jd.com/toad-cache/download/toad-cache-3.7.4.tgz}
     engines: {node: '>=20'}
 
+  toidentifier@1.0.1:
+    resolution: {integrity: sha1-O+NDIaiKgg7RvYDfqjPkefu43TU=, tarball: http://registry.m.jd.com/toidentifier/download/toidentifier-1.0.1.tgz}
+    engines: {node: '>=0.6'}
+
   tunnel-agent@0.6.0:
     resolution: {integrity: sha1-J6XeoGs2sEoKmWZ3SykIaPD8QP0=, tarball: http://registry.m.jd.com/tunnel-agent/download/tunnel-agent-0.6.0.tgz}
 
@@ -431,10 +577,22 @@ packages:
   util-deprecate@1.0.2:
     resolution: {integrity: sha1-RQ1Nyfpw3nMnYvvS1KKJgUGaDM8=, tarball: http://registry.m.jd.com/util-deprecate/download/util-deprecate-1.0.2.tgz}
 
+  which@2.0.2:
+    resolution: {integrity: sha1-fGqN0KY2oDJ+ELWckobu6T8/UbE=, tarball: http://registry.m.jd.com/which/download/which-2.0.2.tgz}
+    engines: {node: '>= 8'}
+    hasBin: true
+
   wrappy@1.0.2:
     resolution: {integrity: sha1-tSQ9jz7BqjXxNkYFvA0QNuMKtp8=, tarball: http://registry.m.jd.com/wrappy/download/wrappy-1.0.2.tgz}
 
+  yaml@2.9.0:
+    resolution: {integrity: sha1-eCdK/ZNZih391hMN9qVm3vy/mqQ=, tarball: http://registry.m.jd.com/yaml/download/yaml-2.9.0.tgz}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
 snapshots:
+
+  '@fastify/accept-negotiator@2.1.0': {}
 
   '@fastify/ajv-compiler@4.0.6':
     dependencies:
@@ -458,6 +616,27 @@ snapshots:
     dependencies:
       '@fastify/forwarded': 3.0.2
       ipaddr.js: 2.5.0
+
+  '@fastify/send@4.1.1':
+    dependencies:
+      '@lukeed/ms': 2.0.2
+      escape-html: 1.0.3
+      fast-decode-uri-component: 1.0.1
+      http-errors: 2.0.1
+      mime: 3.0.0
+
+  '@fastify/static@8.3.0':
+    dependencies:
+      '@fastify/accept-negotiator': 2.1.0
+      '@fastify/send': 4.1.1
+      content-disposition: 0.5.4
+      fastify-plugin: 5.1.0
+      fastq: 1.20.1
+      glob: 11.1.0
+
+  '@isaacs/cliui@9.0.0': {}
+
+  '@lukeed/ms@2.0.2': {}
 
   '@pinojs/redact@0.4.0': {}
 
@@ -489,6 +668,8 @@ snapshots:
       '@fastify/error': 4.2.0
       fastq: 1.20.1
 
+  balanced-match@4.0.4: {}
+
   base64-js@1.5.1: {}
 
   better-sqlite3@11.10.0:
@@ -506,6 +687,10 @@ snapshots:
       inherits: 2.0.4
       readable-stream: 3.6.2
 
+  brace-expansion@5.0.9:
+    dependencies:
+      balanced-match: 4.0.4
+
   buffer@5.7.1:
     dependencies:
       base64-js: 1.5.1
@@ -515,13 +700,25 @@ snapshots:
 
   commander@13.1.0: {}
 
+  content-disposition@0.5.4:
+    dependencies:
+      safe-buffer: 5.2.1
+
   cookie@1.1.1: {}
+
+  cross-spawn@7.0.6:
+    dependencies:
+      path-key: 3.1.1
+      shebang-command: 2.0.0
+      which: 2.0.2
 
   decompress-response@6.0.0:
     dependencies:
       mimic-response: 3.1.0
 
   deep-extend@0.6.0: {}
+
+  depd@2.0.0: {}
 
   dequal@2.0.3: {}
 
@@ -530,6 +727,8 @@ snapshots:
   end-of-stream@1.4.5:
     dependencies:
       once: 1.4.0
+
+  escape-html@1.0.3: {}
 
   expand-template@2.0.3: {}
 
@@ -553,6 +752,8 @@ snapshots:
   fast-uri@3.1.6: {}
 
   fast-uri@4.1.3: {}
+
+  fastify-plugin@5.1.0: {}
 
   fastify@5.12.1:
     dependencies:
@@ -584,9 +785,31 @@ snapshots:
       fast-querystring: 1.1.2
       safe-regex2: 5.1.1
 
+  foreground-child@3.3.1:
+    dependencies:
+      cross-spawn: 7.0.6
+      signal-exit: 4.1.0
+
   fs-constants@1.0.0: {}
 
   github-from-package@0.0.0: {}
+
+  glob@11.1.0:
+    dependencies:
+      foreground-child: 3.3.1
+      jackspeak: 4.2.3
+      minimatch: 10.2.6
+      minipass: 7.1.3
+      package-json-from-dist: 1.0.1
+      path-scurry: 2.0.2
+
+  http-errors@2.0.1:
+    dependencies:
+      depd: 2.0.0
+      inherits: 2.0.4
+      setprototypeof: 1.2.0
+      statuses: 2.0.2
+      toidentifier: 1.0.1
 
   ieee754@1.2.1: {}
 
@@ -595,6 +818,12 @@ snapshots:
   ini@1.3.8: {}
 
   ipaddr.js@2.5.0: {}
+
+  isexe@2.0.0: {}
+
+  jackspeak@4.2.3:
+    dependencies:
+      '@isaacs/cliui': 9.0.0
 
   json-schema-ref-resolver@3.0.0:
     dependencies:
@@ -608,9 +837,19 @@ snapshots:
       process-warning: 4.0.1
       set-cookie-parser: 2.7.2
 
+  lru-cache@11.5.2: {}
+
+  mime@3.0.0: {}
+
   mimic-response@3.1.0: {}
 
+  minimatch@10.2.6:
+    dependencies:
+      brace-expansion: 5.0.9
+
   minimist@1.2.8: {}
+
+  minipass@7.1.3: {}
 
   mkdirp-classic@0.5.3: {}
 
@@ -625,6 +864,15 @@ snapshots:
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
+
+  package-json-from-dist@1.0.1: {}
+
+  path-key@3.1.1: {}
+
+  path-scurry@2.0.2:
+    dependencies:
+      lru-cache: 11.5.2
+      minipass: 7.1.3
 
   pino-abstract-transport@3.0.0:
     dependencies:
@@ -711,6 +959,16 @@ snapshots:
 
   set-cookie-parser@2.7.2: {}
 
+  setprototypeof@1.2.0: {}
+
+  shebang-command@2.0.0:
+    dependencies:
+      shebang-regex: 3.0.0
+
+  shebang-regex@3.0.0: {}
+
+  signal-exit@4.1.0: {}
+
   simple-concat@1.0.1: {}
 
   simple-get@4.0.1:
@@ -724,6 +982,8 @@ snapshots:
       atomic-sleep: 1.0.0
 
   split2@4.2.0: {}
+
+  statuses@2.0.2: {}
 
   string_decoder@1.3.0:
     dependencies:
@@ -752,6 +1012,8 @@ snapshots:
 
   toad-cache@3.7.4: {}
 
+  toidentifier@1.0.1: {}
+
   tunnel-agent@0.6.0:
     dependencies:
       safe-buffer: 5.2.1
@@ -762,4 +1024,10 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
+  which@2.0.2:
+    dependencies:
+      isexe: 2.0.0
+
   wrappy@1.0.2: {}
+
+  yaml@2.9.0: {}
