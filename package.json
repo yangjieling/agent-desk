@@ -1,0 +1,22 @@
+{
+  "name": "agent-desk",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open-source agent task harness: workflows, human gates, and pluggable providers",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "dev": "pnpm --filter @agent-desk/server run dev",
+    "cli": "pnpm --filter @agent-desk/cli exec agent-desk",
+    "typecheck": "pnpm -r run typecheck",
+    "clean": "pnpm -r exec rm -rf dist"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
+  }
+}

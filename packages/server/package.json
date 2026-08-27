@@ -1,0 +1,28 @@
+{
+  "name": "@agent-desk/server",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "bin": {
+    "agent-desk-server": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "node --watch dist/index.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@agent-desk/core": "workspace:*",
+    "@agent-desk/db": "workspace:*",
+    "@agent-desk/provider-agent-claude": "workspace:*",
+    "@agent-desk/provider-issue-manual": "workspace:*",
+    "@agent-desk/provider-notify-webhook": "workspace:*",
+    "@agent-desk/runner": "workspace:*",
+    "fastify": "^5.2.1"
+  },
+  "files": ["dist"]
+}

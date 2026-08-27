@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/task.json",
+  "title": "Task",
+  "type": "object",
+  "required": ["id", "status", "taskType", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^t_" },
+    "taskType": { "enum": ["skill", "workflow"] },
+    "status": {
+      "enum": ["created", "running", "awaiting", "done", "failed", "stopped"]
+    },
+    "skill": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "workflowRunId": { "type": "string" },
+    "workflowName": { "type": "string" },
+    "workflowMode": { "enum": ["shared", "independent"] },
+    "workflowStep": { "type": "integer", "minimum": 0 },
+    "workflowStepTotal": { "type": "integer", "minimum": 0 },
+    "parentTaskId": { "type": "string" },
+    "workflowNodeIndex": { "type": ["integer", "null"], "minimum": 0 },
+    "projectDir": { "type": "string" },
+    "issueCode": { "type": "string" },
+    "title": { "type": "string", "maxLength": 80 },
+    "prompt": { "type": "string", "maxLength": 8000 },
+    "codingAgent": { "type": "string" },
+    "sessionId": { "type": "string" },
+    "result": { "type": "string" },
+    "gateNotifyHash": { "type": "string" },
+    "createdAt": { "type": "integer" },
+    "updatedAt": { "type": "integer" },
+    "lastActivityAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

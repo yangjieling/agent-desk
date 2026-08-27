@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/settings.json",
+  "title": "Settings",
+  "type": "object",
+  "properties": {
+    "notifyEnabled": { "type": "boolean", "default": true },
+    "autoConfirmGates": { "type": "boolean", "default": false },
+    "codingAgent": { "type": "string", "default": "claude" },
+    "idleTimeoutSec": { "type": "integer", "default": 3600 },
+    "awaitingIdleTimeoutSec": { "type": "integer", "default": 86400 },
+    "webBaseUrl": { "type": "string", "default": "http://127.0.0.1:19876" },
+    "providers": {
+      "type": "object",
+      "properties": {
+        "agent": { "type": "string" },
+        "issue": { "type": "string" },
+        "notify": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

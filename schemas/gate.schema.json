@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/gate.json",
+  "title": "Gate",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "heading": { "type": "string" },
+    "choices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "value"],
+        "properties": {
+          "label": { "type": "string" },
+          "value": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "abortValues": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["skip", "cancel", "先不修", "暂不修"]
+    }
+  },
+  "additionalProperties": false
+}
