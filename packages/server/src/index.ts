@@ -201,12 +201,23 @@ export async function createServer(opts: ServerOptions = {}) {
     }
   });
 
+  app.post("/api/shutdown", async (_req, reply) => {
+    void reply.send({ ok: true });
+    setImmediate(async () => {
+      try {
+        await app.close();
+      } finally {
+        process.exit(0);
+      }
+    });
+  });
+
   return { app, db, settings, dataDir };
 }
 
 export async function startServer(opts: ServerOptions = {}) {
   const host = opts.host ?? process.env.AD_HOST ?? "127.0.0.1";
-  const port = opts.port ?? Number(process.env.AD_PORT ?? 19876);
+  const port = opts.port ?? Number(process.env.AD_PORT ?? 19877);
   const { app } = await createServer(opts);
   await app.listen({ host, port });
   return app;

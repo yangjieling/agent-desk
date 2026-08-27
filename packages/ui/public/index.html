@@ -1,97 +1,192 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Agent Desk</title>
-  <link rel="stylesheet" href="/static/app.css">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OH</title>
+<link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
 <aside class="sidebar">
-  <div class="brand">Agent Desk<span class="ver" id="ver"></span></div>
-  <div class="nav-item active" data-view="tasks">任务</div>
-  <div class="nav-item" data-view="workflows">流程</div>
-  <div class="nav-item" data-view="new-task">新建</div>
-  <div class="nav-item" data-view="settings">设置</div>
+  <div class="brand">Open Harness<span class="ver" id="ver"></span></div>
+  <div class="nav-item active" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
+  <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
+  <div class="nav-item" data-view="settings"><span class="ic">⚙</span>设置</div>
 </aside>
 <main class="main">
-  <header class="page-head">
-    <div>
-      <h1 id="pageTitle">任务</h1>
-      <p class="sub" id="pageSub">查看与管理 Agent 任务</p>
+  <div class="app-actions">
+    <button type="button" class="btn-stop" id="btnStop" onclick="stopProgram()">
+      <span class="dot" aria-hidden="true"></span>停止程序
+    </button>
+  </div>
+  <div class="main-inner">
+    <div class="page-head tasks-mode" id="pageHead">
+      <div class="page-head-main">
+        <h1 class="page-title" id="ptitle">任务管理</h1>
+        <p class="page-sub" id="psub"></p>
+      </div>
+      <div class="page-head-actions" id="pageActions">
+        <button class="btn-refresh" onclick="loadTasks(true)">刷新</button>
+        <button class="btn-install" onclick="switchView('tasks-new')">新建任务</button>
+      </div>
     </div>
-    <button class="btn secondary" id="btnRefresh">刷新</button>
-  </header>
 
-  <section id="view-tasks" class="view">
-    <div id="taskList" class="card-list"></div>
-  </section>
-
-  <section id="view-task-detail" class="view hidden">
-    <div class="detail-grid">
-      <div class="card">
-        <div class="detail-head">
-          <h2 id="detailTitle">—</h2>
-          <span class="badge" id="detailStatus">—</span>
+    <section id="view-tasks-list">
+      <div class="task-sec task-board" id="taskBoard">
+        <div class="task-sec-head toggleable" id="taskBoardToggle" role="button" tabindex="0">
+          <span>任务看板</span>
+          <span class="chev" aria-hidden="true">▾</span>
         </div>
-        <p class="meta" id="detailMeta"></p>
-        <div class="actions" id="detailActions"></div>
-        <div class="wf-steps hidden" id="wfStepsPanel">
-          <h3>流程步骤</h3>
-          <ol id="wfSteps"></ol>
+        <div class="task-board-body" id="taskBoardBody">
+          <div class="kb-col">
+            <div class="kb-col-title">待执行</div>
+            <div class="kb-cards" id="kb-created"></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-col-title">准备中</div>
+            <div class="kb-cards" id="kb-preparing"></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-col-title">运行中</div>
+            <div class="kb-cards" id="kb-running"></div>
+          </div>
+          <div class="kb-col">
+            <div class="kb-col-title">待确认</div>
+            <div class="kb-cards" id="kb-awaiting"></div>
+          </div>
         </div>
-        <div class="gate-panel hidden" id="gatePanel">
-          <h3 id="gateHeading">闸门</h3>
-          <div id="gateChoices"></div>
+      </div>
+      <div class="task-sec">
+        <div class="task-sec-head task-list-head">
+          <span>任务列表</span>
+          <div class="task-filters" id="taskFilters">
+            <button class="chip active" data-filter="all">全部</button>
+            <button class="chip" data-filter="created">待执行</button>
+            <button class="chip" data-filter="running">运行中</button>
+            <button class="chip" data-filter="awaiting">待确认</button>
+            <button class="chip" data-filter="failed">失败</button>
+            <button class="chip" data-filter="done">已完成</button>
+          </div>
+        </div>
+        <div id="task-list" class="task-rows"></div>
+        <div class="task-pager" id="taskPager"></div>
+      </div>
+    </section>
+
+    <section id="view-tasks-new" style="display:none">
+      <div class="form-card">
+        <label class="fl">修复方式</label>
+        <select id="t-type" onchange="onTaskTypeChange()">
+          <option value="skill">单技能</option>
+          <option value="workflow">流程编排</option>
+        </select>
+        <div id="t-workflow-wrap" style="display:none">
+          <label class="fl">流程模板</label>
+          <select id="t-workflow"></select>
+          <p style="font-size:12px;color:#888;margin:6px 0 0">共享模式顺序执行并传递上下文；独立模式各步互不共享。</p>
+        </div>
+        <label class="fl">本地项目目录</label>
+        <input id="t-dir" placeholder="/Users/you/project">
+        <label class="fl">任务标题(可选)</label>
+        <input id="t-title" maxlength="80" placeholder="不填则使用流程名（最多 80 字）" oninput="onTaskTitleInput()">
+        <p class="form-hint" id="t-title-hint">最多 80 字</p>
+        <label class="fl">任务描述(可选)</label>
+        <textarea id="t-prompt" rows="10" spellcheck="false" maxlength="8000"
+          placeholder="描述你希望这个任务做什么…&#10;最多 8000 字；请勿重复点击创建。"
+          oninput="onTaskPromptInput()"></textarea>
+        <p class="form-hint" id="t-prompt-hint">最多 8000 字</p>
+        <div class="form-actions">
+          <button class="btn-install" id="btnCreateTask" type="button" onclick="createTask()">创建并启动</button>
+          <button class="btn-refresh" onclick="switchView('tasks-list')" style="margin-left:8px">返回列表</button>
         </div>
       </div>
-      <div class="card output-card">
-        <h3>输出</h3>
-        <pre id="detailOutput"></pre>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="view-workflows" class="view hidden">
-    <div id="workflowList" class="card-list"></div>
-  </section>
-
-  <section id="view-new-task" class="view hidden">
-    <div class="form-card">
-      <label>类型</label>
-      <select id="formType">
-        <option value="skill">单技能任务</option>
-        <option value="workflow">流程编排</option>
-      </select>
-      <div id="formWorkflowWrap" class="hidden">
-        <label>流程模板</label>
-        <select id="formWorkflow"></select>
+    <section id="view-workflows" style="display:none">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <input id="wf-q" placeholder="搜索流程">
+        </div>
+        <select id="wf-filter" onchange="setWorkflowFilter(this.value)">
+          <option value="all">全部</option>
+          <option value="system">系统</option>
+          <option value="user">个人</option>
+        </select>
+        <button class="btn-refresh" onclick="loadWorkflows()">刷新</button>
       </div>
-      <label>项目目录</label>
-      <input id="formDir" placeholder="/path/to/project">
-      <label>标题（最多 80 字）</label>
-      <input id="formTitle" maxlength="80">
-      <label>描述 / Prompt（最多 8000 字）</label>
-      <textarea id="formPrompt" rows="8" maxlength="8000"></textarea>
-      <div class="actions">
-        <button class="btn primary" id="btnCreate" type="button">创建并启动</button>
-      </div>
-      <p class="hint" id="formHint"></p>
-    </div>
-  </section>
+      <div id="wf-list"></div>
+    </section>
 
-  <section id="view-settings" class="view hidden">
-    <div class="form-card">
-      <label><input type="checkbox" id="setNotify"> 启用通知</label>
-      <label><input type="checkbox" id="setAutoGate"> 自动确认闸门</label>
-      <label>Web Base URL</label>
-      <input id="setWebUrl">
-      <label>Agent</label>
-      <input id="setAgent" readonly>
-      <button class="btn primary" id="btnSaveSettings" type="button">保存</button>
-    </div>
-  </section>
+    <section id="view-settings" style="display:none">
+      <div class="settings-wrap">
+        <h2 class="settings-title">通知与偏好设置</h2>
+        <div class="settings-card" id="settingsCard">
+          <div class="setting-row" data-key="notifyEnabled">
+            <div class="setting-meta">
+              <p class="st">Webhook 通知</p>
+              <p class="sd">任务闸门与状态变更时发送 Webhook（需配置 AD_NOTIFY_WEBHOOK_URL）</p>
+            </div>
+            <label class="toggle" title="Webhook 通知">
+              <input type="checkbox" id="setNotify">
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="autoConfirmGates">
+            <div class="setting-meta">
+              <p class="st">闸门自动确认</p>
+              <p class="sd">遇到确认项时自动选择推荐方案并继续</p>
+            </div>
+            <label class="toggle" title="闸门自动确认">
+              <input type="checkbox" id="setAutoGate">
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="webBaseUrl">
+            <div class="setting-meta">
+              <p class="st">Web Base URL</p>
+              <p class="sd">通知消息中的面板链接前缀</p>
+            </div>
+            <input class="setting-select" id="setWebUrl" style="min-width:240px" placeholder="http://127.0.0.1:19877">
+          </div>
+          <div class="setting-row" data-key="codingAgent">
+            <div class="setting-meta">
+              <p class="st">默认编码 Agent</p>
+              <p class="sd">新建任务默认使用的 CLI</p>
+            </div>
+            <input class="setting-select" id="setAgent" readonly style="min-width:120px">
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <button class="btn-install" type="button" onclick="saveSettingsUI()">保存设置</button>
+        </div>
+      </div>
+    </section>
+  </div>
 </main>
+
+<div class="modal-mask" id="logMask">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="mt" id="logTitle">执行日志</span>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn-stop" id="logStopBtn" style="display:none" onclick="stopTask(LOG_ID)">停止</button>
+        <button class="btn-run" id="logContinueBtn" style="display:none" onclick="continueTask(LOG_ID)">继续</button>
+        <button class="mc" onclick="closeLog()">×</button>
+      </div>
+    </div>
+    <pre class="modal-body" id="logBody"></pre>
+    <div class="modal-reply" id="replyBox">
+      <div class="reply-choices" id="replyChoices"></div>
+      <div class="reply-row">
+        <input id="replyInput" placeholder="继续本次会话,输入后回车或点发送…"
+          onkeydown="onReplyKeyDown(event)" />
+        <button class="btn-run" onclick="sendReply()">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="toast"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>

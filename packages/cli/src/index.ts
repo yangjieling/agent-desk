@@ -8,6 +8,11 @@ import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webho
 import { createTask, startTask } from "@agent-desk/runner";
 import { startServer } from "@agent-desk/server";
 import { listWorkflows } from "@agent-desk/workflow";
+import {
+  registerForegroundLifecycle,
+  startBackground,
+  stopWeb,
+} from "./web-daemon.js";
 
 function registerProviders(): void {
   registerClaudeBackend();
@@ -18,24 +23,58 @@ function registerProviders(): void {
 const program = new Command();
 
 program
-  .name("agent-desk")
+  .name("oh")
   .description("Open-source agent task harness")
   .version("0.1.0");
 
 program
   .command("web")
-  .description("Start local web API server + UI")
-  .option("-p, --port <port>", "port", "19876")
+  .description("Start local web API server + UI (default: background)")
+  .option("-p, --port <port>", "port", "19877")
   .option("-H, --host <host>", "host", "127.0.0.1")
   .option("--data-dir <dir>", "data directory", defaultDataDir())
-  .action(async (opts: { port: string; host: string; dataDir: string }) => {
-    registerProviders();
-    await startServer({
+  .option("--foreground", "run in foreground and keep this terminal")
+  .option("--stop", "stop background web server")
+  .option("--open", "open browser after start")
+  .action(async (opts: {
+    port: string;
+    host: string;
+    dataDir: string;
+    foreground?: boolean;
+    stop?: boolean;
+    open?: boolean;
+  }) => {
+    if (opts.stop) {
+      const code = await stopWeb({
+        host: opts.host,
+        port: Number(opts.port),
+        dataDir: opts.dataDir,
+      });
+      process.exit(code);
+    }
+
+    if (opts.foreground) {
+      registerProviders();
+      registerForegroundLifecycle(opts.dataDir);
+      const { openBrowser } = await import("./web-daemon.js");
+      await startServer({
+        host: opts.host,
+        port: Number(opts.port),
+        dataDir: opts.dataDir,
+      });
+      const url = `http://${opts.host}:${opts.port}/`;
+      console.log(`oh web 已启动: ${url}`);
+      if (opts.open) await openBrowser(url);
+      return;
+    }
+
+    const code = await startBackground({
       host: opts.host,
       port: Number(opts.port),
       dataDir: opts.dataDir,
+      openBrowser: opts.open !== false,
     });
-    console.log(`agent-desk listening on http://${opts.host}:${opts.port}`);
+    process.exit(code);
   });
 
 const workflows = program.command("workflows").description("Manage workflows");

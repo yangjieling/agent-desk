@@ -85,7 +85,7 @@ export const DEFAULT_SETTINGS: Settings = {
   codingAgent: "claude",
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,
-  webBaseUrl: "http://127.0.0.1:19876",
+  webBaseUrl: "http://127.0.0.1:19877",
   providers: {
     agent: "claude",
     issue: "manual",

@@ -4,14 +4,14 @@
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "agent-desk": "./dist/index.js"
+    "oh": "./dist/index.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "agent-desk": "node ./dist/index.js",
+    "oh": "node ./dist/index.js",
     "tasks:list": "node ./dist/index.js tasks list",
     "tasks:create": "node ./dist/index.js tasks create",
     "web": "node ./dist/index.js web"

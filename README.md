@@ -24,9 +24,14 @@ cd agent-desk
 pnpm install
 pnpm build
 
-# Start web server + UI (default http://127.0.0.1:19876)
+# Start web server + UI in background (default, does not block terminal)
 pnpm cli web
-# or: pnpm exec agent-desk web   (requires pnpm install at repo root)
+
+# Foreground mode (blocks terminal, like before)
+pnpm cli web --foreground
+
+# Stop background server
+pnpm cli web --stop
 
 # List workflow templates
 pnpm cli workflows list
@@ -47,13 +52,13 @@ pnpm cli tasks list
 
 - Run commands from the **repo root** (`agent-desk/`), not `packages/cli/`.
 - After clone or dependency changes: `pnpm install && pnpm build`.
-- `pnpm --filter @agent-desk/cli exec agent-desk` does **not** work — `pnpm exec` only resolves bins from dependencies, not the package’s own `bin`. Use:
+- `pnpm --filter @agent-desk/cli exec oh` does **not** work — `pnpm exec` only resolves bins from dependencies, not the package’s own `bin`. Use:
   - `pnpm cli <subcommand>` (recommended)
-  - `pnpm exec agent-desk <subcommand>` from repo root
-  - `pnpm --filter @agent-desk/cli run agent-desk -- <subcommand>`
+  - `oh <subcommand>` after `npm link` in `packages/cli`
+  - `pnpm --filter @agent-desk/cli run oh -- <subcommand>`
   - `pnpm --filter @agent-desk/cli run tasks:list`
 
-Open the browser at `http://127.0.0.1:19876` for the Web UI.
+Open the browser at `http://127.0.0.1:19877` for the Web UI.
 
 ## Workflow modes
 
@@ -69,7 +74,7 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | Variable | Description |
 |----------|-------------|
 | `AD_DATA_DIR` | Data directory (default `~/.agent-desk`) |
-| `AD_PORT` | Server port (default `19876`) |
+| `AD_PORT` | Server port (default `19877`; hb-cli uses `19876`) |
 | `AD_HOST` | Server host (default `127.0.0.1`) |
 | `AD_CLAUDE_BIN` | Claude CLI binary (default `claude`) |
 | `AD_NOTIFY_WEBHOOK_URL` | Webhook URL for gate/task notifications |
@@ -84,7 +89,7 @@ packages/
   workflow/              # Workflow loader, engine, run store
   server/                # HTTP API + static UI
   ui/                    # Web UI (static HTML/CSS/JS)
-  cli/                   # agent-desk CLI
+  cli/                   # oh CLI (`oh web`, `oh tasks`, …)
   provider-agent/        # Agent backend interface
   provider-agent-claude/ # Claude Code backend
   provider-issue/        # Issue provider interface
