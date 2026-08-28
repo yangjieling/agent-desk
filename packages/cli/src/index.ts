@@ -3,7 +3,11 @@ import { Command } from "commander";
 import { clipPrompt, clipTitle } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
+import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
+import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
+import { registerDingTalkNotifyProvider } from "@agent-desk/provider-notify-dingtalk";
+import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
 import { createTask, startTask } from "@agent-desk/runner";
 import { startServer } from "@agent-desk/server";
@@ -17,7 +21,15 @@ import {
 function registerProviders(): void {
   registerClaudeBackend();
   registerManualIssueProvider();
+  registerGitHubIssueProvider();
   registerWebhookNotifyProvider();
+  registerFeishuNotifyProvider();
+  registerDingTalkNotifyProvider();
+}
+
+function activeIssueProviderId(dataDir: string): string {
+  const settings = openDb(dataDir).getSettings();
+  return settings.providers.issue || "manual";
 }
 
 const program = new Command();
@@ -159,6 +171,69 @@ tasks
     db.upsertTask(task);
     await startTask({ db, settings }, task.id);
     console.log(task.id);
+  });
+
+const issues = program.command("issues").description("List / show bugs via issue provider");
+
+issues
+  .command("providers")
+  .description("List registered issue providers")
+  .action(() => {
+    registerProviders();
+    for (const p of listIssueProviders()) {
+      console.log(`${p.id}\t${p.displayName}`);
+    }
+  });
+
+issues
+  .command("list")
+  .description("List issues from the configured provider")
+  .option("--state <state>", "open | closed | all", "open")
+  .option("--label <label>", "filter by label (repeatable)", (v: string, acc: string[]) => {
+    acc.push(v);
+    return acc;
+  }, [] as string[])
+  .option("--limit <n>", "max issues", "30")
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .action(async (opts: {
+    state: string;
+    label: string[];
+    limit: string;
+    dataDir: string;
+  }) => {
+    registerProviders();
+    const id = activeIssueProviderId(opts.dataDir);
+    const provider = getIssueProvider(id);
+    const state = opts.state === "closed" || opts.state === "all" ? opts.state : "open";
+    const rows = await provider.listIssues({
+      state,
+      labels: opts.label.length ? opts.label : undefined,
+      limit: Number(opts.limit) || 30,
+    });
+    if (!rows.length) {
+      console.log(`No issues (${id}).`);
+      return;
+    }
+    for (const r of rows) {
+      const sev = r.severity ? `\t${r.severity}` : "";
+      console.log(`${r.code}\t${r.status}${sev}\t${r.title}`);
+    }
+  });
+
+issues
+  .command("show <code>")
+  .description("Show one issue (e.g. #12)")
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .action(async (code: string, opts: { dataDir: string }) => {
+    registerProviders();
+    const id = activeIssueProviderId(opts.dataDir);
+    const provider = getIssueProvider(id);
+    const issue = await provider.getIssue(code);
+    if (!issue) {
+      console.error(`Issue not found: ${code} (${id})`);
+      process.exit(1);
+    }
+    console.log(JSON.stringify(issue, null, 2));
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {

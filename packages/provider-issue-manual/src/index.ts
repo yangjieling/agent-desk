@@ -3,6 +3,7 @@ import {
   type IssueId,
   type IssueProvider,
   type IssueRecord,
+  type ListIssuesOptions,
 } from "@agent-desk/provider-issue";
 
 export class ManualIssueProvider implements IssueProvider {
@@ -11,8 +12,20 @@ export class ManualIssueProvider implements IssueProvider {
 
   private readonly store = new Map<IssueId, IssueRecord>();
 
-  async listIssues(): Promise<IssueRecord[]> {
-    return [...this.store.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+  async listIssues(opts?: ListIssuesOptions): Promise<IssueRecord[]> {
+    let rows = [...this.store.values()].sort((a, b) => b.updatedAt - a.updatedAt);
+    const state = opts?.state ?? "all";
+    if (state !== "all") {
+      rows = rows.filter((r) => r.status === state);
+    }
+    if (opts?.labels?.length) {
+      const want = new Set(opts.labels.map((l) => l.toLowerCase()));
+      rows = rows.filter((r) => (r.labels ?? []).some((l) => want.has(l.toLowerCase())));
+    }
+    if (opts?.limit && opts.limit > 0) {
+      rows = rows.slice(0, opts.limit);
+    }
+    return rows;
   }
 
   async getIssue(code: IssueId): Promise<IssueRecord | null> {
@@ -30,6 +43,8 @@ export class ManualIssueProvider implements IssueProvider {
       description: record.description ?? existing?.description ?? "",
       projectDir: record.projectDir ?? existing?.projectDir ?? "",
       updatedAt: now,
+      url: record.url ?? existing?.url,
+      labels: record.labels ?? existing?.labels,
     };
     this.store.set(record.code, merged);
     return merged;

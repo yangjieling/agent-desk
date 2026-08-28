@@ -12,8 +12,8 @@ This repository is **independent** from the internal `quality-shipyard/hb-cli` P
 - **Web UI**: task list, detail, gate choices, workflow templates & runs
 - Pluggable providers:
   - **Agent**: Claude Code (`provider-agent-claude`)
-  - **Issue**: manual/local (`provider-issue-manual`)
-  - **Notify**: webhook (`provider-notify-webhook`)
+  - **Issue**: manual (`provider-issue-manual`) or **GitHub Issues** (`provider-issue-github`)
+  - **Notify**: webhook / **Feishu** / **DingTalk**
 - SQLite persistence (`~/.agent-desk/agent-desk.db`)
 - Local HTTP API (Fastify) + CLI
 
@@ -43,6 +43,10 @@ pnpm cli workflows run sys-fix-pipeline -p "Issue: login button broken"
 pnpm cli tasks create \
   -t "Demo task" \
   -p "Say hello and open gate「Demo」with hb-choices."
+
+# List issues (GitHub when configured)
+pnpm cli issues list
+pnpm cli issues show '#12'
 
 # List tasks
 pnpm cli tasks list
@@ -78,6 +82,24 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | `AD_HOST` | Server host (default `127.0.0.1`) |
 | `AD_CLAUDE_BIN` | Claude CLI binary (default `claude`) |
 | `AD_NOTIFY_WEBHOOK_URL` | Webhook URL for gate/task notifications |
+| `AD_GITHUB_TOKEN` | GitHub PAT for Issues API |
+| `AD_GITHUB_REPO` | `owner/repo` for GitHub Issues provider |
+| `AD_GITHUB_PROJECT_DIR` | Optional default `projectDir` on mapped issues |
+| `AD_GITHUB_API_BASE` | Optional API host (GHES); default `https://api.github.com` |
+| `AD_FEISHU_APP_ID` | Feishu / Lark app id |
+| `AD_FEISHU_APP_SECRET` | Feishu / Lark app secret |
+| `AD_FEISHU_RECEIVE_ID` | Recipient (`open_id` / email / `chat_id`, …) |
+| `AD_FEISHU_RECEIVE_ID_TYPE` | Default `open_id` |
+| `AD_FEISHU_API_BASE` | Default `https://open.feishu.cn` (Lark intl: `https://open.larksuite.com`) |
+| `AD_DINGTALK_WEBHOOK` | DingTalk custom robot webhook URL |
+| `AD_DINGTALK_SECRET` | DingTalk robot SEC secret (加签) |
+| `AD_DINGTALK_APP_KEY` | DingTalk app key (工作通知模式) |
+| `AD_DINGTALK_APP_SECRET` | DingTalk app secret |
+| `AD_DINGTALK_AGENT_ID` | DingTalk agent id |
+| `AD_DINGTALK_USER_IDS` | Comma-separated userids for work notification |
+| `AD_DINGTALK_WRAP_LINKS` | `1` (default) wrap links for PC external browser |
+
+Set `providers.issue` to `"github"` and/or `providers.notify` to `"feishu"` / `"dingtalk"` via PUT `/api/settings` after configuring the env vars above.
 
 ## Monorepo layout
 
@@ -94,8 +116,11 @@ packages/
   provider-agent-claude/ # Claude Code backend
   provider-issue/        # Issue provider interface
   provider-issue-manual/ # In-memory manual issues
+  provider-issue-github/ # GitHub Issues
   provider-notify/       # Notify provider interface
   provider-notify-webhook/
+  provider-notify-feishu/ # Feishu / Lark cards
+  provider-notify-dingtalk/ # DingTalk ActionCard
 schemas/                 # JSON Schema (language-agnostic)
 templates/workflows/     # Example workflow YAML
 ```

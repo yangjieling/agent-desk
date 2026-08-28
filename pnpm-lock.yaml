@@ -29,9 +29,21 @@ importers:
       '@agent-desk/provider-agent-claude':
         specifier: workspace:*
         version: link:../provider-agent-claude
+      '@agent-desk/provider-issue':
+        specifier: workspace:*
+        version: link:../provider-issue
+      '@agent-desk/provider-issue-github':
+        specifier: workspace:*
+        version: link:../provider-issue-github
       '@agent-desk/provider-issue-manual':
         specifier: workspace:*
         version: link:../provider-issue-manual
+      '@agent-desk/provider-notify-dingtalk':
+        specifier: workspace:*
+        version: link:../provider-notify-dingtalk
+      '@agent-desk/provider-notify-feishu':
+        specifier: workspace:*
+        version: link:../provider-notify-feishu
       '@agent-desk/provider-notify-webhook':
         specifier: workspace:*
         version: link:../provider-notify-webhook
@@ -73,6 +85,12 @@ importers:
 
   packages/provider-issue: {}
 
+  packages/provider-issue-github:
+    dependencies:
+      '@agent-desk/provider-issue':
+        specifier: workspace:*
+        version: link:../provider-issue
+
   packages/provider-issue-manual:
     dependencies:
       '@agent-desk/provider-issue':
@@ -80,6 +98,18 @@ importers:
         version: link:../provider-issue
 
   packages/provider-notify: {}
+
+  packages/provider-notify-dingtalk:
+    dependencies:
+      '@agent-desk/provider-notify':
+        specifier: workspace:*
+        version: link:../provider-notify
+
+  packages/provider-notify-feishu:
+    dependencies:
+      '@agent-desk/provider-notify':
+        specifier: workspace:*
+        version: link:../provider-notify
 
   packages/provider-notify-webhook:
     dependencies:
@@ -113,9 +143,21 @@ importers:
       '@agent-desk/provider-agent-claude':
         specifier: workspace:*
         version: link:../provider-agent-claude
+      '@agent-desk/provider-issue':
+        specifier: workspace:*
+        version: link:../provider-issue
+      '@agent-desk/provider-issue-github':
+        specifier: workspace:*
+        version: link:../provider-issue-github
       '@agent-desk/provider-issue-manual':
         specifier: workspace:*
         version: link:../provider-issue-manual
+      '@agent-desk/provider-notify-dingtalk':
+        specifier: workspace:*
+        version: link:../provider-notify-dingtalk
+      '@agent-desk/provider-notify-feishu':
+        specifier: workspace:*
+        version: link:../provider-notify-feishu
       '@agent-desk/provider-notify-webhook':
         specifier: workspace:*
         version: link:../provider-notify-webhook

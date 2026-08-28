@@ -69,4 +69,4 @@ Abort replies (`skip`, `cancel`, `先不修`, …) stop the task instead of adva
 - Web UI package (`@agent-desk/ui`) — task list, gates, workflow runs
 - Workflow engine — shared / independent modes, YAML templates
 - OpenAPI spec under `schemas/openapi.yaml` (planned)
-- Additional providers (GitHub Issues, Slack, Cursor SDK)
+- Additional providers (GitHub Issues ✅, Feishu notify ✅, DingTalk notify ✅, Slack, Cursor SDK)
