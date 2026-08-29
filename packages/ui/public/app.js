@@ -21,7 +21,6 @@ let LOG_ID = null;
 let LOG_TITLE = "";
 let LOG_TIMER = null;
 let LOG_CHOICES_KEY = "";
-let creating = false;
 
 const STATUS_LABEL = {
   created: "待执行",
@@ -36,10 +35,18 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 
 const VIEW_TITLES = {
   workflows: ["流程编排", "系统模板随安装包提供；创建任务时选择使用"],
-  "tasks-new": ["新建任务", "选择单技能或流程模板并指定本地项目目录"],
+  "tasks-new": ["新建任务", ""],
   "tasks-list": ["任务管理", ""],
   settings: ["通知与偏好设置", ""],
 };
+
+const RECENT_DIR_KEY = "ad_recent_project_dirs";
+const RECENT_DIR_MAX = 5;
+let FS_BROWSER_PATH = "";
+let FS_BROWSER_PARENT = "";
+let FS_ENTRIES = [];
+let WS_TAB = "browse";
+let creating = false;
 
 function esc(s) {
   return String(s ?? "")
@@ -650,24 +657,391 @@ function closeLog() {
 }
 
 function onTaskTypeChange() {
-  const isWf = document.getElementById("t-type").value === "workflow";
-  document.getElementById("t-workflow-wrap").style.display = isWf ? "" : "none";
+  const modeSel = document.getElementById("t-mode");
+  const hidden = document.getElementById("t-type");
+  const t = (modeSel && modeSel.value) || (hidden && hidden.value) || "skill";
+  if (hidden) hidden.value = t;
+  const wfWrap = document.getElementById("t-target-workflow-wrap");
+  if (wfWrap) wfWrap.style.display = t === "workflow" ? "" : "none";
+  if (t === "workflow") fillWorkflowOptions();
 }
 
-function onTaskTitleInput() {
-  const el = document.getElementById("t-title");
-  const hint = document.getElementById("t-title-hint");
-  const n = (el.value || "").length;
-  hint.textContent = n > TITLE_MAX * 0.9 ? `${n}/${TITLE_MAX} 字` : `最多 ${TITLE_MAX} 字`;
-  hint.classList.toggle("warn", n > TITLE_MAX * 0.9);
+function shortProjectPath(p) {
+  const s = String(p || "").replace(/\/$/, "");
+  const parts = s.split(/[/\\]/).filter(Boolean);
+  if (parts.length <= 3) return s;
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
+function getTaskDir() {
+  const hidden = document.getElementById("t-dir");
+  return ((hidden && hidden.value) || "").trim();
+}
+
+function setTaskDir(dirPath) {
+  const val = (dirPath || "").trim();
+  const hidden = document.getElementById("t-dir");
+  if (hidden) hidden.value = val;
+  syncWorkspaceLabel();
+}
+
+function syncComposerState() {
+  const card = document.getElementById("composerCard");
+  const input = document.getElementById("t-prompt");
+  const dir = getTaskDir();
+  if (card) card.classList.toggle("has-workspace", !!dir);
+  if (input && !(input.value || "").trim()) {
+    input.placeholder = dir
+      ? "描述你希望 Agent 做什么，例如：修复登录接口 500 错误…"
+      : "选择一个工作区开始";
+  }
+}
+
+function syncWorkspaceLabel() {
+  const dir = getTaskDir();
+  const label = document.getElementById("t-workspace-label");
+  const btn = document.getElementById("t-workspace-btn");
+  if (!label) return;
+  if (!dir) {
+    label.textContent = "选择工作区";
+    label.removeAttribute("title");
+    if (btn) btn.classList.remove("has-value");
+  } else {
+    label.textContent = shortProjectPath(dir);
+    label.title = dir;
+    if (btn) btn.classList.add("has-value");
+  }
+  syncComposerState();
+}
+
+function syncWsSelected() {
+  const el = document.getElementById("ws-selected");
+  const btn = document.getElementById("wsConfirmBtn");
+  const path = FS_BROWSER_PATH || "";
+  if (el) {
+    el.textContent = path || "未选择";
+    el.title = path;
+  }
+  if (btn) btn.disabled = !path;
+}
+
+function isWorkspacePickerOpen() {
+  return document.getElementById("wsMask")?.classList.contains("show");
+}
+
+function openWorkspacePicker(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  const mask = document.getElementById("wsMask");
+  const btn = document.getElementById("t-workspace-btn");
+  if (!mask) return;
+  mask.classList.add("show");
+  if (btn) btn.setAttribute("aria-expanded", "true");
+  setWsTab("browse");
+  const start = getTaskDir() || "";
+  loadFsBrowse(start);
+  const filter = document.getElementById("ws-filter");
+  if (filter) {
+    filter.value = "";
+    setTimeout(() => filter.focus(), 30);
+  }
+}
+
+function closeWorkspacePicker() {
+  const mask = document.getElementById("wsMask");
+  const btn = document.getElementById("t-workspace-btn");
+  if (mask) mask.classList.remove("show");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+}
+
+function onWsMaskClick(e) {
+  if (e.target === e.currentTarget) closeWorkspacePicker();
+}
+
+function setWsTab(tab) {
+  WS_TAB = tab === "recent" ? "recent" : "browse";
+  document.querySelectorAll(".ws-tab").forEach((el) => {
+    el.classList.toggle("active", el.dataset.tab === WS_TAB);
+  });
+  const toolbar = document.getElementById("wsBrowseToolbar");
+  const filterWrap = document.getElementById("wsFilterWrap");
+  if (toolbar) toolbar.style.display = WS_TAB === "browse" ? "" : "none";
+  if (filterWrap) filterWrap.style.display = WS_TAB === "browse" ? "" : "none";
+  if (WS_TAB === "recent") renderRecentList();
+  else renderFsList(FS_ENTRIES, false);
+}
+
+function autoResizeComposer() {
+  const el = document.getElementById("t-prompt");
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${Math.min(el.scrollHeight, 280)}px`;
+}
+
+async function loadFsBrowse(browsePath) {
+  const list = document.getElementById("t-fs-list");
+  const pathEl = document.getElementById("t-fs-path");
+  const upBtn = document.getElementById("wsUpBtn");
+  if (list && WS_TAB === "browse") list.innerHTML = '<div class="ws-empty">加载中…</div>';
+  try {
+    const qs = browsePath ? `?path=${encodeURIComponent(browsePath)}` : "";
+    const res = await fetch(`/api/fs/browse${qs}`);
+    let d = {};
+    try {
+      d = await res.json();
+    } catch {
+      d = {};
+    }
+    if (!res.ok || !d.ok) {
+      const msg = d.error || d.message || res.statusText || "加载失败";
+      if (list) list.innerHTML = `<div class="ws-empty">${esc(msg)}</div>`;
+      return;
+    }
+    FS_BROWSER_PATH = d.path || "";
+    FS_BROWSER_PARENT = d.parent || "";
+    FS_ENTRIES = d.entries || [];
+    if (pathEl) {
+      pathEl.textContent = FS_BROWSER_PATH;
+      pathEl.title = FS_BROWSER_PATH;
+    }
+    if (upBtn) {
+      upBtn.disabled = !FS_BROWSER_PARENT;
+    }
+    syncWsSelected();
+    if (WS_TAB === "browse") renderFsList(FS_ENTRIES, !!d.truncated);
+  } catch (err) {
+    if (list) {
+      list.innerHTML = `<div class="ws-empty">${esc(err.message || "加载失败")}<br><span style="font-size:11px;color:#9ca3af">请确认 oh web 已重启以加载 /api/fs/browse</span></div>`;
+    }
+  }
+}
+
+function folderSvg() {
+  return `<svg class="ws-item-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M3 7.5A1.5 1.5 0 014.5 6H9l2 2h8.5A1.5 1.5 0 0121 9.5v8a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 17.5v-10z"
+      stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>`;
+}
+
+function onWsFilterInput() {
+  if (WS_TAB === "browse") renderFsList(FS_ENTRIES, false);
+}
+
+function renderFsList(entries, truncated) {
+  const list = document.getElementById("t-fs-list");
+  if (!list || WS_TAB !== "browse") return;
+  const kw = ((document.getElementById("ws-filter") || {}).value || "").trim().toLowerCase();
+  const filtered = kw
+    ? entries.filter((item) => String(item.name || "").toLowerCase().includes(kw))
+    : entries;
+  if (!filtered.length) {
+    list.innerHTML = `<div class="ws-empty">${kw ? "无匹配目录" : "此目录下没有子文件夹"}</div>`;
+    return;
+  }
+  list.innerHTML =
+    filtered
+      .map(
+        (item) =>
+          `<button type="button" class="ws-item" data-path="${esc(item.path)}">` +
+          `${folderSvg()}<span class="ws-item-name">${esc(item.name)}</span>` +
+          `<span class="ws-item-chev">›</span></button>`,
+      )
+      .join("") +
+    (truncated && !kw ? '<div class="ws-empty">仅显示前 300 个文件夹</div>' : "");
+}
+
+function renderRecentList() {
+  const list = document.getElementById("t-fs-list");
+  if (!list) return;
+  const recent = loadRecentDirs();
+  if (!recent.length) {
+    list.innerHTML = '<div class="ws-empty">暂无最近使用的工作区</div>';
+    syncWsSelected();
+    return;
+  }
+  list.innerHTML = recent
+    .map(
+      (p) =>
+        `<button type="button" class="ws-item" data-path="${esc(p)}" data-recent="1">` +
+        `${folderSvg()}<span class="ws-item-name" title="${esc(p)}">${esc(shortProjectPath(p))}</span>` +
+        `<span class="ws-item-chev">›</span></button>`,
+    )
+    .join("");
+}
+
+function bindFsListNav() {
+  const list = document.getElementById("t-fs-list");
+  if (!list || list.dataset.bound) return;
+  list.dataset.bound = "1";
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest(".ws-item");
+    if (!btn) return;
+    const p = btn.getAttribute("data-path") || "";
+    if (!p) return;
+    if (WS_TAB === "recent") {
+      FS_BROWSER_PATH = p;
+      syncWsSelected();
+      setTaskDir(p);
+      clearTaskDirErr();
+      closeWorkspacePicker();
+      return;
+    }
+    loadFsBrowse(p);
+  });
+}
+
+function fsBrowseParent() {
+  if (FS_BROWSER_PARENT) loadFsBrowse(FS_BROWSER_PARENT);
+}
+
+function fsBrowseHome() {
+  loadFsBrowse("");
+}
+
+function fsBrowseUsersRoot() {
+  const home = FS_BROWSER_PATH || "";
+  // Prefer /Users on macOS-style paths; otherwise parent of home after first load.
+  if (home.startsWith("/Users/")) loadFsBrowse("/Users");
+  else if (FS_BROWSER_PARENT) loadFsBrowse(FS_BROWSER_PARENT);
+  else loadFsBrowse("");
+}
+
+async function fsMkdirPrompt() {
+  if (!FS_BROWSER_PATH) return toast("请先进入一个目录");
+  const name = (window.prompt("新建文件夹名称") || "").trim();
+  if (!name) return;
+  if (/[/\\]/.test(name) || name === "." || name === "..") return toast("名称无效");
+  try {
+    const d = await api("/api/fs/mkdir", {
+      method: "POST",
+      body: JSON.stringify({ path: FS_BROWSER_PATH, name }),
+    });
+    if (!d.ok) throw new Error(d.error || "创建失败");
+    await loadFsBrowse(FS_BROWSER_PATH);
+    toast("已创建文件夹");
+  } catch (e) {
+    toast(e.message || String(e));
+  }
+}
+
+function fsSelectCurrent() {
+  if (!FS_BROWSER_PATH) return;
+  setTaskDir(FS_BROWSER_PATH);
+  clearTaskDirErr();
+  closeWorkspacePicker();
+}
+
+function loadRecentDirs() {
+  try {
+    const raw = localStorage.getItem(RECENT_DIR_KEY);
+    const list = raw ? JSON.parse(raw) : [];
+    return Array.isArray(list) ? list.filter((x) => typeof x === "string" && x.trim()) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pushRecentDir(dir) {
+  const d = (dir || "").trim();
+  if (!d) return;
+  let list = loadRecentDirs().filter((x) => x !== d);
+  list.unshift(d);
+  list = list.slice(0, RECENT_DIR_MAX);
+  try {
+    localStorage.setItem(RECENT_DIR_KEY, JSON.stringify(list));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearTaskDirErr() {
+  const err = document.getElementById("t-dir-err");
+  const btn = document.getElementById("t-workspace-btn");
+  const card = document.getElementById("composerCard");
+  if (btn) btn.classList.remove("is-invalid");
+  if (card) card.classList.remove("is-invalid");
+  if (err) {
+    err.textContent = "";
+    err.hidden = true;
+  }
+}
+
+function showTaskDirErr(msg) {
+  const err = document.getElementById("t-dir-err");
+  const btn = document.getElementById("t-workspace-btn");
+  const card = document.getElementById("composerCard");
+  if (btn) btn.classList.add("is-invalid");
+  if (card) card.classList.add("is-invalid");
+  if (err) {
+    err.textContent = msg;
+    err.hidden = false;
+  }
+  openWorkspacePicker();
 }
 
 function onTaskPromptInput() {
   const el = document.getElementById("t-prompt");
   const hint = document.getElementById("t-prompt-hint");
-  const n = (el.value || "").length;
-  hint.textContent = n > PROMPT_MAX * 0.9 ? `${n}/${PROMPT_MAX} 字` : `最多 ${PROMPT_MAX} 字`;
-  hint.classList.toggle("warn", n > PROMPT_MAX * 0.9);
+  if (!el || !hint) return;
+  let v = el.value || "";
+  if (v.length > PROMPT_MAX) {
+    el.value = v.slice(0, PROMPT_MAX);
+    v = el.value;
+  }
+  const n = v.length;
+  if (n <= 0) {
+    hint.classList.remove("warn");
+    hint.textContent = "";
+    return;
+  }
+  hint.textContent = `${n}/${PROMPT_MAX}`;
+  hint.classList.toggle("warn", n >= PROMPT_MAX);
+  autoResizeComposer();
+}
+
+function bindTaskNewFormOnce() {
+  const view = document.getElementById("view-tasks-new");
+  const prompt = document.getElementById("t-prompt");
+  bindFsListNav();
+  if (prompt && !prompt.dataset.bound) {
+    prompt.dataset.bound = "1";
+    prompt.addEventListener("input", autoResizeComposer);
+  }
+  if (view && !view.dataset.bound) {
+    view.dataset.bound = "1";
+    view.addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+        e.preventDefault();
+        createTask();
+      }
+    });
+  }
+  if (!document.body.dataset.wsEscBound) {
+    document.body.dataset.wsEscBound = "1";
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && isWorkspacePickerOpen()) {
+        e.preventDefault();
+        closeWorkspacePicker();
+      }
+    });
+  }
+}
+
+async function initTaskNewPage() {
+  bindTaskNewFormOnce();
+  onTaskTypeChange();
+  syncWorkspaceLabel();
+  try {
+    const s = await api("/api/settings");
+    const agentEl = document.getElementById("t-run-agent");
+    if (agentEl) {
+      const name = (s.codingAgent || "claude").trim();
+      agentEl.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+    }
+  } catch {
+    /* ignore */
+  }
+  autoResizeComposer();
+  const prompt = document.getElementById("t-prompt");
+  if (prompt) prompt.focus();
 }
 
 async function fillWorkflowOptions() {
@@ -677,24 +1051,41 @@ async function fillWorkflowOptions() {
     WORKFLOW_LIST = [];
   }
   const sel = document.getElementById("t-workflow");
+  if (!sel) return;
+  if (!WORKFLOW_LIST.length) {
+    sel.innerHTML = '<option value="">(暂无流程模板)</option>';
+    return;
+  }
   sel.innerHTML = WORKFLOW_LIST.map(
-    (w) => `<option value="${esc(w.id)}">${esc(w.name)} (${w.mode})</option>`,
+    (w) => `<option value="${esc(w.id)}">${esc(w.name)} · ${esc(w.mode)} · ${(w.nodes || []).length}步</option>`,
   ).join("");
 }
 
 async function createTask() {
   if (creating) return;
   const type = document.getElementById("t-type").value;
-  const title = document.getElementById("t-title").value.trim();
-  const prompt = document.getElementById("t-prompt").value.trim();
-  const projectDir = document.getElementById("t-dir").value.trim() || undefined;
-  if (title.length > TITLE_MAX) return toast(`标题最多 ${TITLE_MAX} 字`);
+  const prompt = (document.getElementById("t-prompt").value || "").trim().slice(0, PROMPT_MAX);
+  const projectDir = getTaskDir();
+  let title = (document.getElementById("t-title").value || "").trim().slice(0, TITLE_MAX);
+  if (!title && prompt) title = prompt.split("\n")[0].trim().slice(0, TITLE_MAX);
+
+  clearTaskDirErr();
+  if (!projectDir) {
+    showTaskDirErr("请先选择工作区（项目目录）");
+    return;
+  }
+  if (type === "skill" && !prompt) {
+    toast("请先描述任务内容");
+    return;
+  }
   if (prompt.length > PROMPT_MAX) return toast(`描述最多 ${PROMPT_MAX} 字`);
 
   creating = true;
   const btn = document.getElementById("btnCreateTask");
-  btn.disabled = true;
-  btn.classList.add("is-busy");
+  if (btn) {
+    btn.disabled = true;
+    btn.classList.add("is-busy");
+  }
   try {
     if (type === "workflow") {
       const workflowId = document.getElementById("t-workflow").value;
@@ -703,15 +1094,16 @@ async function createTask() {
         method: "POST",
         body: JSON.stringify({ title, prompt, projectDir }),
       });
+      pushRecentDir(projectDir);
       toast("流程已启动");
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
     } else {
-      if (!prompt) throw new Error("单技能任务请填写描述");
       const task = await api("/api/tasks", {
         method: "POST",
         body: JSON.stringify({ title: title || "Untitled", prompt, projectDir }),
       });
+      pushRecentDir(projectDir);
       toast("任务已创建");
       switchView("tasks-list");
       showLog(task.id);
@@ -720,8 +1112,10 @@ async function createTask() {
     toast(e.message || String(e));
   } finally {
     creating = false;
-    btn.disabled = false;
-    btn.classList.remove("is-busy");
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove("is-busy");
+    }
   }
 }
 
@@ -878,11 +1272,14 @@ function switchView(view) {
 
   const head = document.getElementById("pageHead");
   if (head) {
-    head.classList.toggle("hidden", view === "settings");
-    head.classList.toggle("tasks-mode", view === "tasks-list" || view === "tasks-new");
+    head.classList.toggle("hidden", view === "settings" || view === "tasks-new");
+    head.classList.toggle("tasks-mode", view === "tasks-list");
   }
   const inner = document.querySelector(".main-inner");
-  if (inner) inner.classList.toggle("tasks-wide", view === "tasks-list");
+  if (inner) {
+    inner.classList.toggle("tasks-wide", view === "tasks-list");
+    inner.classList.toggle("composer-wide", view === "tasks-new");
+  }
 
   const navView = view === "tasks-new" ? "tasks-list" : view;
   document.querySelectorAll(".nav-item[data-view]").forEach((x) => {
@@ -895,10 +1292,7 @@ function switchView(view) {
     const meta = VIEW_TITLES[view] || ["", ""];
     document.getElementById("ptitle").textContent = meta[0];
     document.getElementById("psub").textContent = meta[1] || "";
-    if (view === "tasks-new") {
-      fillWorkflowOptions();
-      onTaskTypeChange();
-    }
+    if (view === "tasks-new") initTaskNewPage();
     if (view === "tasks-list") {
       loadTasks();
       startTaskPolling();

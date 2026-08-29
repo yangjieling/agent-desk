@@ -10,7 +10,7 @@
   "scripts": {
     "build": "pnpm -r run build",
     "dev": "pnpm --filter @agent-desk/server run dev",
-    "cli": "pnpm --filter @agent-desk/cli run oh --",
+    "cli": "node ./packages/cli/dist/index.js",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r exec rm -rf dist"
   },

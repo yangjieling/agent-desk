@@ -59,7 +59,7 @@ pnpm cli tasks list
 - `pnpm --filter @agent-desk/cli exec oh` does **not** work — `pnpm exec` only resolves bins from dependencies, not the package’s own `bin`. Use:
   - `pnpm cli <subcommand>` (recommended)
   - `oh <subcommand>` after `npm link` in `packages/cli`
-  - `pnpm --filter @agent-desk/cli run oh -- <subcommand>`
+- `pnpm --filter @agent-desk/cli run oh -- <subcommand>`
   - `pnpm --filter @agent-desk/cli run tasks:list`
 
 Open the browser at `http://127.0.0.1:19877` for the Web UI.

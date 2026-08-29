@@ -27,6 +27,7 @@ import {
   startRun,
   stopRun,
 } from "@agent-desk/workflow";
+import { browse as fsBrowse, mkdir as fsMkdir } from "./fs-browser.js";
 
 export interface ServerOptions {
   host?: string;
@@ -83,6 +84,14 @@ export async function createServer(opts: ServerOptions = {}) {
   });
 
   app.get("/api/health", async () => ({ ok: true, version: "0.2.0" }));
+
+  app.get<{ Querystring: { path?: string } }>("/api/fs/browse", async (req) => {
+    return fsBrowse((req.query.path || "").trim());
+  });
+
+  app.post<{ Body: { path?: string; name?: string } }>("/api/fs/mkdir", async (req) => {
+    return fsMkdir((req.body?.path || "").trim(), (req.body?.name || "").trim());
+  });
 
   app.get("/api/settings", async () => db.getSettings());
 
