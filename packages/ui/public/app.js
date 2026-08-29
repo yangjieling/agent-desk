@@ -562,29 +562,40 @@ function logViewToggleSvg(isRaw) {
 }
 
 function applyLogViewMode() {
-  const timeline = document.getElementById("logTimeline");
-  const raw = document.getElementById("logBody");
   const toggle = document.getElementById("logViewToggle");
-  const panel = document.getElementById("sessionPanel");
-  const pane = document.getElementById("taskSessionPane");
+  const mask = document.getElementById("rawDrawerMask");
   const isRaw = LOG_VIEW_MODE === "raw";
-  if (timeline) timeline.hidden = isRaw;
-  if (raw) raw.hidden = !isRaw;
-  if (panel) panel.classList.toggle("raw-view", isRaw);
-  if (pane) pane.classList.toggle("raw-view", isRaw);
+  if (mask) {
+    mask.hidden = !isRaw;
+    mask.classList.toggle("show", isRaw);
+  }
   if (toggle) {
-    const label = isRaw ? "会话" : "原始";
+    const label = isRaw ? "关闭原始" : "原始日志";
     toggle.title = label;
     toggle.setAttribute("aria-label", label);
+    toggle.classList.toggle("active", isRaw);
     toggle.innerHTML = logViewToggleSvg(isRaw);
+  }
+  if (isRaw) {
+    const body = document.getElementById("logBody");
+    if (body) body.scrollTop = body.scrollHeight;
   }
 }
 
-function toggleLogView() {
-  LOG_VIEW_MODE = LOG_VIEW_MODE === "raw" ? "timeline" : "raw";
+function openRawDrawer() {
+  LOG_VIEW_MODE = "raw";
   applyLogViewMode();
-  const scroll = document.getElementById("logScroll");
-  if (scroll) scroll.scrollTop = scroll.scrollHeight;
+}
+
+function closeRawDrawer() {
+  if (LOG_VIEW_MODE !== "raw") return;
+  LOG_VIEW_MODE = "timeline";
+  applyLogViewMode();
+}
+
+function toggleLogView() {
+  if (LOG_VIEW_MODE === "raw") closeRawDrawer();
+  else openRawDrawer();
 }
 
 function renderLogTitle(status, title) {
@@ -1073,13 +1084,21 @@ async function pollLog() {
 
     setLogTitleEl(d.status, d.title || LOG_TITLE);
     if (d.title) LOG_TITLE = d.title;
+    const rawTitle = document.getElementById("rawDrawerTitle");
+    if (rawTitle) {
+      const name = String(d.title || LOG_TITLE || "").trim();
+      rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
+    }
     renderLogMeta(d);
     renderLogGateCard(gate, awaiting);
     applyLogViewMode();
 
     const body = document.getElementById("logBody");
-    if (body) body.textContent = raw || "(暂无输出)";
-
+    if (body) {
+      const nearBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 48;
+      body.textContent = raw || "(暂无输出)";
+      if (LOG_VIEW_MODE === "raw" && nearBottom) body.scrollTop = body.scrollHeight;
+    }
     if (sig !== LOG_RENDER_SIG) {
       LOG_RENDER_SIG = sig;
       renderLogTimeline(timeline);
@@ -1242,8 +1261,10 @@ function closeLog() {
   LOG_ID = null;
   LOG_RENDER_SIG = "";
   LOG_PENDING_USER = "";
+  LOG_VIEW_MODE = "timeline";
   clearLogWorkflowSteps();
   setSessionPanelVisible(false);
+  applyLogViewMode();
   if (LOG_TIMER) {
     clearInterval(LOG_TIMER);
     LOG_TIMER = null;
@@ -1255,6 +1276,10 @@ function isLogOpen() {
   return !!LOG_ID && CURRENT_VIEW === "tasks-list";
 }
 
+function isRawDrawerOpen() {
+  return LOG_VIEW_MODE === "raw";
+}
+
 function bindLogModalClose() {
   if (document.body.dataset.logModalBound) return;
   document.body.dataset.logModalBound = "1";
@@ -1264,6 +1289,11 @@ function bindLogModalClose() {
     if (wfMask && wfMask.classList.contains("show")) {
       e.preventDefault();
       closeWorkflowEditor();
+      return;
+    }
+    if (isRawDrawerOpen()) {
+      e.preventDefault();
+      closeRawDrawer();
       return;
     }
     if (!isLogOpen()) return;

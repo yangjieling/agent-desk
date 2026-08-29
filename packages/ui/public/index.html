@@ -162,7 +162,6 @@
             <div class="log-gate-card" id="logGateCard" hidden></div>
             <div class="log-scroll" id="logScroll">
               <div class="log-timeline" id="logTimeline"></div>
-              <pre class="modal-body log-raw" id="logBody" hidden></pre>
             </div>
             <div class="modal-reply" id="replyBox">
               <div class="reply-choices" id="replyChoices"></div>
@@ -363,6 +362,22 @@
     </section>
   </div>
 </main>
+
+<div class="raw-drawer-mask" id="rawDrawerMask" hidden onclick="closeRawDrawer()">
+  <aside class="raw-drawer" id="rawDrawer" role="dialog" aria-modal="true" aria-label="原始日志"
+    onclick="event.stopPropagation()">
+    <div class="raw-drawer-head">
+      <span class="raw-drawer-title" id="rawDrawerTitle">原始日志</span>
+      <button type="button" class="log-icon-btn raw-drawer-close" title="关闭" aria-label="关闭"
+        onclick="closeRawDrawer()">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </div>
+    <pre class="raw-drawer-body" id="logBody">(暂无输出)</pre>
+  </aside>
+</div>
 
 <div class="modal-mask ws-mask" id="wsMask" onclick="onWsMaskClick(event)">
   <div class="ws-dialog" role="dialog" aria-modal="true" aria-label="选择工作区" onclick="event.stopPropagation()">

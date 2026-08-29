@@ -442,9 +442,6 @@
   .task-split.session-open .task-pane-session {
     display: flex; flex-direction: column; min-height: 0;
   }
-  .task-split.session-open .task-pane-session.raw-view {
-    background: #0f1115; border-color: #2a2e36;
-  }
   .task-filters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .chip { border: 1px solid #e5e7eb; background: #fff; color: #5f6368; border-radius: 999px;
           padding: 5px 12px; font-size: 12px; cursor: pointer; font-weight: 400; }
@@ -547,70 +544,41 @@
   }
   .session-panel[hidden] { display: none !important; }
   .session-head { flex-shrink: 0; }
-  .session-panel.raw-view {
+  .log-icon-btn.active { background: #e7f0ff; border-color: #c9daf8; color: #1a73e8; }
+
+  .raw-drawer-mask {
+    position: fixed; inset: 0; z-index: 40;
+    background: rgba(15, 17, 21, .45);
+    display: none; justify-content: flex-end;
+  }
+  .raw-drawer-mask.show { display: flex; }
+  .raw-drawer-mask[hidden] { display: none !important; }
+  .raw-drawer {
+    width: min(560px, 92vw); height: 100%;
     background: #0f1115; color: #d6dae0;
+    display: flex; flex-direction: column;
+    box-shadow: -12px 0 40px rgba(0,0,0,.35);
+    transform: translateX(100%);
+    transition: transform .22s ease;
   }
-  .session-panel.raw-view .session-head {
-    border-bottom-color: #2a2e36; background: #0f1115;
+  .raw-drawer-mask.show .raw-drawer { transform: translateX(0); }
+  .raw-drawer-head {
+    flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 14px 16px; border-bottom: 1px solid #2a2e36;
   }
-  .session-panel.raw-view .session-head .mt { color: #e8eaed; }
-  .session-panel.raw-view .log-meta-chip {
-    background: #1c2128; color: #9aa0a6; border: 1px solid #2a2e36;
+  .raw-drawer-title {
+    font-size: 14px; font-weight: 600; color: #e8eaed;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   }
-  .session-panel.raw-view .log-meta-chip.status-running,
-  .session-panel.raw-view .log-meta-chip.status-awaiting { background: #152238; color: #8ab4f8; border-color: #1e3a5f; }
-  .session-panel.raw-view .log-meta-chip.status-done { background: #14261a; color: #81c995; border-color: #1e3b28; }
-  .session-panel.raw-view .log-meta-chip.status-failed,
-  .session-panel.raw-view .log-meta-chip.status-stopped { background: #2a1518; color: #f28b82; border-color: #5c2126; }
-  .session-panel.raw-view .log-icon-btn {
-    background: #1c2128; border-color: #2a2e36; color: #c4c7cc;
+  .raw-drawer-close {
+    background: #1c2128 !important; border-color: #2a2e36 !important; color: #c4c7cc !important;
   }
-  .session-panel.raw-view .log-icon-btn:hover:not(:disabled) { background: #2a2e36; color: #e8eaed; }
-  .session-panel.raw-view .log-icon-play { color: #81c995; border-color: #1e3b28; }
-  .session-panel.raw-view .log-icon-play:hover:not(:disabled) { background: #14261a; }
-  .session-panel.raw-view .log-icon-stop { color: #f28b82; border-color: #5c2126; }
-  .session-panel.raw-view .log-icon-stop:hover:not(:disabled) { background: #2a1518; }
-  .session-panel.raw-view .log-wf-steps {
-    background: #13161b; border-bottom-color: #2a2e36;
-  }
-  .session-panel.raw-view .log-wf-step { background: #1c2128; color: #9aa0a6; }
-  .session-panel.raw-view .log-wf-step.done { background: #14261a; color: #81c995; }
-  .session-panel.raw-view .log-wf-step.running,
-  .session-panel.raw-view .log-wf-step.awaiting { background: #152238; color: #8ab4f8; border-color: #1e3a5f; }
-  .session-panel.raw-view .log-wf-step.failed,
-  .session-panel.raw-view .log-wf-step.stopped { background: #2a1518; color: #f28b82; }
-  .session-panel.raw-view .log-gate-card {
-    background: #131820; border-bottom-color: #1e3a5f;
-  }
-  .session-panel.raw-view .log-gate-card .lg-title { color: #8ab4f8; }
-  .session-panel.raw-view .log-gate-card .lg-hint { color: #9aa0a6; }
-  .session-panel.raw-view .log-gate-card .lg-choice {
-    background: #1c2128; border-color: #1e3a5f; color: #8ab4f8;
-  }
-  .session-panel.raw-view .log-gate-card .lg-choice:hover { background: #152238; }
-  .session-panel.raw-view .log-scroll { background: #0f1115; }
-  .session-panel.raw-view .log-raw { background: transparent; }
-  .session-panel.raw-view .modal-reply {
-    background: #13161b; border-top-color: #2a2e36;
-  }
-  .session-panel.raw-view .reply-row input {
-    background: #1c2128; border-color: #2a2e36; color: #e8eaed;
-  }
-  .session-panel.raw-view .reply-row input::placeholder { color: #6b7280; }
-  .session-panel.raw-view .reply-row input:focus {
-    border-color: #5f8dd3; box-shadow: 0 0 0 3px rgba(95,141,211,.18);
-  }
-  .session-panel.raw-view .reply-chip {
-    background: #1c2128; border-color: #2a2e36; color: #c4c7cc;
-  }
-  .session-panel.raw-view .reply-chip:hover {
-    background: #152238; border-color: #1e3a5f; color: #8ab4f8;
-  }
-  .session-panel.raw-view .log-icon-send {
-    background: #1e7e34; border-color: #1e7e34; color: #fff;
-  }
-  .session-panel.raw-view .log-icon-send:hover:not(:disabled) {
-    background: #176b2c; border-color: #176b2c; color: #fff;
+  .raw-drawer-close:hover:not(:disabled) { background: #2a2e36 !important; color: #e8eaed !important; }
+  .raw-drawer-body {
+    flex: 1; min-height: 0; margin: 0; padding: 16px 18px; overflow: auto;
+    background: #0f1115; color: #d6dae0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all;
   }
 
   .wf-runs-wrap { margin-top: 28px; }
