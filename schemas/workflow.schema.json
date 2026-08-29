@@ -8,7 +8,7 @@
     "id": { "type": "string" },
     "name": { "type": "string" },
     "description": { "type": "string" },
-    "mode": { "enum": ["shared", "independent"] },
+    "mode": { "enum": ["shared", "independent"], "default": "shared" },
     "source": { "enum": ["system", "user"] },
     "nodes": {
       "type": "array",
@@ -20,7 +20,9 @@
           "id": { "type": "string" },
           "skill": { "type": "string" },
           "title": { "type": "string" },
-          "prompt": { "type": "string" }
+          "prompt": { "type": "string" },
+          "requireGate": { "type": "boolean", "default": false },
+          "onFailure": { "enum": ["stop", "continue", "retry"], "default": "stop" }
         },
         "additionalProperties": false
       }

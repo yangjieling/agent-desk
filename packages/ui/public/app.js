@@ -16,6 +16,9 @@ const EXPANDED_TASK_GROUPS = new Set();
 
 let WORKFLOW_LIST = [];
 let WF_FILTER = "all";
+let WF_RUNS = [];
+let WF_EDIT = null; // { id, name, description, mode, nodes, isNew }
+let WF_SKILL_OPTS = [];
 
 let SKILL_LIST = [];
 let SK_FILTER = "all";
@@ -48,7 +51,7 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 const VIEW_TITLES = {
   dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
-  workflows: ["流程编排", "系统模板随安装包提供；创建任务时选择使用"],
+  workflows: ["流程编排", "共享上下文为默认；可新建个人模板，缺陷 AI 修复默认走 Fix Pipeline"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   "tasks-new": ["新建任务", ""],
   "tasks-list": ["任务管理", ""],
@@ -394,6 +397,11 @@ function renderListRow(t, opts = {}) {
   const metaParts = [];
   if (proj) metaParts.push(proj);
   if (issue) metaParts.push(`<span class="bug-code">${issue}</span>`);
+  const wfName = String(tField(t, "workflowName", "workflow_name") || "").trim();
+  const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
+  const total = Number(tField(t, "workflowStepTotal", "workflow_step_total") || 0);
+  if (!isChild && wfName && total > 0) metaParts.push(`${esc(wfName)} · ${step}/${total}`);
+  else if (!isChild && wfName) metaParts.push(esc(wfName));
   metaParts.push(`活动 ${act}`);
   let ops = "";
   if (awaiting) {
@@ -727,7 +735,14 @@ function bindLogModalClose() {
   if (document.body.dataset.logModalBound) return;
   document.body.dataset.logModalBound = "1";
   document.addEventListener("keydown", (e) => {
-    if (e.key !== "Escape" || !isLogOpen()) return;
+    if (e.key !== "Escape") return;
+    const wfMask = document.getElementById("wfEditMask");
+    if (wfMask && wfMask.classList.contains("show")) {
+      e.preventDefault();
+      closeWorkflowEditor();
+      return;
+    }
+    if (!isLogOpen()) return;
     e.preventDefault();
     closeLog();
   });
@@ -1197,11 +1212,19 @@ async function createTask() {
     if (type === "workflow") {
       const workflowId = document.getElementById("t-workflow").value;
       if (!workflowId) throw new Error("请选择流程");
+      const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
       const run = await api(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
         method: "POST",
-        body: JSON.stringify({ title, prompt, projectDir }),
+        body: JSON.stringify({
+          title,
+          prompt,
+          projectDir,
+          ...(issueCode ? { issueCode } : {}),
+        }),
       });
       pushRecentDir(projectDir);
+      const issueEl = document.getElementById("t-issue-code");
+      if (issueEl) issueEl.value = "";
       toast("流程已启动");
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
@@ -1254,17 +1277,25 @@ function renderWorkflowItem(w) {
   const desc = esc(w.description || "") || `${(w.nodes || []).length} 个节点 · ${esc(workflowModeLabel(w))}`;
   const meta = `${(w.nodes || []).length} 步 · ${esc(workflowModeLabel(w))}`;
   const letter = esc((w.name || "?").charAt(0).toUpperCase());
+  const isUser = w.source !== "system";
+  const chain = (w.nodes || [])
+    .map((n) => esc(n.title || n.skill || "?"))
+    .join(" → ");
+  const acts = isUser
+    ? `<button class="btn-refresh" type="button" onclick="openWorkflowEditor('${id}')">编辑</button>` +
+      `<button class="btn-install" type="button" onclick="runWorkflow('${id}')">运行</button>` +
+      `<button class="btn-stop" type="button" onclick="deleteWorkflow('${id}')">删除</button>`
+    : `<button class="btn-refresh" type="button" onclick="openWorkflowEditor('${id}', { copy: true })">复制</button>` +
+      `<button class="btn-install" type="button" onclick="runWorkflow('${id}')">运行</button>`;
   return `<div class="skill-item wf-item">
     <div class="sk-icon" style="background:${iconColor(w.id || w.name)}">${letter}</div>
     <div class="sk-info">
       <div class="n">${name}</div>
       <div class="d">${desc}</div>
-      <div class="sk-ver">${meta}</div>
+      <div class="sk-ver">${meta}${chain ? ` · ${chain}` : ""}</div>
     </div>
     <div class="sk-right">
-      <div class="sk-act" style="display:flex">
-        <button class="btn-install" onclick="runWorkflow('${id}')">运行</button>
-      </div>
+      <div class="sk-act" style="display:flex;gap:6px;flex-wrap:wrap">${acts}</div>
     </div>
   </div>`;
 }
@@ -1291,10 +1322,74 @@ function renderWorkflows() {
   box.innerHTML = html;
 }
 
+function runStatusLabel(st) {
+  return (
+    {
+      pending: "待执行",
+      running: "运行中",
+      awaiting: "待确认",
+      done: "已完成",
+      failed: "失败",
+      stopped: "已停止",
+    }[st] ||
+    st ||
+    "-"
+  );
+}
+
+function renderWorkflowRuns() {
+  const box = document.getElementById("wf-runs");
+  if (!box) return;
+  const rows = (WF_RUNS || []).slice(0, 20);
+  if (!rows.length) {
+    box.innerHTML = '<div class="wf-empty">暂无运行记录</div>';
+    return;
+  }
+  box.innerHTML = rows
+    .map((r) => {
+      const title = esc(r.workflowName || r.workflowId || r.id);
+      const st = esc(runStatusLabel(r.status));
+      const issue = r.issueCode ? `<span class="bug-code">${esc(r.issueCode)}</span> · ` : "";
+      const when = esc(fmtTime(r.updatedAt || r.createdAt));
+      const steps = (r.nodes || [])
+        .map((n) => {
+          const cls = esc(n.status || "pending");
+          const label = esc(n.title || n.skill || "?");
+          return `<span class="wf-run-step ${cls}">${label}</span>`;
+        })
+        .join("");
+      const taskId = esc(r.parentTaskId || "");
+      const openBtn = taskId
+        ? `<button type="button" class="btn-outline" onclick="openIssueTask('${taskId}')">查看</button>`
+        : "";
+      return `<div class="wf-run-item">
+        <div class="wr-main">
+          <div class="wr-title">${title} · ${st}</div>
+          <div class="wr-sub">${issue}${when}</div>
+          <div class="wf-run-steps">${steps}</div>
+        </div>
+        ${openBtn}
+      </div>`;
+    })
+    .join("");
+}
+
+async function loadWorkflowRuns() {
+  try {
+    const rows = await api("/api/workflow-runs");
+    WF_RUNS = Array.isArray(rows) ? rows : [];
+    renderWorkflowRuns();
+  } catch {
+    WF_RUNS = [];
+    renderWorkflowRuns();
+  }
+}
+
 async function loadWorkflows() {
   try {
     WORKFLOW_LIST = await api("/api/workflows");
     renderWorkflows();
+    await loadWorkflowRuns();
   } catch (e) {
     toast(`加载流程失败: ${e.message || e}`);
   }
@@ -1309,16 +1404,264 @@ function setWorkflowFilter(v) {
 
 async function runWorkflow(id) {
   const projectDir = document.getElementById("t-dir")?.value?.trim() || undefined;
+  if (!projectDir) {
+    toast("请先在「新建任务」页选择工作区，或打开新建任务选好目录后再运行");
+    switchView("tasks-new");
+    return;
+  }
   try {
     const run = await api(`/api/workflows/${encodeURIComponent(id)}/run`, {
       method: "POST",
       body: JSON.stringify({ projectDir }),
     });
     toast("流程已启动");
+    pushRecentDir(projectDir);
     switchView("tasks-list");
     if (run.parentTaskId) showLog(run.parentTaskId);
   } catch (e) {
     toast(`启动失败: ${e.message || e}`);
+  }
+}
+
+async function deleteWorkflow(id) {
+  if (!id || !confirm(`确定删除流程「${id}」？`)) return;
+  try {
+    await api(`/api/workflows/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("已删除流程");
+    await loadWorkflows();
+  } catch (e) {
+    toast(`删除失败: ${e.message || e}`);
+  }
+}
+
+function slugifyWorkflowId(name) {
+  const base = String(name || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+  return base || `wf-${Date.now().toString(36)}`;
+}
+
+async function ensureWfSkillOpts() {
+  if (WF_SKILL_OPTS.length) return WF_SKILL_OPTS;
+  try {
+    const rows = await api("/api/skills");
+    WF_SKILL_OPTS = Array.isArray(rows) ? rows : [];
+  } catch {
+    WF_SKILL_OPTS = [];
+  }
+  return WF_SKILL_OPTS;
+}
+
+function skillOptionsHtml(selected) {
+  const sel = selected || "default";
+  const opts = WF_SKILL_OPTS.length
+    ? WF_SKILL_OPTS
+    : [{ id: "default", name: "default" }, { id: "triage", name: "triage" }, { id: "fix", name: "fix" }, { id: "test", name: "test" }];
+  const ids = new Set(opts.map((o) => o.id));
+  if (sel && !ids.has(sel)) opts.unshift({ id: sel, name: sel });
+  return opts
+    .map((o) => {
+      const id = o.id || o.name;
+      return `<option value="${esc(id)}"${id === sel ? " selected" : ""}>${esc(o.name || id)}</option>`;
+    })
+    .join("");
+}
+
+function renderWfEditorNodes() {
+  const box = document.getElementById("wf-ed-nodes");
+  if (!box || !WF_EDIT) return;
+  const nodes = WF_EDIT.nodes || [];
+  if (!nodes.length) {
+    box.innerHTML = '<div class="wf-empty">请添加至少一个步骤</div>';
+    return;
+  }
+  box.innerHTML = nodes
+    .map((n, i) => {
+      const gateChecked = n.requireGate ? " checked" : "";
+      return `<div class="wf-ed-node" data-idx="${i}">
+        <div class="wf-ed-node-top">
+          <input type="text" data-k="title" value="${esc(n.title || "")}" placeholder="步骤标题">
+          <select data-k="skill">${skillOptionsHtml(n.skill || "default")}</select>
+          <button type="button" class="btn-stop" onclick="wfEditorRemoveNode(${i})">删除</button>
+        </div>
+        <textarea data-k="prompt" placeholder="本步指令（可选）">${esc(n.prompt || "")}</textarea>
+        <div class="wf-ed-node-foot">
+          <label><input type="checkbox" data-k="requireGate"${gateChecked}> 强制闸门</label>
+          <span style="font-size:12px;color:#9aa0a6">步骤 ${i + 1}</span>
+        </div>
+      </div>`;
+    })
+    .join("");
+}
+
+function readWfEditorNodesFromDom() {
+  const box = document.getElementById("wf-ed-nodes");
+  if (!box || !WF_EDIT) return;
+  const nodes = [];
+  box.querySelectorAll(".wf-ed-node").forEach((el, i) => {
+    const title = (el.querySelector('[data-k="title"]')?.value || "").trim();
+    const skill = (el.querySelector('[data-k="skill"]')?.value || "").trim();
+    const prompt = (el.querySelector('[data-k="prompt"]')?.value || "").trim();
+    const requireGate = !!el.querySelector('[data-k="requireGate"]')?.checked;
+    nodes.push({
+      id: (WF_EDIT.nodes[i] && WF_EDIT.nodes[i].id) || `n${i + 1}`,
+      title: title || skill || `步骤 ${i + 1}`,
+      skill: skill || "default",
+      prompt,
+      requireGate,
+      onFailure: "stop",
+    });
+  });
+  WF_EDIT.nodes = nodes;
+}
+
+function wfEditorAddNode() {
+  readWfEditorNodesFromDom();
+  if (!WF_EDIT) return;
+  const i = WF_EDIT.nodes.length + 1;
+  WF_EDIT.nodes.push({
+    id: `n${i}`,
+    title: `步骤 ${i}`,
+    skill: "fix",
+    prompt: "",
+    requireGate: false,
+    onFailure: "stop",
+  });
+  renderWfEditorNodes();
+}
+
+function wfEditorRemoveNode(idx) {
+  readWfEditorNodesFromDom();
+  if (!WF_EDIT) return;
+  WF_EDIT.nodes.splice(idx, 1);
+  renderWfEditorNodes();
+}
+
+function onWfEditMaskClick(e) {
+  if (e.target === e.currentTarget) closeWorkflowEditor();
+}
+
+function closeWorkflowEditor() {
+  const mask = document.getElementById("wfEditMask");
+  if (mask) mask.classList.remove("show");
+  WF_EDIT = null;
+}
+
+async function openWorkflowEditor(id, opts = {}) {
+  await ensureWfSkillOpts();
+  let settings = {};
+  try {
+    settings = await api("/api/settings");
+  } catch {
+    /* ignore */
+  }
+  const defaultMode = settings.defaultWorkflowMode || "shared";
+  const copy = !!(opts && opts.copy);
+  const existing = id ? WORKFLOW_LIST.find((w) => w.id === id) : null;
+
+  const cloneNodes = (nodes) =>
+    (nodes || []).map((n, i) => ({
+      id: n.id || `n${i + 1}`,
+      title: n.title || n.skill || `步骤 ${i + 1}`,
+      skill: n.skill || "default",
+      prompt: n.prompt || "",
+      requireGate: !!n.requireGate,
+      onFailure: n.onFailure || "stop",
+    }));
+
+  if (existing && (copy || existing.source === "system")) {
+    WF_EDIT = {
+      isNew: true,
+      id: `${String(existing.id || "flow").replace(/^sys-/, "")}-copy`,
+      name: `${existing.name || existing.id} 副本`,
+      description: existing.description || "",
+      mode: existing.mode || defaultMode,
+      nodes: cloneNodes(existing.nodes),
+      readOnlyId: false,
+    };
+  } else if (existing) {
+    WF_EDIT = {
+      isNew: false,
+      id: existing.id,
+      name: existing.name || "",
+      description: existing.description || "",
+      mode: existing.mode || defaultMode,
+      nodes: cloneNodes(existing.nodes),
+      readOnlyId: true,
+    };
+  } else {
+    WF_EDIT = {
+      isNew: true,
+      id: "",
+      name: "",
+      description: "",
+      mode: defaultMode,
+      nodes: [
+        { id: "n1", title: "Triage", skill: "triage", prompt: "", requireGate: true, onFailure: "stop" },
+        { id: "n2", title: "Fix", skill: "fix", prompt: "", requireGate: true, onFailure: "stop" },
+        { id: "n3", title: "Test", skill: "test", prompt: "", requireGate: false, onFailure: "stop" },
+      ],
+      readOnlyId: false,
+    };
+  }
+
+  document.getElementById("wfEditTitle").textContent = WF_EDIT.isNew ? "新建流程" : "编辑流程";
+  document.getElementById("wf-ed-name").value = WF_EDIT.name;
+  const idEl = document.getElementById("wf-ed-id");
+  idEl.value = WF_EDIT.id;
+  idEl.disabled = !!WF_EDIT.readOnlyId;
+  document.getElementById("wf-ed-desc").value = WF_EDIT.description || "";
+  document.getElementById("wf-ed-mode").value = WF_EDIT.mode === "independent" ? "independent" : "shared";
+  renderWfEditorNodes();
+  document.getElementById("wfEditMask").classList.add("show");
+}
+
+async function saveWorkflowEditor() {
+  if (!WF_EDIT) return;
+  readWfEditorNodesFromDom();
+  const name = (document.getElementById("wf-ed-name").value || "").trim();
+  let id = (document.getElementById("wf-ed-id").value || "").trim();
+  const description = (document.getElementById("wf-ed-desc").value || "").trim();
+  const mode = document.getElementById("wf-ed-mode").value === "independent" ? "independent" : "shared";
+  if (!name) return toast("请填写流程名称");
+  if (!id) id = slugifyWorkflowId(name);
+  if (!WF_EDIT.nodes.length) return toast("至少添加一个步骤");
+  for (const n of WF_EDIT.nodes) {
+    if (!n.skill) return toast("每个步骤都需要选择技能");
+  }
+
+  const body = {
+    id,
+    name,
+    description,
+    mode,
+    nodes: WF_EDIT.nodes.map((n, i) => ({
+      id: n.id || `n${i + 1}`,
+      title: n.title,
+      skill: n.skill,
+      prompt: n.prompt || "",
+      requireGate: !!n.requireGate,
+      onFailure: "stop",
+    })),
+  };
+
+  try {
+    if (WF_EDIT.isNew) {
+      await api("/api/workflows", { method: "POST", body: JSON.stringify(body) });
+    } else {
+      await api(`/api/workflows/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    }
+    toast("流程已保存");
+    closeWorkflowEditor();
+    await loadWorkflows();
+  } catch (e) {
+    toast(`保存失败: ${e.message || e}`);
   }
 }
 
@@ -1695,6 +2038,43 @@ async function initSettingsUI() {
     async (nextVal) => {
       await saveSelect("codingAgent", nextVal);
       toast("已更新：默认编码 Agent");
+    },
+  );
+
+  if (!WORKFLOW_LIST.length) {
+    try {
+      WORKFLOW_LIST = await api("/api/workflows");
+    } catch {
+      WORKFLOW_LIST = [];
+    }
+  }
+  const fixWfOpts = [
+    { id: "sys-fix-pipeline", displayName: "Fix Pipeline（推荐）" },
+    ...WORKFLOW_LIST.filter((w) => w.id !== "sys-fix-pipeline").map((w) => ({
+      id: w.id,
+      displayName: `${w.name || w.id}${w.source === "system" ? "" : "（个人）"}`,
+    })),
+    { id: "none", displayName: "单任务（技能模式）" },
+  ];
+  mountSettingDropdown(
+    document.getElementById("setFixWorkflow"),
+    fixWfOpts,
+    state.defaultFixWorkflowId || "sys-fix-pipeline",
+    async (nextVal) => {
+      await saveSelect("defaultFixWorkflowId", nextVal);
+      toast("已更新：缺陷 AI 修复流程");
+    },
+  );
+  mountSettingDropdown(
+    document.getElementById("setWfMode"),
+    [
+      { id: "shared", displayName: "共享上下文（推荐）" },
+      { id: "independent", displayName: "独立执行（高级）" },
+    ],
+    state.defaultWorkflowMode || "shared",
+    async (nextVal) => {
+      await saveSelect("defaultWorkflowMode", nextVal);
+      toast("已更新：新建流程默认模式");
     },
   );
 
@@ -2080,6 +2460,65 @@ async function startTaskFromIssue(code) {
     .join("")
     .slice(0, PROMPT_MAX);
 
+  let settings = {};
+  try {
+    settings = await api("/api/settings");
+  } catch {
+    /* ignore */
+  }
+  const wfId = String(settings.defaultFixWorkflowId || "sys-fix-pipeline").trim();
+  const usePipeline = wfId && wfId !== "none";
+
+  const projectDir =
+    (issue.projectDir || "").trim() ||
+    (document.getElementById("t-dir")?.value || "").trim() ||
+    (loadRecentDirs()[0] || "");
+
+  if (usePipeline) {
+    if (!projectDir) {
+      // Prefill composer in workflow mode for user to pick workspace
+      switchView("tasks-new");
+      const mode = document.getElementById("t-mode");
+      if (mode) {
+        mode.value = "workflow";
+        onTaskTypeChange();
+      }
+      const titleEl = document.getElementById("t-title");
+      if (titleEl) titleEl.value = title;
+      const promptEl = document.getElementById("t-prompt");
+      if (promptEl) {
+        promptEl.value = prompt;
+        onTaskPromptInput();
+      }
+      const issueEl = document.getElementById("t-issue-code");
+      if (issueEl) issueEl.value = issue.code || code || "";
+      fillWorkflowOptions().then(() => {
+        const sel = document.getElementById("t-workflow");
+        if (sel && [...sel.options].some((o) => o.value === wfId)) sel.value = wfId;
+      });
+      toast(`请选择工作区后启动流程（默认 ${wfId}）`);
+      return;
+    }
+    try {
+      const run = await api(`/api/workflows/${encodeURIComponent(wfId)}/run`, {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          prompt,
+          projectDir,
+          issueCode: issue.code || code,
+        }),
+      });
+      pushRecentDir(projectDir);
+      toast(`已启动流程 ${wfId}`);
+      switchView("tasks-list");
+      if (run.parentTaskId) showLog(run.parentTaskId);
+      return;
+    } catch (e) {
+      toast(`启动流程失败: ${e.message || e}，改为技能任务`);
+    }
+  }
+
   switchView("tasks-new");
   const mode = document.getElementById("t-mode");
   if (mode) {
@@ -2095,9 +2534,9 @@ async function startTaskFromIssue(code) {
   }
   const issueEl = document.getElementById("t-issue-code");
   if (issueEl) issueEl.value = issue.code || code || "";
-  if (issue.projectDir) {
+  if (projectDir) {
     const dirEl = document.getElementById("t-dir");
-    if (dirEl) dirEl.value = issue.projectDir;
+    if (dirEl) dirEl.value = projectDir;
     syncWorkspaceLabel();
   }
   fillSkillOptions().then(() => {

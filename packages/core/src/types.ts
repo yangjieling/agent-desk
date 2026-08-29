@@ -41,6 +41,10 @@ export interface WorkflowNode {
   skill: string;
   title: string;
   prompt: string;
+  /** When true, step prompt insists on emitting a human gate before finishing. */
+  requireGate?: boolean;
+  /** v1: only "stop" is honored by the engine; others are reserved. */
+  onFailure?: "stop" | "continue" | "retry";
 }
 
 export interface Workflow {
@@ -72,6 +76,10 @@ export interface Settings {
   idleTimeoutSec: number;
   awaitingIdleTimeoutSec: number;
   webBaseUrl: string;
+  /** Workflow id used by bugs「AI 修复」; empty / "none" = single skill task. */
+  defaultFixWorkflowId: string;
+  /** Default mode when creating a user workflow template. */
+  defaultWorkflowMode: WorkflowMode;
   providers: {
     agent: string;
     issue: string;
@@ -86,6 +94,8 @@ export const DEFAULT_SETTINGS: Settings = {
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,
   webBaseUrl: "http://127.0.0.1:19877",
+  defaultFixWorkflowId: "sys-fix-pipeline",
+  defaultWorkflowMode: "shared",
   providers: {
     agent: "claude",
     issue: "manual",

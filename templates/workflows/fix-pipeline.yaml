@@ -1,22 +1,28 @@
 id: sys-fix-pipeline
 name: Fix Pipeline
-description: "Triage → fix → test; one skill per step with human gates"
+description: "Triage → fix → test; shared session with human gates (default for bugs AI fix)"
 mode: shared
 source: system
 nodes:
   - id: n1
     skill: triage
     title: Triage
+    requireGate: true
+    onFailure: stop
     prompt: |
       Locate the target issue and present a gate「Triage」with hb-choices.
       Do not proceed to fix until the user confirms.
   - id: n2
     skill: fix
     title: Fix
+    requireGate: true
+    onFailure: stop
     prompt: |
       Implement the fix for the confirmed issue. Open gate「Fix confirm」before finishing.
   - id: n3
     skill: test
     title: Test
+    requireGate: false
+    onFailure: stop
     prompt: |
       Run or propose verification steps. Summarize results and close the workflow.

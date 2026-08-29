@@ -210,9 +210,14 @@
           <option value="system">系统</option>
           <option value="user">个人</option>
         </select>
-        <button class="btn-refresh" onclick="loadWorkflows()">刷新</button>
+        <button class="btn-install" type="button" onclick="openWorkflowEditor()">新建流程</button>
+        <button class="btn-refresh" type="button" onclick="loadWorkflows()">刷新</button>
       </div>
       <div id="wf-list"></div>
+      <div class="wf-runs-wrap">
+        <h3 class="wf-sec-title">最近运行</h3>
+        <div id="wf-runs"></div>
+      </div>
     </section>
 
     <section id="view-skills" style="display:none">
@@ -279,6 +284,20 @@
             </div>
             <input class="setting-select" type="text" id="setWebUrl" style="min-width:240px"
               placeholder="http://127.0.0.1:19877">
+          </div>
+          <div class="setting-row" data-key="defaultFixWorkflowId" data-type="select">
+            <div class="setting-meta">
+              <p class="st">缺陷 AI 修复流程</p>
+              <p class="sd">缺陷列表点「AI 修复」时默认启动的流程；选「单任务」则只用技能模式</p>
+            </div>
+            <div class="setting-dropdown" id="setFixWorkflow" data-value="sys-fix-pipeline"></div>
+          </div>
+          <div class="setting-row" data-key="defaultWorkflowMode" data-type="select">
+            <div class="setting-meta">
+              <p class="st">新建流程默认模式</p>
+              <p class="sd">共享上下文（推荐）；独立执行为高级并行扇出</p>
+            </div>
+            <div class="setting-dropdown" id="setWfMode" data-value="shared"></div>
           </div>
           <div class="setting-row" data-key="codingAgent" data-type="select">
             <div class="setting-meta">
@@ -383,6 +402,35 @@
     </div>
     <div class="skill-meta" id="skillMeta"></div>
     <pre class="modal-body skill-body" id="skillBody"></pre>
+  </div>
+</div>
+
+<div class="modal-mask" id="wfEditMask" onclick="onWfEditMaskClick(event)">
+  <div class="modal wf-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑流程">
+    <div class="modal-head">
+      <span class="mt" id="wfEditTitle">新建流程</span>
+      <button class="mc" type="button" onclick="closeWorkflowEditor()">×</button>
+    </div>
+    <div class="wf-edit-body">
+      <label class="wf-field">名称<input id="wf-ed-name" type="text" placeholder="例如: 快速修复" maxlength="80"></label>
+      <label class="wf-field">ID<input id="wf-ed-id" type="text" placeholder="my-fix-flow" maxlength="64"></label>
+      <label class="wf-field">描述<input id="wf-ed-desc" type="text" placeholder="可选" maxlength="200"></label>
+      <label class="wf-field">模式
+        <select id="wf-ed-mode">
+          <option value="shared">共享上下文（推荐）</option>
+          <option value="independent">独立执行（高级）</option>
+        </select>
+      </label>
+      <div class="wf-nodes-head">
+        <span>步骤</span>
+        <button type="button" class="btn-refresh" onclick="wfEditorAddNode()">添加步骤</button>
+      </div>
+      <div id="wf-ed-nodes" class="wf-ed-nodes"></div>
+    </div>
+    <div class="dlg-foot wf-edit-foot">
+      <button type="button" class="dlg-cancel" onclick="closeWorkflowEditor()">取消</button>
+      <button type="button" class="dlg-ok" onclick="saveWorkflowEditor()">保存</button>
+    </div>
   </div>
 </div>
 

@@ -21,11 +21,13 @@ import {
 } from "@agent-desk/runner";
 import {
   continueRun,
+  deleteUserWorkflow,
   getRun,
   getWorkflow,
   listRuns,
   listWorkflows,
   registerWorkflowHooks,
+  saveUserWorkflow,
   startRun,
   stopRun,
 } from "@agent-desk/workflow";
@@ -417,6 +419,112 @@ export async function createServer(opts: ServerOptions = {}) {
     const wf = getWorkflow(dataDir, req.params.id);
     if (!wf) return reply.code(404).send({ error: "not_found" });
     return wf;
+  });
+
+  app.post<{
+    Body: {
+      id?: string;
+      name?: string;
+      description?: string;
+      mode?: string;
+      nodes?: Array<{
+        id?: string;
+        skill?: string;
+        title?: string;
+        prompt?: string;
+        requireGate?: boolean;
+        onFailure?: string;
+      }>;
+    };
+  }>("/api/workflows", async (req, reply) => {
+    try {
+      const body = req.body || {};
+      const settings = db.getSettings();
+      const mode =
+        body.mode === "independent" || body.mode === "shared"
+          ? body.mode
+          : settings.defaultWorkflowMode || "shared";
+      const saved = saveUserWorkflow(dataDir, {
+        id: String(body.id || "").trim(),
+        name: String(body.name || "").trim(),
+        description: String(body.description || "").trim(),
+        mode,
+        source: "user",
+        nodes: (body.nodes || []).map((n, i) => ({
+          id: String(n.id || `n${i + 1}`).trim(),
+          skill: String(n.skill || "").trim(),
+          title: String(n.title || n.skill || `步骤 ${i + 1}`).trim(),
+          prompt: String(n.prompt || "").trim(),
+          requireGate: !!n.requireGate,
+          onFailure:
+            n.onFailure === "continue" || n.onFailure === "retry" ? n.onFailure : "stop",
+        })),
+      });
+      return saved;
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  app.put<{
+    Params: { id: string };
+    Body: {
+      name?: string;
+      description?: string;
+      mode?: string;
+      nodes?: Array<{
+        id?: string;
+        skill?: string;
+        title?: string;
+        prompt?: string;
+        requireGate?: boolean;
+        onFailure?: string;
+      }>;
+    };
+  }>("/api/workflows/:id", async (req, reply) => {
+    const existing = getWorkflow(dataDir, req.params.id);
+    if (!existing) return reply.code(404).send({ error: "not_found" });
+    if (existing.source === "system") {
+      return reply.code(403).send({ error: "系统流程不能修改" });
+    }
+    try {
+      const body = req.body || {};
+      const mode =
+        body.mode === "independent" || body.mode === "shared" ? body.mode : existing.mode;
+      const saved = saveUserWorkflow(dataDir, {
+        id: req.params.id,
+        name: String(body.name ?? existing.name).trim(),
+        description: String(body.description ?? existing.description ?? "").trim(),
+        mode,
+        source: "user",
+        createdAt: existing.createdAt,
+        nodes: (body.nodes || existing.nodes).map((n, i) => ({
+          id: String(n.id || `n${i + 1}`).trim(),
+          skill: String(n.skill || "").trim(),
+          title: String(n.title || n.skill || `步骤 ${i + 1}`).trim(),
+          prompt: String(n.prompt || "").trim(),
+          requireGate: !!(n as { requireGate?: boolean }).requireGate,
+          onFailure:
+            (n as { onFailure?: string }).onFailure === "continue" ||
+            (n as { onFailure?: string }).onFailure === "retry"
+              ? ((n as { onFailure: "continue" | "retry" }).onFailure)
+              : "stop",
+        })),
+      });
+      return saved;
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/workflows/:id", async (req, reply) => {
+    try {
+      return deleteUserWorkflow(dataDir, req.params.id);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const code = /系统/.test(msg) ? 403 : /not found|Not found/i.test(msg) ? 404 : 400;
+      return reply.code(code).send({ error: msg });
+    }
   });
 
   app.post<{

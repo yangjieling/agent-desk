@@ -27,7 +27,7 @@ import {
 } from "./prompts.js";
 import { getRun, updateRunNode, writeRun } from "./store.js";
 
-export { getWorkflow, listWorkflows, saveUserWorkflow, userWorkflowsDir } from "./loader.js";
+export { getWorkflow, listWorkflows, saveUserWorkflow, deleteUserWorkflow, userWorkflowsDir } from "./loader.js";
 export { getRun, listRuns, writeRun } from "./store.js";
 
 const activeWorkers = new Set<string>();

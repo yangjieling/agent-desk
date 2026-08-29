@@ -10,6 +10,16 @@
     "idleTimeoutSec": { "type": "integer", "default": 3600 },
     "awaitingIdleTimeoutSec": { "type": "integer", "default": 86400 },
     "webBaseUrl": { "type": "string", "default": "http://127.0.0.1:19877" },
+    "defaultFixWorkflowId": {
+      "type": "string",
+      "default": "sys-fix-pipeline",
+      "description": "Workflow used by bugs AI fix; empty or none = single skill task"
+    },
+    "defaultWorkflowMode": {
+      "type": "string",
+      "enum": ["shared", "independent"],
+      "default": "shared"
+    },
     "providers": {
       "type": "object",
       "properties": {

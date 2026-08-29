@@ -24,6 +24,11 @@ function normalizeNodes(raw: unknown): WorkflowNode[] {
       skill,
       title: String(rec.title ?? skill).trim() || skill,
       prompt: String(rec.prompt ?? "").trim(),
+      requireGate: !!rec.requireGate || !!rec.require_gate,
+      onFailure: (() => {
+        const raw = String(rec.onFailure ?? rec.on_failure ?? "stop").trim();
+        return raw === "continue" || raw === "retry" ? raw : "stop";
+      })(),
     });
   }
   return nodes;
@@ -95,13 +100,51 @@ export function saveUserWorkflow(dataDir: string, workflow: Workflow): Workflow 
   const dir = userWorkflowsDir(dataDir);
   fs.mkdirSync(dir, { recursive: true });
   const now = Date.now();
+  const id = String(workflow.id || "").trim();
+  if (!id) throw new Error("workflow id required");
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/.test(id)) {
+    throw new Error("invalid workflow id (use letters, digits, ._- ; max 64)");
+  }
+  if (id.startsWith("sys-")) throw new Error("user workflow id cannot start with sys-");
+  const existing = getWorkflow(dataDir, id);
+  if (existing?.source === "system") throw new Error("cannot overwrite system workflow");
+
+  const modeRaw = String(workflow.mode || "shared").trim();
+  const mode = MODES.includes(modeRaw as WorkflowMode) ? (modeRaw as WorkflowMode) : "shared";
+  const nodes = normalizeNodes(workflow.nodes);
+  if (!nodes.length) throw new Error("Workflow must contain at least one node");
+
   const doc: Workflow = {
-    ...workflow,
+    id,
+    name: String(workflow.name || id).trim() || id,
+    description: String(workflow.description || "").trim() || undefined,
+    mode,
     source: "user",
+    nodes,
+    createdAt: existing?.createdAt ?? workflow.createdAt ?? now,
     updatedAt: now,
-    createdAt: workflow.createdAt ?? now,
   };
   const fp = path.join(dir, `${doc.id}.json`);
   fs.writeFileSync(fp, JSON.stringify(doc, null, 2), "utf8");
   return doc;
+}
+
+export function deleteUserWorkflow(dataDir: string, workflowId: string): { ok: true; id: string } {
+  const id = workflowId.trim();
+  if (!id) throw new Error("workflow id required");
+  const wf = getWorkflow(dataDir, id);
+  if (!wf) throw new Error(`Workflow not found: ${id}`);
+  if (wf.source === "system") throw new Error("系统流程不能删除");
+  const dir = userWorkflowsDir(dataDir);
+  const candidates = [`${id}.json`, `${id}.yaml`, `${id}.yml`];
+  let removed = false;
+  for (const name of candidates) {
+    const fp = path.join(dir, name);
+    if (fs.existsSync(fp)) {
+      fs.unlinkSync(fp);
+      removed = true;
+    }
+  }
+  if (!removed) throw new Error(`Workflow file not found: ${id}`);
+  return { ok: true, id };
 }

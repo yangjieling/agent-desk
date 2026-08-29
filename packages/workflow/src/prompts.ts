@@ -29,9 +29,15 @@ export function buildSharedFirstPrompt(
   if (sharedContext.trim()) parts.push(`【前序步骤上下文】\n${sharedContext.trim()}`);
   const body = node.prompt.trim() || `执行 ${skill} 技能。`;
   parts.push(`【本步任务】\n${body}`);
-  parts.push(
-    "若需用户确认，请输出 ## 闸门「名称」 与 ## hb-choices 列表；用户选「先不修/skip」将终止整个流程。",
-  );
+  if (node.requireGate) {
+    parts.push(
+      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## hb-choices（至少含「确认继续」与「先不修」），等待用户确认后再结束本步。",
+    );
+  } else {
+    parts.push(
+      "若需用户确认，请输出 ## 闸门「名称」 与 ## hb-choices 列表；用户选「先不修/skip」将终止整个流程。",
+    );
+  }
   return parts.join("\n\n");
 }
 
@@ -51,14 +57,24 @@ export function buildSharedContinuePrompt(
     stepBoundaryRules(skill, index, allNodes),
     `【本步任务】\n${body}`,
   ];
+  if (node.requireGate) {
+    parts.push(
+      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## hb-choices（至少含「确认继续」与「先不修」）。",
+    );
+  }
   return parts.join("\n\n");
 }
 
 export function buildIndependentPrompt(node: WorkflowNode, inputPrompt: string): string {
-  const parts = ["【流程编排 · 独立模式】本步骤与其他步骤无上下文共享。"];
+  const parts = ["【流程编排 · 独立模式】本步骤与其他步骤无上下文共享；全部成功才算流程完成。"];
   if (inputPrompt.trim()) parts.push(`【流程输入】\n${inputPrompt.trim()}`);
   const body = node.prompt.trim() || `执行 ${node.skill} 技能。`;
   parts.push(`【本步任务】\n${body}`);
+  if (node.requireGate) {
+    parts.push(
+      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## hb-choices，等待用户确认。",
+    );
+  }
   return parts.join("\n\n");
 }
 
