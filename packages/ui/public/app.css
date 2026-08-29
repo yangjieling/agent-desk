@@ -31,9 +31,15 @@
   .page-head.dash-mode .page-sub { text-align: left; margin: 0; }
   .page-head-actions { display: none; gap: 8px; flex-shrink: 0; align-items: center; }
   .page-head.tasks-mode .page-head-actions,
-  .page-head.dash-mode .page-head-actions { display: flex; }
+  .page-head.dash-mode .page-head-actions,
+  .page-head.bugs-mode .page-head-actions { display: flex; }
   .main-inner.tasks-wide,
-  .main-inner.dash-wide { max-width: 1120px; }
+  .main-inner.dash-wide,
+  .main-inner.bugs-wide { max-width: 1120px; }
+  .page-head.bugs-mode { display: flex; align-items: flex-start; justify-content: space-between;
+                         gap: 16px; margin-bottom: 20px; }
+  .page-head.bugs-mode .page-title { text-align: left; margin: 0 0 4px; }
+  .page-head.bugs-mode .page-sub { text-align: left; margin: 0; }
   .main-inner.composer-wide { max-width: 1180px; padding-left: 32px; padding-right: 32px; }
 
   /* 主区顶栏全局操作(反馈/停止/检查更新),避免与页面操作按钮重叠 */
@@ -115,7 +121,7 @@
   .setting-dropdown-check { display: none; }
 
   /* 总览看板 */
-  .dash-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; }
+  .dash-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 18px; }
   .dash-stat { background: #fff; border-radius: 14px; padding: 22px 24px;
                box-shadow: 0 1px 3px rgba(60,64,67,.08); }
   .dash-stat .ds-label { font-size: 14px; color: #80868b; margin: 0 0 10px; }
@@ -193,6 +199,12 @@
   .badge.NEW { background: #e7f0ff; color: #2f6feb; }
   .badge.HANDLE { background: #fff4e5; color: #b8730a; }
   .badge.REOPEN { background: #fde8e8; color: #c53030; }
+  .badge.open { background: #e7f0ff; color: #2f6feb; }
+  .badge.closed { background: #f0f1f2; color: #909399; }
+  .badge.sev-critical, .badge.sev-high { background: #fdecea; color: #c0392b; }
+  .badge.sev-medium { background: #fff4e5; color: #b8730a; }
+  .badge.sev-low { background: #e6f4ea; color: #1e7e34; }
+  .badge.sev-unknown { background: #f0f1f2; color: #909399; }
   .badge.ls-none { background: #f0f1f2; color: #909399; }
   .badge.ls-resolving { background: #e7f0ff; color: #2f6feb; }
   .badge.ls-awaiting_info { background: #fff4e5; color: #b8730a; }

@@ -10,6 +10,7 @@
 <aside class="sidebar">
   <div class="brand">Open Harness<span class="ver" id="ver"></span></div>
   <div class="nav-item active" data-view="dashboard"><span class="ic">▣</span>总览看板</div>
+  <div class="nav-item" data-view="bugs"><span class="ic">◎</span>缺陷列表</div>
   <div class="nav-item" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
   <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
   <div class="nav-item" data-view="skills"><span class="ic">✦</span>技能</div>
@@ -25,7 +26,7 @@
     <div class="page-head" id="pageHead">
       <div class="page-head-main">
         <h1 class="page-title" id="ptitle">总览看板</h1>
-        <p class="page-sub" id="psub">基于本地任务的实时概览</p>
+        <p class="page-sub" id="psub">基于本地任务与缺陷源的实时概览</p>
       </div>
       <div class="page-head-actions" id="pageActions">
         <button class="btn-refresh" type="button" onclick="refreshCurrentView()">刷新</button>
@@ -36,8 +37,12 @@
     <section id="view-dashboard">
       <div class="dash-stats">
         <div class="dash-stat">
+          <p class="ds-label">开放缺陷</p>
+          <div class="ds-num red" id="dash-open-issues">-</div>
+        </div>
+        <div class="dash-stat">
           <p class="ds-label">待确认</p>
-          <div class="ds-num red" id="dash-awaiting">-</div>
+          <div class="ds-num blue" id="dash-awaiting">-</div>
         </div>
         <div class="dash-stat">
           <p class="ds-label">进行中</p>
@@ -51,19 +56,36 @@
       <div class="dash-cols">
         <div class="dash-card">
           <div class="dc-head">
+            <h3 class="dc-title">开放缺陷</h3>
+            <span class="dc-link" onclick="switchView('bugs')">全部缺陷</span>
+          </div>
+          <div id="dash-open-issues-list"></div>
+        </div>
+        <div class="dash-card">
+          <div class="dc-head">
             <h3 class="dc-title">待确认任务</h3>
             <span class="dc-link" onclick="switchView('tasks-list')">全部任务</span>
           </div>
           <div id="dash-awaiting-tasks"></div>
         </div>
-        <div class="dash-card">
-          <div class="dc-head">
-            <h3 class="dc-title">进行中</h3>
-            <span class="dc-link" onclick="switchView('tasks-new')">新建任务</span>
-          </div>
-          <div id="dash-active-tasks"></div>
-        </div>
       </div>
+    </section>
+
+    <section id="view-bugs" style="display:none">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <input id="bug-q" placeholder="搜索编号 / 标题 / 标签" onkeydown="if(event.key==='Enter')loadBugs({resetPage:true})">
+        </div>
+        <select id="bug-state" onchange="loadBugs({resetPage:true})">
+          <option value="open">开放</option>
+          <option value="closed">已关闭</option>
+          <option value="all">全部</option>
+        </select>
+        <button class="btn-refresh" type="button" onclick="loadBugs({resetPage:true})">查询</button>
+      </div>
+      <div id="bug-list"></div>
+      <div class="task-pager" id="bugPager"></div>
     </section>
 
     <section id="view-tasks-list" style="display:none">
@@ -173,6 +195,7 @@
 
         <input type="hidden" id="t-type" value="skill">
         <input type="hidden" id="t-title" value="">
+        <input type="hidden" id="t-issue-code" value="">
       </div>
     </section>
 

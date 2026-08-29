@@ -122,15 +122,46 @@ export async function createServer(opts: ServerOptions = {}) {
       lastActivityAt: t.lastActivityAt,
     });
 
+    let openIssues: Array<{
+      code: string;
+      title: string;
+      status: string;
+      severity: string;
+      projectDir: string;
+      url?: string;
+      updatedAt: number;
+    }> = [];
+    let openIssueCount = 0;
+    try {
+      const issueProviderId = db.getSettings().providers.issue || "manual";
+      const provider = getIssueProvider(issueProviderId);
+      const issues = await provider.listIssues({ state: "open", limit: 30 });
+      openIssueCount = issues.length;
+      openIssues = issues.slice(0, 12).map((i) => ({
+        code: i.code,
+        title: i.title,
+        status: i.status,
+        severity: i.severity,
+        projectDir: i.projectDir,
+        url: i.url,
+        updatedAt: i.updatedAt,
+      }));
+    } catch {
+      openIssues = [];
+      openIssueCount = 0;
+    }
+
     return {
       ok: true,
       awaiting_count: awaiting.length,
       active_count: active.length,
       done_week_count: doneWeek.length,
       failed_count: tasks.filter((t) => t.status === "failed").length,
+      open_issue_count: openIssueCount,
       awaiting_tasks: awaiting.slice(0, 12).map(summarize),
       active_tasks: active.slice(0, 12).map(summarize),
       failed_tasks: failedRecent.map(summarize),
+      open_issues: openIssues,
     };
   });
 

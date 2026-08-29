@@ -22,6 +22,13 @@ let SK_FILTER = "all";
 let CURRENT_VIEW = "dashboard";
 let DASH_POLL_TIMER = null;
 
+let BUGS = [];
+let BUG_PAGE = 1;
+const BUG_PAGE_SIZE = 15;
+let BUG_FILTER_KW = "";
+/** @type {Map<string, object>} */
+const ISSUE_CACHE = new Map();
+
 let LOG_ID = null;
 let LOG_TITLE = "";
 let LOG_TIMER = null;
@@ -39,7 +46,8 @@ const STATUS_LABEL = {
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
 
 const VIEW_TITLES = {
-  dashboard: ["总览看板", "基于本地任务的实时概览"],
+  dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
+  bugs: ["缺陷列表", "来自当前 Issue Provider（manual / GitHub 等）"],
   workflows: ["流程编排", "系统模板随安装包提供；创建任务时选择使用"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   "tasks-new": ["新建任务", ""],
@@ -240,9 +248,14 @@ function canContinueTask(t) {
 }
 
 async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  const hasBody = opts.body !== undefined && opts.body !== null;
+  if (hasBody && !headers["content-type"] && !headers["Content-Type"]) {
+    headers["content-type"] = "application/json";
+  }
   const res = await fetch(path, {
-    headers: { "content-type": "application/json", ...(opts.headers || {}) },
     ...opts,
+    headers,
   });
   let data = {};
   try {
@@ -1146,12 +1159,21 @@ async function createTask() {
     } else {
       const skillEl = document.getElementById("t-skill");
       const skill = ((skillEl && skillEl.value) || "default").trim();
+      const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
       const task = await api("/api/tasks", {
         method: "POST",
-        body: JSON.stringify({ title: title || "Untitled", prompt, projectDir, skill }),
+        body: JSON.stringify({
+          title: title || "Untitled",
+          prompt,
+          projectDir,
+          skill,
+          ...(issueCode ? { issueCode } : {}),
+        }),
       });
       pushRecentDir(projectDir);
       toast("任务已创建");
+      const issueEl = document.getElementById("t-issue-code");
+      if (issueEl) issueEl.value = "";
       switchView("tasks-list");
       showLog(task.id);
     }
@@ -1713,6 +1735,7 @@ async function stopProgram() {
 
 function refreshCurrentView() {
   if (CURRENT_VIEW === "dashboard") return loadDashboard(true);
+  if (CURRENT_VIEW === "bugs") return loadBugs({ resetPage: false });
   if (CURRENT_VIEW === "tasks-list") return loadTasks(true);
   if (CURRENT_VIEW === "workflows") return loadWorkflows();
   if (CURRENT_VIEW === "skills") return loadSkills();
@@ -1766,13 +1789,225 @@ function renderDashTaskItem(t, actionLabel) {
   </div>`;
 }
 
+function renderDashIssueItem(i) {
+  const code = esc(i.code || "");
+  const title = esc(i.title || i.code || "-");
+  const sev = String(i.severity || "medium").toLowerCase();
+  const sevLabel = esc(i.severity || "medium");
+  const when = esc(fmtTime(i.updatedAt));
+  const codeAttr = esc(i.code || "").replace(/'/g, "\\'");
+  return `<div class="dash-item">
+    <span class="badge sev-${esc(sev)}">${sevLabel}</span>
+    <div class="di-body">
+      <div class="di-title" title="${title}"><span class="bug-code">${code}</span> ${title}</div>
+      <div class="di-sub">${when}</div>
+    </div>
+    <button type="button" class="btn-outline" onclick="startTaskFromIssue('${codeAttr}')">创建任务</button>
+  </div>`;
+}
+
+function severityBadge(sev) {
+  const s = String(sev || "medium").toLowerCase();
+  const known = ["critical", "high", "medium", "low"].includes(s) ? s : "unknown";
+  return `<span class="badge sev-${known}">${esc(sev || "medium")}</span>`;
+}
+
+function statusBadge(st) {
+  const s = String(st || "open").toLowerCase();
+  const cls = s === "closed" ? "closed" : "open";
+  return `<span class="badge ${cls}">${esc(st || "open")}</span>`;
+}
+
+function matchBugSearch(b, kw) {
+  if (!kw) return true;
+  const labels = (b.labels || []).join(" ");
+  const hay = [b.code, b.title, b.description, b.status, b.severity, labels, b.projectDir]
+    .join(" ")
+    .toLowerCase();
+  return hay.includes(kw);
+}
+
+function renderBugPager(total, page, pageSize) {
+  const pager = document.getElementById("bugPager");
+  if (!pager) return;
+  if (!total) {
+    pager.innerHTML = "";
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const cur = Math.min(Math.max(1, page), pages);
+  if (pages <= 1) {
+    pager.innerHTML = `<span class="task-pager-info">共 ${total} 条</span>`;
+    return;
+  }
+  const from = (cur - 1) * pageSize + 1;
+  const to = Math.min(cur * pageSize, total);
+  pager.innerHTML =
+    `<span class="task-pager-info">共 ${total} 条，当前 ${from}–${to}</span>` +
+    `<button type="button" id="bugPgPrev"${cur <= 1 ? " disabled" : ""}>上一页</button>` +
+    `<span class="pg-num">${cur} / ${pages}</span>` +
+    `<button type="button" id="bugPgNext"${cur >= pages ? " disabled" : ""}>下一页</button>`;
+  const prev = document.getElementById("bugPgPrev");
+  const next = document.getElementById("bugPgNext");
+  if (prev) prev.onclick = () => {
+    BUG_PAGE = cur - 1;
+    renderBugs();
+  };
+  if (next) next.onclick = () => {
+    BUG_PAGE = cur + 1;
+    renderBugs();
+  };
+}
+
+function renderBugs() {
+  const box = document.getElementById("bug-list");
+  if (!box) return;
+  const kw = BUG_FILTER_KW;
+  const list = (BUGS || []).filter((b) => matchBugSearch(b, kw));
+  if (!list.length) {
+    box.innerHTML = '<div class="bug-empty">暂无缺陷</div>';
+    renderBugPager(0, 1, BUG_PAGE_SIZE);
+    return;
+  }
+  const pages = Math.max(1, Math.ceil(list.length / BUG_PAGE_SIZE));
+  if (BUG_PAGE > pages) BUG_PAGE = pages;
+  if (BUG_PAGE < 1) BUG_PAGE = 1;
+  const start = (BUG_PAGE - 1) * BUG_PAGE_SIZE;
+  const pageList = list.slice(start, start + BUG_PAGE_SIZE);
+  const rows = pageList
+    .map((b) => {
+      const code = esc(b.code || "");
+      const codeAttr = esc(b.code || "").replace(/'/g, "\\'");
+      const title = esc(b.title || "");
+      const labels = (b.labels || []).map((l) => esc(l)).join(", ");
+      const when = esc(fmtTime(b.updatedAt));
+      const url = (b.url || "").trim();
+      const link = url
+        ? `<a class="bug-code" href="${esc(url)}" target="_blank" rel="noopener">${code}</a>`
+        : `<span class="bug-code">${code}</span>`;
+      const ops =
+        `<span class="bug-ops">` +
+        `<button type="button" class="btn-fix" data-code="${codeAttr}">创建任务</button>` +
+        (url
+          ? `<button type="button" class="btn-task" data-url="${esc(url)}">打开</button>`
+          : "") +
+        `</span>`;
+      return (
+        `<tr>` +
+        `<td>${link}</td>` +
+        `<td>${statusBadge(b.status)}</td>` +
+        `<td>${severityBadge(b.severity)}</td>` +
+        `<td title="${title}">${title}</td>` +
+        `<td>${labels || "-"}</td>` +
+        `<td>${when}</td>` +
+        `<td>${ops}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+  box.innerHTML =
+    '<table class="bug-table"><thead><tr>' +
+    "<th>编号</th><th>状态</th><th>严重程度</th><th>标题</th><th>标签</th><th>更新</th><th>操作</th>" +
+    `</tr></thead><tbody>${rows}</tbody></table>`;
+  renderBugPager(list.length, BUG_PAGE, BUG_PAGE_SIZE);
+  box.querySelectorAll(".btn-fix").forEach((btn) => {
+    btn.addEventListener("click", () => startTaskFromIssue(btn.dataset.code));
+  });
+  box.querySelectorAll(".btn-task").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.url) window.open(btn.dataset.url, "_blank", "noopener");
+    });
+  });
+}
+
+async function loadBugs(opts = {}) {
+  const box = document.getElementById("bug-list");
+  if (!box) return;
+  if (opts.resetPage) BUG_PAGE = 1;
+  const qEl = document.getElementById("bug-q");
+  const stateEl = document.getElementById("bug-state");
+  BUG_FILTER_KW = ((qEl && qEl.value) || "").trim().toLowerCase();
+  const state = ((stateEl && stateEl.value) || "open").trim();
+  box.innerHTML = '<div class="bug-loading">加载中…</div>';
+  try {
+    const rows = await api(`/api/issues?state=${encodeURIComponent(state)}&limit=100`);
+    BUGS = Array.isArray(rows) ? rows : [];
+    BUGS.forEach((i) => {
+      if (i && i.code) ISSUE_CACHE.set(String(i.code), i);
+    });
+    renderBugs();
+  } catch (e) {
+    BUGS = [];
+    box.innerHTML = `<div class="bug-empty">加载失败: ${esc(e.message || e)}</div>`;
+    renderBugPager(0, 1, BUG_PAGE_SIZE);
+  }
+}
+
+async function startTaskFromIssue(code) {
+  let issue =
+    ISSUE_CACHE.get(String(code)) ||
+    (BUGS || []).find((b) => String(b.code) === String(code)) ||
+    { code, title: code };
+  try {
+    const full = await api(`/api/issues/${encodeURIComponent(code)}`);
+    if (full && full.code) {
+      issue = full;
+      ISSUE_CACHE.set(String(full.code), full);
+    }
+  } catch {
+    /* use cached / minimal */
+  }
+  const title = `${issue.code} ${issue.title || ""}`.trim().slice(0, TITLE_MAX);
+  const desc = (issue.description || "").trim();
+  const prompt = [
+    `请修复缺陷 ${issue.code}：${issue.title || ""}`,
+    desc ? `\n\n描述：\n${desc}` : "",
+    issue.url ? `\n\n链接：${issue.url}` : "",
+  ]
+    .join("")
+    .slice(0, PROMPT_MAX);
+
+  switchView("tasks-new");
+  const mode = document.getElementById("t-mode");
+  if (mode) {
+    mode.value = "skill";
+    onTaskTypeChange();
+  }
+  const titleEl = document.getElementById("t-title");
+  if (titleEl) titleEl.value = title;
+  const promptEl = document.getElementById("t-prompt");
+  if (promptEl) {
+    promptEl.value = prompt;
+    onTaskPromptInput();
+  }
+  const issueEl = document.getElementById("t-issue-code");
+  if (issueEl) issueEl.value = issue.code || code || "";
+  if (issue.projectDir) {
+    const dirEl = document.getElementById("t-dir");
+    if (dirEl) dirEl.value = issue.projectDir;
+    syncWorkspaceLabel();
+  }
+  fillSkillOptions().then(() => {
+    const sel = document.getElementById("t-skill");
+    if (!sel) return;
+    const prefer = ["fix", "bug-fix", "triage"];
+    for (const id of prefer) {
+      if ([...sel.options].some((o) => o.value === id)) {
+        sel.value = id;
+        break;
+      }
+    }
+  });
+  toast(`已填入缺陷 ${issue.code || code}`);
+}
+
 async function loadDashboard(force) {
   const awaitingBox = document.getElementById("dash-awaiting-tasks");
-  const activeBox = document.getElementById("dash-active-tasks");
-  if (!awaitingBox || !activeBox) return;
+  const issuesBox = document.getElementById("dash-open-issues-list");
+  if (!awaitingBox || !issuesBox) return;
   if (force) {
     awaitingBox.innerHTML = '<div class="dash-empty">加载中…</div>';
-    activeBox.innerHTML = '<div class="dash-empty">加载中…</div>';
+    issuesBox.innerHTML = '<div class="dash-empty">加载中…</div>';
   }
   try {
     const d = await api("/api/dashboard");
@@ -1780,22 +2015,26 @@ async function loadDashboard(force) {
       const el = document.getElementById(id);
       if (el) el.textContent = String(n ?? 0);
     };
+    setNum("dash-open-issues", d.open_issue_count);
     setNum("dash-awaiting", d.awaiting_count);
     setNum("dash-active", d.active_count);
     setNum("dash-done-week", d.done_week_count);
+
+    const openIssues = d.open_issues || [];
+    openIssues.forEach((i) => {
+      if (i && i.code) ISSUE_CACHE.set(String(i.code), i);
+    });
+    issuesBox.innerHTML = openIssues.length
+      ? openIssues.map((i) => renderDashIssueItem(i)).join("")
+      : '<div class="dash-empty">暂无开放缺陷</div>';
 
     const awaiting = d.awaiting_tasks || [];
     awaitingBox.innerHTML = awaiting.length
       ? awaiting.map((t) => renderDashTaskItem(t, "处理")).join("")
       : '<div class="dash-empty">暂无待确认事项</div>';
-
-    const active = d.active_tasks || [];
-    activeBox.innerHTML = active.length
-      ? active.map((t) => renderDashTaskItem(t, "查看")).join("")
-      : '<div class="dash-empty">暂无进行中的任务</div>';
   } catch (e) {
     awaitingBox.innerHTML = `<div class="dash-empty">加载失败: ${esc(e.message || e)}</div>`;
-    activeBox.innerHTML = "";
+    issuesBox.innerHTML = "";
   }
 }
 
@@ -1805,7 +2044,7 @@ function switchView(view) {
   if (view !== "dashboard") stopDashPolling();
   CURRENT_VIEW = view;
 
-  ["dashboard", "tasks-list", "tasks-new", "workflows", "skills", "settings"].forEach((v) => {
+  ["dashboard", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
@@ -1815,11 +2054,13 @@ function switchView(view) {
     head.classList.toggle("hidden", view === "settings" || view === "tasks-new");
     head.classList.toggle("tasks-mode", view === "tasks-list");
     head.classList.toggle("dash-mode", view === "dashboard");
+    head.classList.toggle("bugs-mode", view === "bugs");
   }
   const inner = document.querySelector(".main-inner");
   if (inner) {
     inner.classList.toggle("tasks-wide", view === "tasks-list");
     inner.classList.toggle("dash-wide", view === "dashboard");
+    inner.classList.toggle("bugs-wide", view === "bugs");
     inner.classList.toggle("composer-wide", view === "tasks-new");
   }
 
@@ -1843,6 +2084,7 @@ function switchView(view) {
       loadDashboard(true);
       startDashPolling();
     }
+    if (view === "bugs") loadBugs({ resetPage: false });
     if (view === "workflows") loadWorkflows();
     if (view === "skills") loadSkills();
   }
@@ -1884,7 +2126,7 @@ initSettingsUI();
   const view = (URL_PARAMS.get("view") || "").trim();
   if (
     view &&
-    ["dashboard", "workflows", "skills", "tasks-new", "tasks-list", "settings"].includes(view)
+    ["dashboard", "bugs", "workflows", "skills", "tasks-new", "tasks-list", "settings"].includes(view)
   ) {
     switchView(view);
     return;

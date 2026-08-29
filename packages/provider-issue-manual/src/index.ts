@@ -53,6 +53,34 @@ export class ManualIssueProvider implements IssueProvider {
 
 export function registerManualIssueProvider(): ManualIssueProvider {
   const provider = new ManualIssueProvider();
+  // Demo rows so the bugs page is usable before GitHub is configured.
+  void provider.upsertIssue({
+    code: "#demo-1",
+    title: "登录接口偶发 500",
+    status: "open",
+    severity: "high",
+    description: "复现：连续登录 3 次后偶发 500。示例缺陷，可删可改。",
+    projectDir: "",
+    labels: ["demo", "backend"],
+  });
+  void provider.upsertIssue({
+    code: "#demo-2",
+    title: "设置页下拉被裁切",
+    status: "open",
+    severity: "medium",
+    description: "示例：UI overflow。配置 GitHub Issues 后可切换真实缺陷源。",
+    projectDir: "",
+    labels: ["demo", "ui"],
+  });
+  void provider.upsertIssue({
+    code: "#demo-3",
+    title: "历史：通知文案笔误（已关闭示例）",
+    status: "closed",
+    severity: "low",
+    description: "closed 示例，用于筛选验证。",
+    projectDir: "",
+    labels: ["demo"],
+  });
   registerIssueProvider(provider);
   return provider;
 }
