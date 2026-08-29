@@ -73,6 +73,10 @@ let FS_BROWSER_PARENT = "";
 let FS_ENTRIES = [];
 let WS_TAB = "browse";
 let creating = false;
+/** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
+let WS_PICK_PURPOSE = null;
+let LOG_WF_RUN_ID = "";
+let LOG_WF_CACHE = null;
 
 function esc(s) {
   return String(s ?? "")
@@ -684,6 +688,8 @@ async function pollLog() {
       renderReplyChoices(nextChoices);
     }
 
+    await refreshLogWorkflowSteps(d);
+
     if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && d.status === "awaiting" && !running) {
       DEEP_LINK_REPLY_SENT = true;
       const autoReply = DEEP_LINK_REPLY;
@@ -705,10 +711,66 @@ async function pollLog() {
   }
 }
 
+function clearLogWorkflowSteps() {
+  LOG_WF_RUN_ID = "";
+  LOG_WF_CACHE = null;
+  const el = document.getElementById("logWfSteps");
+  if (el) {
+    el.hidden = true;
+    el.innerHTML = "";
+  }
+}
+
+function renderLogWorkflowSteps(run, task) {
+  const el = document.getElementById("logWfSteps");
+  if (!el) return;
+  const nodes = (run && run.nodes) || [];
+  if (!nodes.length) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  const curIdx = Number(run.currentIndex || 0);
+  const step = Number(tField(task, "workflowStep", "workflow_step") || 0);
+  el.hidden = false;
+  el.innerHTML = nodes
+    .map((n, i) => {
+      const st = String(n.status || "pending");
+      const isCurrent =
+        st === "running" ||
+        st === "awaiting" ||
+        (run.status === "running" && i === curIdx) ||
+        (step > 0 && i === step - 1 && (st === "running" || st === "awaiting" || st === "pending"));
+      const label = esc(n.title || n.skill || `步骤 ${i + 1}`);
+      return `<span class="log-wf-step ${esc(st)}${isCurrent ? " current" : ""}" title="${label} · ${esc(st)}">${label}</span>`;
+    })
+    .join("");
+}
+
+async function refreshLogWorkflowSteps(task) {
+  const runId = String(tField(task, "workflowRunId", "workflow_run_id") || "").trim();
+  if (!runId) {
+    clearLogWorkflowSteps();
+    return;
+  }
+  try {
+    if (runId !== LOG_WF_RUN_ID || !LOG_WF_CACHE) {
+      LOG_WF_CACHE = await api(`/api/workflow-runs/${encodeURIComponent(runId)}`);
+      LOG_WF_RUN_ID = runId;
+    } else if (task.status === "running" || task.status === "awaiting") {
+      LOG_WF_CACHE = await api(`/api/workflow-runs/${encodeURIComponent(runId)}`);
+    }
+    renderLogWorkflowSteps(LOG_WF_CACHE, task);
+  } catch {
+    /* keep previous strip if any */
+  }
+}
+
 function showLog(id) {
   LOG_ID = id;
   LOG_TITLE = "";
   LOG_CHOICES_KEY = "";
+  clearLogWorkflowSteps();
   document.getElementById("logMask").classList.add("show");
   document.getElementById("replyInput").value = "";
   pollLog();
@@ -717,6 +779,7 @@ function showLog(id) {
 function closeLog() {
   document.getElementById("logMask").classList.remove("show");
   LOG_ID = null;
+  clearLogWorkflowSteps();
   if (LOG_TIMER) {
     clearInterval(LOG_TIMER);
     LOG_TIMER = null;
@@ -850,15 +913,16 @@ function isWorkspacePickerOpen() {
   return document.getElementById("wsMask")?.classList.contains("show");
 }
 
-function openWorkspacePicker(e) {
+function openWorkspacePicker(e, purpose) {
   if (e && e.stopPropagation) e.stopPropagation();
+  WS_PICK_PURPOSE = purpose || null;
   const mask = document.getElementById("wsMask");
   const btn = document.getElementById("t-workspace-btn");
   if (!mask) return;
   mask.classList.add("show");
   if (btn) btn.setAttribute("aria-expanded", "true");
-  setWsTab("browse");
-  const start = getTaskDir() || "";
+  setWsTab(loadRecentDirs().length ? "recent" : "browse");
+  const start = getTaskDir() || loadRecentDirs()[0] || "";
   loadFsBrowse(start);
   const filter = document.getElementById("ws-filter");
   if (filter) {
@@ -872,6 +936,7 @@ function closeWorkspacePicker() {
   const btn = document.getElementById("t-workspace-btn");
   if (mask) mask.classList.remove("show");
   if (btn) btn.setAttribute("aria-expanded", "false");
+  WS_PICK_PURPOSE = null;
 }
 
 function onWsMaskClick(e) {
@@ -1000,9 +1065,7 @@ function bindFsListNav() {
     if (WS_TAB === "recent") {
       FS_BROWSER_PATH = p;
       syncWsSelected();
-      setTaskDir(p);
-      clearTaskDirErr();
-      closeWorkspacePicker();
+      void confirmWorkspacePath(p);
       return;
     }
     loadFsBrowse(p);
@@ -1043,11 +1106,74 @@ async function fsMkdirPrompt() {
   }
 }
 
+function explainWorkflowStartError(err, wfId) {
+  const msg = String((err && err.message) || err || "").trim();
+  const low = msg.toLowerCase();
+  if (/not_found|not found|workflow not found/i.test(msg)) {
+    return `流程「${wfId}」不存在或未加载。请到「设置 → 缺陷 AI 修复流程」检查，或先同步系统模板。`;
+  }
+  if (/skill|技能/.test(low) || /unknown skill|skill not/.test(low)) {
+    return `流程依赖的技能缺失或无法解析：${msg || "请到「技能」页同步内置技能"}`;
+  }
+  if (/project|workdir|工作区|directory|enoent|not a directory/i.test(msg)) {
+    return `工作区无效：${msg || "请重新选择本地目录"}`;
+  }
+  if (/permission|eacces|denied/i.test(msg)) {
+    return `没有权限访问工作区或启动 Agent：${msg}`;
+  }
+  return `启动流程失败：${msg || "未知错误"}`;
+}
+
+async function startWorkflowRun(workflowId, opts = {}) {
+  const projectDir = String(opts.projectDir || "").trim();
+  if (!projectDir) throw new Error("请选择工作区");
+  const body = {
+    projectDir,
+    title: opts.title,
+    prompt: opts.prompt,
+    ...(opts.issueCode ? { issueCode: opts.issueCode } : {}),
+  };
+  const run = await api(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  pushRecentDir(projectDir);
+  return run;
+}
+
+async function confirmWorkspacePath(path) {
+  const dir = String(path || "").trim();
+  if (!dir) return;
+  const purpose = WS_PICK_PURPOSE;
+  setTaskDir(dir);
+  clearTaskDirErr();
+  // Clear purpose before close so closeWorkspacePicker doesn't wipe mid-flight incorrectly
+  WS_PICK_PURPOSE = null;
+  const mask = document.getElementById("wsMask");
+  const btn = document.getElementById("t-workspace-btn");
+  if (mask) mask.classList.remove("show");
+  if (btn) btn.setAttribute("aria-expanded", "false");
+
+  if (purpose && purpose.type === "workflow" && purpose.workflowId) {
+    try {
+      const run = await startWorkflowRun(purpose.workflowId, {
+        projectDir: dir,
+        title: purpose.title,
+        prompt: purpose.prompt,
+        issueCode: purpose.issueCode,
+      });
+      toast("流程已启动");
+      switchView("tasks-list");
+      if (run.parentTaskId) showLog(run.parentTaskId);
+    } catch (e) {
+      toast(explainWorkflowStartError(e, purpose.workflowId));
+    }
+  }
+}
+
 function fsSelectCurrent() {
   if (!FS_BROWSER_PATH) return;
-  setTaskDir(FS_BROWSER_PATH);
-  clearTaskDirErr();
-  closeWorkspacePicker();
+  void confirmWorkspacePath(FS_BROWSER_PATH);
 }
 
 function loadRecentDirs() {
@@ -1403,24 +1529,15 @@ function setWorkflowFilter(v) {
 }
 
 async function runWorkflow(id) {
-  const projectDir = document.getElementById("t-dir")?.value?.trim() || undefined;
-  if (!projectDir) {
-    toast("请先在「新建任务」页选择工作区，或打开新建任务选好目录后再运行");
-    switchView("tasks-new");
+  if (!id) return;
+  const existing = (document.getElementById("t-dir")?.value || "").trim() || loadRecentDirs()[0] || "";
+  if (existing) {
+    // Still confirm via picker so user can change; preselect recent tab
+    openWorkspacePicker(null, { type: "workflow", workflowId: id });
     return;
   }
-  try {
-    const run = await api(`/api/workflows/${encodeURIComponent(id)}/run`, {
-      method: "POST",
-      body: JSON.stringify({ projectDir }),
-    });
-    toast("流程已启动");
-    pushRecentDir(projectDir);
-    switchView("tasks-list");
-    if (run.parentTaskId) showLog(run.parentTaskId);
-  } catch (e) {
-    toast(`启动失败: ${e.message || e}`);
-  }
+  openWorkspacePicker(null, { type: "workflow", workflowId: id });
+  toast("请选择工作区后启动流程");
 }
 
 async function deleteWorkflow(id) {
@@ -2474,82 +2591,76 @@ async function startTaskFromIssue(code) {
     (document.getElementById("t-dir")?.value || "").trim() ||
     (loadRecentDirs()[0] || "");
 
+  const fillSkillComposer = () => {
+    switchView("tasks-new");
+    const mode = document.getElementById("t-mode");
+    if (mode) {
+      mode.value = "skill";
+      onTaskTypeChange();
+    }
+    const titleEl = document.getElementById("t-title");
+    if (titleEl) titleEl.value = title;
+    const promptEl = document.getElementById("t-prompt");
+    if (promptEl) {
+      promptEl.value = prompt;
+      onTaskPromptInput();
+    }
+    const issueEl = document.getElementById("t-issue-code");
+    if (issueEl) issueEl.value = issue.code || code || "";
+    if (projectDir) {
+      const dirEl = document.getElementById("t-dir");
+      if (dirEl) dirEl.value = projectDir;
+      syncWorkspaceLabel();
+    }
+    fillSkillOptions().then(() => {
+      const sel = document.getElementById("t-skill");
+      if (!sel) return;
+      const prefer = ["fix", "bug-fix", "triage"];
+      for (const id of prefer) {
+        if ([...sel.options].some((o) => o.value === id)) {
+          sel.value = id;
+          break;
+        }
+      }
+    });
+  };
+
   if (usePipeline) {
+    const purpose = {
+      type: "workflow",
+      workflowId: wfId,
+      title,
+      prompt,
+      issueCode: issue.code || code,
+    };
     if (!projectDir) {
-      // Prefill composer in workflow mode for user to pick workspace
-      switchView("tasks-new");
-      const mode = document.getElementById("t-mode");
-      if (mode) {
-        mode.value = "workflow";
-        onTaskTypeChange();
-      }
-      const titleEl = document.getElementById("t-title");
-      if (titleEl) titleEl.value = title;
-      const promptEl = document.getElementById("t-prompt");
-      if (promptEl) {
-        promptEl.value = prompt;
-        onTaskPromptInput();
-      }
-      const issueEl = document.getElementById("t-issue-code");
-      if (issueEl) issueEl.value = issue.code || code || "";
-      fillWorkflowOptions().then(() => {
-        const sel = document.getElementById("t-workflow");
-        if (sel && [...sel.options].some((o) => o.value === wfId)) sel.value = wfId;
-      });
-      toast(`请选择工作区后启动流程（默认 ${wfId}）`);
+      openWorkspacePicker(null, purpose);
+      toast(`请选择工作区以启动流程「${wfId}」`);
       return;
     }
     try {
-      const run = await api(`/api/workflows/${encodeURIComponent(wfId)}/run`, {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          prompt,
-          projectDir,
-          issueCode: issue.code || code,
-        }),
+      const run = await startWorkflowRun(wfId, {
+        projectDir,
+        title,
+        prompt,
+        issueCode: issue.code || code,
       });
-      pushRecentDir(projectDir);
       toast(`已启动流程 ${wfId}`);
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
       return;
     } catch (e) {
-      toast(`启动流程失败: ${e.message || e}，改为技能任务`);
+      const detail = explainWorkflowStartError(e, wfId);
+      toast(detail);
+      if (confirm(`${detail}\n\n是否改为技能模式手动创建任务？`)) {
+        fillSkillComposer();
+        toast(`已填入缺陷 ${issue.code || code}（技能模式）`);
+      }
+      return;
     }
   }
 
-  switchView("tasks-new");
-  const mode = document.getElementById("t-mode");
-  if (mode) {
-    mode.value = "skill";
-    onTaskTypeChange();
-  }
-  const titleEl = document.getElementById("t-title");
-  if (titleEl) titleEl.value = title;
-  const promptEl = document.getElementById("t-prompt");
-  if (promptEl) {
-    promptEl.value = prompt;
-    onTaskPromptInput();
-  }
-  const issueEl = document.getElementById("t-issue-code");
-  if (issueEl) issueEl.value = issue.code || code || "";
-  if (projectDir) {
-    const dirEl = document.getElementById("t-dir");
-    if (dirEl) dirEl.value = projectDir;
-    syncWorkspaceLabel();
-  }
-  fillSkillOptions().then(() => {
-    const sel = document.getElementById("t-skill");
-    if (!sel) return;
-    const prefer = ["fix", "bug-fix", "triage"];
-    for (const id of prefer) {
-      if ([...sel.options].some((o) => o.value === id)) {
-        sel.value = id;
-        break;
-      }
-    }
-  });
+  fillSkillComposer();
   toast(`已填入缺陷 ${issue.code || code}`);
 }
 

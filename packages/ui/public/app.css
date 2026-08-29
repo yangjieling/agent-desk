@@ -259,6 +259,16 @@
   .modal-head .mt { font-weight: 600; font-size: 15px; flex: 1; min-width: 0;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .modal-head .mc { cursor: pointer; font-size: 20px; color: #909399; border: none; background: none; }
+  .log-wf-steps { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px; border-bottom: 1px solid #eceef1;
+                  background: #fafbfc; }
+  .log-wf-steps[hidden] { display: none !important; }
+  .log-wf-step { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: #f0f1f3; color: #5f6368;
+                 border: 1px solid transparent; }
+  .log-wf-step.done { background: #e6f4ea; color: #1e7e34; }
+  .log-wf-step.running, .log-wf-step.awaiting { background: #e7f0ff; color: #2f6feb; border-color: #c9daf8; }
+  .log-wf-step.failed, .log-wf-step.stopped { background: #fdecea; color: #c0392b; }
+  .log-wf-step.pending { background: #f5f6f8; color: #9aa0a6; }
+  .log-wf-step.current { font-weight: 600; }
   .modal-body { flex: 1; overflow-y: auto; margin: 0; padding: 16px 18px; background: #0f1115;
                 color: #d6dae0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                 font-size: 12.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
