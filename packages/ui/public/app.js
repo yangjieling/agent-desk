@@ -1270,9 +1270,7 @@ function renderSkillItem(s) {
   const id = esc(s.id || "");
   const name = esc(s.name || s.id || "-");
   const desc = esc(s.description || "（无描述）");
-  const kind = s.managed || s.source === "bundled" ? "内置" : skillSourceLabel(s.source);
-  const ver = s.version ? ` · v${esc(s.version)}` : "";
-  const meta = `${esc(kind)}${ver}`;
+  const ver = s.version ? `<div class="sk-ver">v${esc(s.version)}</div>` : "";
   const letter = esc((s.name || s.id || "?").charAt(0).toUpperCase());
   const uninstallBtn = s.removable
     ? `<button class="btn-stop" type="button" onclick="uninstallSkill('${id}')">卸载</button>`
@@ -1282,7 +1280,7 @@ function renderSkillItem(s) {
     <div class="sk-info">
       <div class="n">${name}</div>
       <div class="d">${desc}</div>
-      <div class="sk-ver">${meta}</div>
+      ${ver}
     </div>
     <div class="sk-right">
       <div class="sk-act" style="display:flex">
