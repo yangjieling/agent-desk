@@ -293,8 +293,8 @@
   </div>
 </main>
 
-<div class="modal-mask" id="logMask">
-  <div class="modal">
+<div class="modal-mask" id="logMask" onclick="onLogMaskClick(event)">
+  <div class="modal" onclick="event.stopPropagation()">
     <div class="modal-head">
       <span class="mt" id="logTitle">执行日志</span>
       <div style="display:flex;gap:8px;align-items:center">

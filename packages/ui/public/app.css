@@ -350,8 +350,25 @@
   .task-row .tr-meta .bug-code { color: #646a73; }
   .task-row .tr-status { flex-shrink: 0; min-width: 56px; text-align: right;
                          font-size: 13px; color: #5f6368; }
-  .task-row .tr-actions { display: flex; gap: 6px; flex-shrink: 0; }
-  .task-row .tr-actions button { padding: 5px 10px; font-size: 12px; }
+  .task-row .tr-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+  .task-row .tr-actions .tr-icon-btn {
+    width: 30px; height: 30px; padding: 0; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid #e5e7eb; background: #fff; color: #4b5563;
+    cursor: pointer; line-height: 0; flex-shrink: 0;
+  }
+  .task-row .tr-actions .tr-icon-btn svg { width: 15px; height: 15px; display: block; }
+  .task-row .tr-actions .tr-icon-btn:hover:not(:disabled) { background: #f5f6f8; }
+  .task-row .tr-actions .tr-icon-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .task-row .tr-actions .tr-icon-play { color: #1e7e34; border-color: #cde7d3; }
+  .task-row .tr-actions .tr-icon-play:hover:not(:disabled) { background: #e9f7ee; }
+  .task-row .tr-actions .tr-icon-stop,
+  .task-row .tr-actions .tr-icon-del { color: #c0392b; border-color: #f3c6cb; }
+  .task-row .tr-actions .tr-icon-stop:hover:not(:disabled),
+  .task-row .tr-actions .tr-icon-del:hover:not(:disabled) { background: #fdeaea; }
+  .task-row .tr-actions .tr-icon-handle { color: #2f6feb; border-color: #c9daf8; }
+  .task-row .tr-actions .tr-icon-handle:hover:not(:disabled) { background: #eaf1fe; }
+  .task-row .tr-actions .tr-icon-log { color: #4b5563; }
   .task-group { border-bottom: 1px solid #f0f1f3; background: #fff; }
   .task-group:last-child { border-bottom: none; }
   .task-group > .task-row { border-bottom: none; }

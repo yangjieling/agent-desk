@@ -327,6 +327,38 @@ function stopTaskPolling() {
   }
 }
 
+function taskIconSvg(kind) {
+  const common = 'viewBox="0 0 24 24" fill="none" aria-hidden="true"';
+  if (kind === "play") {
+    return `<svg ${common}><path d="M8 6.5v11l10-5.5L8 6.5z" fill="currentColor"/></svg>`;
+  }
+  if (kind === "stop") {
+    return `<svg ${common}><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>`;
+  }
+  if (kind === "log") {
+    return `<svg ${common}><path d="M8 7h8M8 12h8M8 17h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="4.5" y="3.5" width="15" height="17" rx="2.5" stroke="currentColor" stroke-width="1.8"/></svg>`;
+  }
+  if (kind === "handle") {
+    return `<svg ${common}><path d="M5.5 6.5A2.5 2.5 0 018 4h8a2.5 2.5 0 012.5 2.5v7A2.5 2.5 0 0116 16h-3.2L9 19.2V16H8A2.5 2.5 0 015.5 13.5v-7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  }
+  if (kind === "del") {
+    return `<svg ${common}><path d="M9 10v7M12 10v7M15 10v7M5 7h14M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M6.5 7l.8 12.2A1.5 1.5 0 008.8 20.5h6.4a1.5 1.5 0 001.5-1.3L17.5 7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  }
+  return "";
+}
+
+function taskIconBtn({ act, id, kind, label, disabled }) {
+  const cls = `tr-icon-btn tr-icon-${kind}`;
+  const dis = disabled ? " disabled" : "";
+  const actAttr = act ? ` data-act="${esc(act)}"` : "";
+  const idAttr = id ? ` data-id="${esc(id)}"` : "";
+  return (
+    `<button type="button" class="${cls}"${actAttr}${idAttr}` +
+    ` title="${esc(label)}" aria-label="${esc(label)}"${dis}>` +
+    `${taskIconSvg(kind)}</button>`
+  );
+}
+
 function renderKanbanCard(t) {
   const id = esc(t.id || "");
   const skill = esc(tField(t, "skill", "skill") || "default");
@@ -365,20 +397,19 @@ function renderListRow(t, opts = {}) {
   metaParts.push(`活动 ${act}`);
   let ops = "";
   if (awaiting) {
-    ops += `<button class="btn-install" data-act="log" data-id="${id}">处理</button>`;
-    ops += `<button class="btn-stop" data-act="stop" data-id="${id}">停止</button>`;
+    ops += taskIconBtn({ act: "log", id, kind: "handle", label: "处理" });
+    ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "停止" });
   } else if (running) {
-    ops += `<button class="btn-run" disabled>执行中…</button>`;
-    ops += `<button class="btn-stop" data-act="stop" data-id="${id}">停止</button>`;
+    ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "停止" });
   } else if (canContinue) {
-    ops += `<button class="btn-run" data-act="continue" data-id="${id}">继续</button>`;
+    ops += taskIconBtn({ act: "continue", id, kind: "play", label: "继续" });
   }
-  ops += `<button class="btn-refresh" data-act="log" data-id="${id}">日志</button>`;
-  if (!isChild) ops += `<button class="btn-uninstall" data-act="del" data-id="${id}">删除</button>`;
+  ops += taskIconBtn({ act: "log", id, kind: "log", label: "日志" });
+  if (!isChild) ops += taskIconBtn({ act: "del", id, kind: "del", label: "删除" });
   const hasChildren = !!opts.hasChildren;
   const expanded = !!opts.expanded;
   const expandBtn = hasChildren
-    ? `<button type="button" class="tr-expand${expanded ? " open" : ""}" data-act="toggle-group" data-id="${id}">▸</button>`
+    ? `<button type="button" class="tr-expand${expanded ? " open" : ""}" data-act="toggle-group" data-id="${id}" title="展开/收起" aria-label="展开/收起">▸</button>`
     : '<span class="tr-expand-spacer"></span>';
   const modeTag = !isChild && isSharedWorkflow(t)
     ? '<span class="tag tag-mode-shared">共享</span> '
@@ -682,6 +713,24 @@ function closeLog() {
     clearInterval(LOG_TIMER);
     LOG_TIMER = null;
   }
+}
+
+function isLogOpen() {
+  return !!document.getElementById("logMask")?.classList.contains("show");
+}
+
+function onLogMaskClick(e) {
+  if (e.target === e.currentTarget) closeLog();
+}
+
+function bindLogModalClose() {
+  if (document.body.dataset.logModalBound) return;
+  document.body.dataset.logModalBound = "1";
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !isLogOpen()) return;
+    e.preventDefault();
+    closeLog();
+  });
 }
 
 function onTaskTypeChange() {
@@ -2183,6 +2232,7 @@ document.addEventListener("visibilitychange", () => {
 
 loadHealth();
 initSettingsUI();
+bindLogModalClose();
 
 (function initDeepLink() {
   const logId = URL_PARAMS.get("log") || URL_PARAMS.get("task");
