@@ -36,6 +36,13 @@ let LOG_ID = null;
 let LOG_TITLE = "";
 let LOG_TIMER = null;
 let LOG_CHOICES_KEY = "";
+let LOG_VIEW_MODE = "timeline"; // timeline | raw
+let LOG_RENDER_SIG = "";
+let LOG_PENDING_USER = "";
+/** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
+let WS_PICK_PURPOSE = null;
+let LOG_WF_RUN_ID = "";
+let LOG_WF_CACHE = null;
 
 const STATUS_LABEL = {
   created: "待执行",
@@ -73,10 +80,6 @@ let FS_BROWSER_PARENT = "";
 let FS_ENTRIES = [];
 let WS_TAB = "browse";
 let creating = false;
-/** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
-let WS_PICK_PURPOSE = null;
-let LOG_WF_RUN_ID = "";
-let LOG_WF_CACHE = null;
 
 function esc(s) {
   return String(s ?? "")
@@ -245,6 +248,303 @@ function parseGate(text) {
     heading: headingMatch ? `闸门「${headingMatch[1]}」` : "闸门",
     choices,
   };
+}
+
+function isAbortChoice(label, value) {
+  const s = `${label || ""} ${value || ""}`;
+  return /先不修|暂不修|skip|cancel|不处理|不修了/i.test(s);
+}
+
+function prettyJson(obj) {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return String(obj ?? "");
+  }
+}
+
+function extractTextFromContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return String(content ?? "");
+  return content
+    .map((c) => {
+      if (!c || typeof c !== "object") return "";
+      if (c.type === "text") return String(c.text || "");
+      if (typeof c.text === "string") return c.text;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function extractToolsFromContent(content) {
+  if (!Array.isArray(content)) return [];
+  const tools = [];
+  for (const c of content) {
+    if (!c || typeof c !== "object") continue;
+    if (c.type === "tool_use" || c.name) {
+      tools.push({
+        name: String(c.name || c.tool || "tool"),
+        input: c.input ?? c.arguments ?? c,
+        id: c.id || "",
+      });
+    }
+  }
+  return tools;
+}
+
+function pushTimelineItem(items, type, text, extra) {
+  const body = String(text || "").trim();
+  if (!body && type !== "tool") return;
+  const last = items[items.length - 1];
+  if (last && last.type === type && type === "assistant" && body) {
+    last.text = `${last.text}\n${body}`.trim();
+    return;
+  }
+  items.push({ type, text: body, ...(extra || {}) });
+}
+
+function parseLogTimeline(raw) {
+  const text = String(raw || "");
+  const items = [];
+  if (!text.trim()) return items;
+
+  const lines = text.split("\n");
+  let plainBuf = [];
+  const flushPlain = () => {
+    const chunk = plainBuf.join("\n").trim();
+    plainBuf = [];
+    if (!chunk) return;
+    if (/^##\s*user\b/i.test(chunk) || /^\[user abort:/i.test(chunk)) {
+      const userText = chunk
+        .replace(/^##\s*user\s*/i, "")
+        .replace(/^\[user abort:\s*/i, "")
+        .replace(/\]\s*$/, "")
+        .trim();
+      pushTimelineItem(items, "user", userText || chunk);
+      return;
+    }
+    if (/##\s*闸门|##\s*hb-choices/.test(chunk)) {
+      pushTimelineItem(items, "gate", chunk);
+      return;
+    }
+    pushTimelineItem(items, "assistant", chunk);
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      plainBuf.push(line);
+      continue;
+    }
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const evt = JSON.parse(trimmed);
+        flushPlain();
+        const type = String(evt.type || "");
+        if (type === "assistant") {
+          const content = evt.message && evt.message.content;
+          const textPart = extractTextFromContent(content);
+          const tools = extractToolsFromContent(content);
+          if (textPart) pushTimelineItem(items, "assistant", textPart);
+          for (const t of tools) {
+            pushTimelineItem(items, "tool", t.name, { toolName: t.name, detail: prettyJson(t.input) });
+          }
+        } else if (type === "user") {
+          const content = evt.message && evt.message.content;
+          const textPart = extractTextFromContent(content);
+          const toolResults = Array.isArray(content)
+            ? content.filter((c) => c && c.type === "tool_result")
+            : [];
+          if (toolResults.length) {
+            for (const tr of toolResults) {
+              const detail =
+                typeof tr.content === "string"
+                  ? tr.content
+                  : prettyJson(tr.content ?? tr);
+              pushTimelineItem(items, "tool", "tool_result", {
+                toolName: "结果",
+                detail: String(detail).slice(0, 4000),
+              });
+            }
+          } else if (textPart) {
+            pushTimelineItem(items, "user", textPart);
+          }
+        } else if (type === "result") {
+          const summary = evt.result != null ? String(evt.result) : "";
+          if (summary && summary !== "null") {
+            pushTimelineItem(items, "system", summary.slice(0, 2000));
+          }
+        } else if (type === "system" || type === "error") {
+          const msg = evt.message || evt.error || evt.subtype || type;
+          pushTimelineItem(items, "system", typeof msg === "string" ? msg : prettyJson(msg));
+        }
+        // ignore turn_end / stream noise
+        continue;
+      } catch {
+        /* fall through as plain */
+      }
+    }
+    plainBuf.push(line);
+  }
+  flushPlain();
+
+  // Prefer not duplicating trailing open gate blob as assistant if we also show gate card
+  return items;
+}
+
+function renderLogMeta(task) {
+  const el = document.getElementById("logMeta");
+  if (!el || !task) return;
+  const chips = [];
+  const st = task.status || "";
+  chips.push(`<span class="log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st || "-")}</span>`);
+  const skill = tField(task, "skill", "skill");
+  if (skill) chips.push(`<span class="log-meta-chip">技能 ${esc(skill)}</span>`);
+  const wf = tField(task, "workflowName", "workflow_name");
+  const step = Number(tField(task, "workflowStep", "workflow_step") || 0);
+  const total = Number(tField(task, "workflowStepTotal", "workflow_step_total") || 0);
+  if (wf) {
+    chips.push(
+      `<span class="log-meta-chip">${esc(wf)}${total > 0 ? ` · ${step}/${total}` : ""}</span>`,
+    );
+  }
+  const issue = tField(task, "issueCode", "issue_code");
+  if (issue) chips.push(`<span class="log-meta-chip bug-code">${esc(issue)}</span>`);
+  const proj = shortPath(tField(task, "projectDir", "project_dir"));
+  if (proj && proj !== "-") chips.push(`<span class="log-meta-chip" title="${esc(tField(task, "projectDir", "project_dir"))}">${esc(proj)}</span>`);
+  el.innerHTML = chips.join("");
+}
+
+function renderLogTimeline(items) {
+  const box = document.getElementById("logTimeline");
+  if (!box) return;
+  const list = items.slice();
+  if (LOG_PENDING_USER) {
+    const already = list.some(
+      (it) => it.type === "user" && String(it.text || "").includes(LOG_PENDING_USER),
+    );
+    if (!already) list.push({ type: "user", text: LOG_PENDING_USER });
+  }
+  if (!list.length) {
+    box.innerHTML = '<div class="log-empty">暂无输出，等待 Agent 开始…</div>';
+    return;
+  }
+  box.innerHTML = list
+    .map((it) => {
+      const type = it.type || "assistant";
+      if (type === "tool") {
+        const name = esc(it.toolName || it.text || "tool");
+        const detail = esc(it.detail || "");
+        return `<div class="log-item tool">
+          <div class="li-head"><span class="li-role">工具</span></div>
+          <details>
+            <summary>${name}</summary>
+            <pre>${detail || "(无参数)"}</pre>
+          </details>
+        </div>`;
+      }
+      const role =
+        type === "user" ? "你" : type === "gate" ? "闸门" : type === "system" ? "系统" : "助手";
+      const bodyText =
+        type === "gate"
+          ? String(it.text || "")
+              .replace(/##\s*hb-choices[\s\S]*$/i, "")
+              .trim() || it.text
+          : it.text;
+      return `<div class="log-item ${esc(type)}">
+        <div class="li-head"><span class="li-role">${role}</span></div>
+        <div class="li-body">${esc(bodyText || "")}</div>
+      </div>`;
+    })
+    .join("");
+}
+
+function timelineForDisplay(raw, awaiting) {
+  let items = parseLogTimeline(raw);
+  if (awaiting) {
+    // Gate card owns the decision UI; drop trailing gate blobs from the stream.
+    while (items.length && items[items.length - 1].type === "gate") items.pop();
+  }
+  return items;
+}
+
+function scrollLogToBottom(force) {
+  const scroll = document.getElementById("logScroll");
+  if (!scroll) return;
+  const nearBottom = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 48;
+  if (force || nearBottom) scroll.scrollTop = scroll.scrollHeight;
+}
+
+function renderLogGateCard(gate, awaiting) {
+  const card = document.getElementById("logGateCard");
+  if (!card) return;
+  if (!awaiting || !gate || !(gate.choices || []).length) {
+    card.hidden = true;
+    card.innerHTML = "";
+    return;
+  }
+  card.hidden = false;
+  const choices = gate.choices
+    .map((c) => {
+      const danger = isAbortChoice(c.label, c.value) ? " danger" : "";
+      return `<button type="button" class="lg-choice${danger}" data-value="${esc(c.value)}">${esc(c.label || c.value)}</button>`;
+    })
+    .join("");
+  card.innerHTML =
+    `<p class="lg-title">${esc(gate.heading || "需要确认")}</p>` +
+    `<p class="lg-hint">请选择一项以继续；也可在下方输入自定义回复。</p>` +
+    `<div class="lg-choices">${choices}</div>`;
+  card.querySelectorAll(".lg-choice").forEach((btn) => {
+    btn.onclick = () => sendReply(btn.dataset.value);
+  });
+}
+
+function logViewToggleSvg(isRaw) {
+  const common = 'viewBox="0 0 24 24" fill="none" aria-hidden="true"';
+  if (isRaw) {
+    // chat bubble → switch back to session view
+    return `<svg ${common}><path d="M5.5 6.5A2.5 2.5 0 018 4h8a2.5 2.5 0 012.5 2.5v7A2.5 2.5 0 0116 16h-3.2L9 19.2V16H8A2.5 2.5 0 015.5 13.5v-7z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>`;
+  }
+  // code brackets → switch to raw view
+  return `<svg ${common}><path d="M9 7.5L5.5 12 9 16.5M15 7.5L18.5 12 15 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
+function applyLogViewMode() {
+  const timeline = document.getElementById("logTimeline");
+  const raw = document.getElementById("logBody");
+  const toggle = document.getElementById("logViewToggle");
+  const isRaw = LOG_VIEW_MODE === "raw";
+  if (timeline) timeline.hidden = isRaw;
+  if (raw) raw.hidden = !isRaw;
+  if (toggle) {
+    const label = isRaw ? "会话" : "原始";
+    toggle.title = label;
+    toggle.setAttribute("aria-label", label);
+    toggle.innerHTML = logViewToggleSvg(isRaw);
+  }
+}
+
+function toggleLogView() {
+  LOG_VIEW_MODE = LOG_VIEW_MODE === "raw" ? "timeline" : "raw";
+  applyLogViewMode();
+  const scroll = document.getElementById("logScroll");
+  if (scroll) scroll.scrollTop = scroll.scrollHeight;
+}
+
+function renderLogTitle(status, title) {
+  const name = (title || "").trim();
+  const st = STATUS_LABEL[status] || status || "";
+  if (name && st) return `${name}`;
+  if (name) return name;
+  return "任务会话";
+}
+
+function setLogTitleEl(status, title) {
+  const el = document.getElementById("logTitle");
+  const name = (title || "").trim();
+  el.textContent = renderLogTitle(status, name);
+  el.title = name || "";
 }
 
 function canContinueTask(t) {
@@ -558,21 +858,6 @@ document.getElementById("taskBoardToggle").addEventListener("click", () => {
   document.getElementById("taskBoard").classList.toggle("collapsed");
 });
 
-function renderLogTitle(status, title) {
-  const name = (title || "").trim();
-  const st = STATUS_LABEL[status] || status || "";
-  if (name && st) return `执行日志 · ${name} · ${st}`;
-  if (name) return `执行日志 · ${name}`;
-  return "执行日志";
-}
-
-function setLogTitleEl(status, title) {
-  const el = document.getElementById("logTitle");
-  const name = (title || "").trim();
-  el.textContent = renderLogTitle(status, name);
-  el.title = name;
-}
-
 async function stopTask(id) {
   if (!id) return;
   if (!confirm("确定停止该任务？正在执行的 Agent 将被中断。")) return;
@@ -638,6 +923,16 @@ async function sendReply(preset) {
   const reply = (preset || input.value || "").trim();
   if (!reply) return;
   input.value = "";
+  LOG_PENDING_USER = reply;
+  LOG_RENDER_SIG = "";
+  // optimistic paint
+  try {
+    const cur = TASKS.find((t) => t.id === LOG_ID);
+    renderLogTimeline(timelineForDisplay((cur && cur.result) || "", false));
+    scrollLogToBottom(true);
+  } catch {
+    /* ignore */
+  }
   try {
     await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/resume`, {
       method: "POST",
@@ -647,7 +942,9 @@ async function sendReply(preset) {
     await loadTasks();
     await pollLog();
   } catch (e) {
+    LOG_PENDING_USER = "";
     toast(`发送失败: ${e.message || e}`);
+    await pollLog();
   }
 }
 
@@ -662,35 +959,67 @@ async function pollLog() {
   if (!LOG_ID) return;
   try {
     const d = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}`);
-    const body = document.getElementById("logBody");
-    const atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 30;
-    body.textContent = d.result || "(暂无输出)";
-    if (atBottom) body.scrollTop = body.scrollHeight;
+    const raw = d.result || "";
+    const running = d.status === "running";
+    const awaiting = d.status === "awaiting";
+    const gate = awaiting ? parseGate(raw) : null;
+
+    if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
+      LOG_PENDING_USER = "";
+    }
+
+    const timeline = timelineForDisplay(raw, awaiting);
+    const sig = [
+      d.status,
+      raw.length,
+      timeline.length,
+      LOG_VIEW_MODE,
+      LOG_PENDING_USER,
+      gate ? gate.heading : "",
+      (gate && gate.choices && gate.choices.length) || 0,
+    ].join("|");
+
     setLogTitleEl(d.status, d.title || LOG_TITLE);
     if (d.title) LOG_TITLE = d.title;
+    renderLogMeta(d);
+    renderLogGateCard(gate, awaiting);
+    applyLogViewMode();
 
-    const running = d.status === "running";
+    const body = document.getElementById("logBody");
+    if (body) body.textContent = raw || "(暂无输出)";
+
+    if (sig !== LOG_RENDER_SIG) {
+      LOG_RENDER_SIG = sig;
+      renderLogTimeline(timeline);
+      scrollLogToBottom(false);
+    }
+
     const stopBtn = document.getElementById("logStopBtn");
-    if (stopBtn) stopBtn.style.display = running || d.status === "awaiting" ? "" : "none";
+    if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
 
     const contBtn = document.getElementById("logContinueBtn");
-    if (contBtn) contBtn.style.display = !running && canContinueTask(d) && d.status !== "awaiting" ? "" : "none";
+    if (contBtn) contBtn.style.display = !running && canContinueTask(d) && !awaiting ? "" : "none";
 
     const rb = document.getElementById("replyBox");
     const canChat = !running && ["awaiting", "done", "failed", "stopped"].includes(d.status);
-    rb.classList.toggle("show", canChat);
+    if (rb) rb.classList.toggle("show", canChat);
 
-    const gate = d.status === "awaiting" ? parseGate(d.result || "") : null;
-    const nextChoices = gate && gate.choices.length ? gate.choices : [];
-    const nextKey = JSON.stringify(nextChoices);
-    if (nextKey !== LOG_CHOICES_KEY) {
-      LOG_CHOICES_KEY = nextKey;
-      renderReplyChoices(nextChoices);
+    // Gate card already shows choices while awaiting; keep chips for other statuses only.
+    if (awaiting && gate && (gate.choices || []).length) {
+      LOG_CHOICES_KEY = "";
+      renderReplyChoices([]);
+    } else {
+      const nextChoices = gate && gate.choices.length ? gate.choices : [];
+      const nextKey = JSON.stringify(nextChoices);
+      if (nextKey !== LOG_CHOICES_KEY) {
+        LOG_CHOICES_KEY = nextKey;
+        renderReplyChoices(nextChoices);
+      }
     }
 
     await refreshLogWorkflowSteps(d);
 
-    if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && d.status === "awaiting" && !running) {
+    if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && awaiting && !running) {
       DEEP_LINK_REPLY_SENT = true;
       const autoReply = DEEP_LINK_REPLY;
       DEEP_LINK_REPLY = "";
@@ -700,15 +1029,43 @@ async function pollLog() {
       setTimeout(() => sendReply(autoReply), 200);
     }
 
-    if (running || d.status === "awaiting") {
+    if (running || awaiting) {
       if (!LOG_TIMER) LOG_TIMER = setInterval(pollLog, 2000);
     } else if (LOG_TIMER) {
       clearInterval(LOG_TIMER);
       LOG_TIMER = null;
     }
   } catch (e) {
-    document.getElementById("logBody").textContent = e.message || String(e);
+    const body = document.getElementById("logBody");
+    const timeline = document.getElementById("logTimeline");
+    const msg = e.message || String(e);
+    if (body) body.textContent = msg;
+    if (timeline) timeline.innerHTML = `<div class="log-empty">${esc(msg)}</div>`;
   }
+}
+
+function showLog(id) {
+  LOG_ID = id;
+  LOG_TITLE = "";
+  LOG_CHOICES_KEY = "";
+  LOG_RENDER_SIG = "";
+  LOG_PENDING_USER = "";
+  LOG_VIEW_MODE = "timeline";
+  clearLogWorkflowSteps();
+  applyLogViewMode();
+  document.getElementById("logMask").classList.add("show");
+  const input = document.getElementById("replyInput");
+  if (input) input.value = "";
+  const meta = document.getElementById("logMeta");
+  if (meta) meta.innerHTML = "";
+  const gate = document.getElementById("logGateCard");
+  if (gate) {
+    gate.hidden = true;
+    gate.innerHTML = "";
+  }
+  const timeline = document.getElementById("logTimeline");
+  if (timeline) timeline.innerHTML = '<div class="log-empty">加载中…</div>';
+  pollLog();
 }
 
 function clearLogWorkflowSteps() {
@@ -766,19 +1123,11 @@ async function refreshLogWorkflowSteps(task) {
   }
 }
 
-function showLog(id) {
-  LOG_ID = id;
-  LOG_TITLE = "";
-  LOG_CHOICES_KEY = "";
-  clearLogWorkflowSteps();
-  document.getElementById("logMask").classList.add("show");
-  document.getElementById("replyInput").value = "";
-  pollLog();
-}
-
 function closeLog() {
   document.getElementById("logMask").classList.remove("show");
   LOG_ID = null;
+  LOG_RENDER_SIG = "";
+  LOG_PENDING_USER = "";
   clearLogWorkflowSteps();
   if (LOG_TIMER) {
     clearInterval(LOG_TIMER);

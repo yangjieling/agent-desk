@@ -313,23 +313,47 @@
 </main>
 
 <div class="modal-mask" id="logMask" onclick="onLogMaskClick(event)">
-  <div class="modal" onclick="event.stopPropagation()">
+  <div class="modal log-modal" onclick="event.stopPropagation()">
     <div class="modal-head">
-      <span class="mt" id="logTitle">执行日志</span>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn-stop" id="logStopBtn" style="display:none" onclick="stopTask(LOG_ID)">停止</button>
-        <button class="btn-run" id="logContinueBtn" style="display:none" onclick="continueTask(LOG_ID)">继续</button>
+      <div class="log-head-main">
+        <span class="mt" id="logTitle">执行日志</span>
+        <div class="log-meta" id="logMeta"></div>
+      </div>
+      <div class="log-head-actions">
+        <button type="button" class="log-icon-btn" id="logViewToggle"
+          title="原始" aria-label="原始" onclick="toggleLogView()">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M9 7.5L5.5 12 9 16.5M15 7.5L18.5 12 15 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <button type="button" class="log-icon-btn log-icon-stop" id="logStopBtn" style="display:none"
+          title="停止" aria-label="停止" onclick="stopTask(LOG_ID)">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+        </button>
+        <button type="button" class="log-icon-btn log-icon-play" id="logContinueBtn" style="display:none"
+          title="继续" aria-label="继续" onclick="continueTask(LOG_ID)">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 6.5v11l10-5.5L8 6.5z" fill="currentColor"/></svg>
+        </button>
         <button class="mc" onclick="closeLog()">×</button>
       </div>
     </div>
     <div class="log-wf-steps" id="logWfSteps" hidden></div>
-    <pre class="modal-body" id="logBody"></pre>
+    <div class="log-gate-card" id="logGateCard" hidden></div>
+    <div class="log-scroll" id="logScroll">
+      <div class="log-timeline" id="logTimeline"></div>
+      <pre class="modal-body log-raw" id="logBody" hidden></pre>
+    </div>
     <div class="modal-reply" id="replyBox">
       <div class="reply-choices" id="replyChoices"></div>
       <div class="reply-row">
-        <input id="replyInput" placeholder="继续本次会话,输入后回车或点发送…"
+        <input id="replyInput" placeholder="继续本次会话，输入后回车发送…"
           onkeydown="onReplyKeyDown(event)" />
-        <button class="btn-run" onclick="sendReply()">发送</button>
+        <button type="button" class="log-icon-btn log-icon-send" id="logSendBtn"
+          title="发送" aria-label="发送" onclick="sendReply()">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4.5 11.2L19.2 4.6a.8.8 0 011.1 1L13.8 19.6a.9.9 0 01-1.6.1l-2.6-5.3-5.3-2.6a.9.9 0 01.2-1.6z" fill="currentColor"/>
+          </svg>
+        </button>
       </div>
     </div>
   </div>
