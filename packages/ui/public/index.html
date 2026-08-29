@@ -9,7 +9,8 @@
 <body>
 <aside class="sidebar">
   <div class="brand">Open Harness<span class="ver" id="ver"></span></div>
-  <div class="nav-item active" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
+  <div class="nav-item active" data-view="dashboard"><span class="ic">▣</span>总览看板</div>
+  <div class="nav-item" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
   <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
   <div class="nav-item" data-view="skills"><span class="ic">✦</span>技能</div>
   <div class="nav-item" data-view="settings"><span class="ic">⚙</span>设置</div>
@@ -21,18 +22,51 @@
     </button>
   </div>
   <div class="main-inner">
-    <div class="page-head tasks-mode" id="pageHead">
+    <div class="page-head" id="pageHead">
       <div class="page-head-main">
-        <h1 class="page-title" id="ptitle">任务管理</h1>
-        <p class="page-sub" id="psub"></p>
+        <h1 class="page-title" id="ptitle">总览看板</h1>
+        <p class="page-sub" id="psub">基于本地任务的实时概览</p>
       </div>
       <div class="page-head-actions" id="pageActions">
-        <button class="btn-refresh" onclick="loadTasks(true)">刷新</button>
-        <button class="btn-install" onclick="switchView('tasks-new')">新建任务</button>
+        <button class="btn-refresh" type="button" onclick="refreshCurrentView()">刷新</button>
+        <button class="btn-install" type="button" onclick="switchView('tasks-new')">新建任务</button>
       </div>
     </div>
 
-    <section id="view-tasks-list">
+    <section id="view-dashboard">
+      <div class="dash-stats">
+        <div class="dash-stat">
+          <p class="ds-label">待确认</p>
+          <div class="ds-num red" id="dash-awaiting">-</div>
+        </div>
+        <div class="dash-stat">
+          <p class="ds-label">进行中</p>
+          <div class="ds-num blue" id="dash-active">-</div>
+        </div>
+        <div class="dash-stat">
+          <p class="ds-label">本周完成</p>
+          <div class="ds-num green" id="dash-done-week">-</div>
+        </div>
+      </div>
+      <div class="dash-cols">
+        <div class="dash-card">
+          <div class="dc-head">
+            <h3 class="dc-title">待确认任务</h3>
+            <span class="dc-link" onclick="switchView('tasks-list')">全部任务</span>
+          </div>
+          <div id="dash-awaiting-tasks"></div>
+        </div>
+        <div class="dash-card">
+          <div class="dc-head">
+            <h3 class="dc-title">进行中</h3>
+            <span class="dc-link" onclick="switchView('tasks-new')">新建任务</span>
+          </div>
+          <div id="dash-active-tasks"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-tasks-list" style="display:none">
       <div class="task-sec task-board" id="taskBoard">
         <div class="task-sec-head toggleable" id="taskBoardToggle" role="button" tabindex="0">
           <span>任务看板</span>

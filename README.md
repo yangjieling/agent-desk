@@ -9,7 +9,7 @@ This repository is **independent** from the internal `quality-shipyard/hb-cli` P
 - Task lifecycle: `created → running → awaiting → done | failed | stopped`
 - **Workflow engine**: shared / independent modes, YAML templates, multi-step orchestration
 - Human gate parsing (`## hb-choices`, abort replies like `先不修`)
-- **Web UI**: task list, detail, gate choices, workflow templates & runs
+- **Web UI**: overview dashboard, task list, gates, workflow templates & runs, skills
 - Pluggable providers:
   - **Agent**: Claude Code (`provider-agent-claude`)
   - **Issue**: manual (`provider-issue-manual`) or **GitHub Issues** (`provider-issue-github`)

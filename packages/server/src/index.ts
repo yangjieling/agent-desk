@@ -102,6 +102,38 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.get("/api/health", async () => ({ ok: true, version: "0.2.0" }));
 
+  app.get("/api/dashboard", async () => {
+    const tasks = db.listTasks(300);
+    const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
+    const awaiting = tasks.filter((t) => t.status === "awaiting");
+    const active = tasks.filter((t) => t.status === "running" || t.status === "created");
+    const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
+    const failedRecent = tasks.filter((t) => t.status === "failed").slice(0, 12);
+
+    const summarize = (t: (typeof tasks)[number]) => ({
+      id: t.id,
+      title: t.title,
+      status: t.status,
+      skill: t.skill,
+      issueCode: t.issueCode,
+      projectDir: t.projectDir,
+      workflowName: t.workflowName,
+      updatedAt: t.updatedAt,
+      lastActivityAt: t.lastActivityAt,
+    });
+
+    return {
+      ok: true,
+      awaiting_count: awaiting.length,
+      active_count: active.length,
+      done_week_count: doneWeek.length,
+      failed_count: tasks.filter((t) => t.status === "failed").length,
+      awaiting_tasks: awaiting.slice(0, 12).map(summarize),
+      active_tasks: active.slice(0, 12).map(summarize),
+      failed_tasks: failedRecent.map(summarize),
+    };
+  });
+
   app.get<{ Querystring: { path?: string } }>("/api/fs/browse", async (req) => {
     return fsBrowse((req.query.path || "").trim());
   });

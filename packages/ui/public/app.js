@@ -19,6 +19,8 @@ let WF_FILTER = "all";
 
 let SKILL_LIST = [];
 let SK_FILTER = "all";
+let CURRENT_VIEW = "dashboard";
+let DASH_POLL_TIMER = null;
 
 let LOG_ID = null;
 let LOG_TITLE = "";
@@ -37,6 +39,7 @@ const STATUS_LABEL = {
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
 
 const VIEW_TITLES = {
+  dashboard: ["总览看板", "基于本地任务的实时概览"],
   workflows: ["流程编排", "系统模板随安装包提供；创建任务时选择使用"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   "tasks-new": ["新建任务", ""],
@@ -1708,11 +1711,101 @@ async function stopProgram() {
   }
 }
 
+function refreshCurrentView() {
+  if (CURRENT_VIEW === "dashboard") return loadDashboard(true);
+  if (CURRENT_VIEW === "tasks-list") return loadTasks(true);
+  if (CURRENT_VIEW === "workflows") return loadWorkflows();
+  if (CURRENT_VIEW === "skills") return loadSkills();
+  if (CURRENT_VIEW === "settings") return initSettingsUI();
+}
+
+function stopDashPolling() {
+  if (DASH_POLL_TIMER) {
+    clearInterval(DASH_POLL_TIMER);
+    DASH_POLL_TIMER = null;
+  }
+}
+
+function startDashPolling() {
+  stopDashPolling();
+  DASH_POLL_TIMER = setInterval(() => {
+    if (CURRENT_VIEW === "dashboard" && !document.hidden) loadDashboard(false);
+  }, 8000);
+}
+
+function dashTaskSub(t) {
+  const bits = [];
+  if (t.skill) bits.push(t.skill);
+  if (t.workflowName) bits.push(t.workflowName);
+  if (t.issueCode) bits.push(t.issueCode);
+  const when = fmtTime(t.lastActivityAt || t.updatedAt);
+  if (when && when !== "-") bits.push(when);
+  return bits.join(" · ");
+}
+
+function renderDashTaskItem(t, actionLabel) {
+  const id = esc(t.id || "");
+  const title = esc(t.title || t.id || "-");
+  const sub = esc(dashTaskSub(t));
+  const st = t.status || "";
+  const tag =
+    st === "awaiting"
+      ? '<span class="tag tag-urgent">待确认</span>'
+      : st === "running"
+        ? '<span class="tag tag-normal">运行中</span>'
+        : st === "created"
+          ? '<span class="tag tag-low">待执行</span>'
+          : `<span class="tag tag-low">${esc(STATUS_LABEL[st] || st)}</span>`;
+  return `<div class="dash-item">
+    ${tag}
+    <div class="di-body">
+      <div class="di-title" title="${title}">${title}</div>
+      ${sub ? `<div class="di-sub">${sub}</div>` : ""}
+    </div>
+    <button type="button" class="btn-outline" onclick="showLog('${id}')">${esc(actionLabel)}</button>
+  </div>`;
+}
+
+async function loadDashboard(force) {
+  const awaitingBox = document.getElementById("dash-awaiting-tasks");
+  const activeBox = document.getElementById("dash-active-tasks");
+  if (!awaitingBox || !activeBox) return;
+  if (force) {
+    awaitingBox.innerHTML = '<div class="dash-empty">加载中…</div>';
+    activeBox.innerHTML = '<div class="dash-empty">加载中…</div>';
+  }
+  try {
+    const d = await api("/api/dashboard");
+    const setNum = (id, n) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = String(n ?? 0);
+    };
+    setNum("dash-awaiting", d.awaiting_count);
+    setNum("dash-active", d.active_count);
+    setNum("dash-done-week", d.done_week_count);
+
+    const awaiting = d.awaiting_tasks || [];
+    awaitingBox.innerHTML = awaiting.length
+      ? awaiting.map((t) => renderDashTaskItem(t, "处理")).join("")
+      : '<div class="dash-empty">暂无待确认事项</div>';
+
+    const active = d.active_tasks || [];
+    activeBox.innerHTML = active.length
+      ? active.map((t) => renderDashTaskItem(t, "查看")).join("")
+      : '<div class="dash-empty">暂无进行中的任务</div>';
+  } catch (e) {
+    awaitingBox.innerHTML = `<div class="dash-empty">加载失败: ${esc(e.message || e)}</div>`;
+    activeBox.innerHTML = "";
+  }
+}
+
 function switchView(view) {
   if (view !== "tasks-list" && document.getElementById("logMask").classList.contains("show")) closeLog();
   if (view !== "tasks-list") stopTaskPolling();
+  if (view !== "dashboard") stopDashPolling();
+  CURRENT_VIEW = view;
 
-  ["tasks-list", "tasks-new", "workflows", "skills", "settings"].forEach((v) => {
+  ["dashboard", "tasks-list", "tasks-new", "workflows", "skills", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
@@ -1721,10 +1814,12 @@ function switchView(view) {
   if (head) {
     head.classList.toggle("hidden", view === "settings" || view === "tasks-new");
     head.classList.toggle("tasks-mode", view === "tasks-list");
+    head.classList.toggle("dash-mode", view === "dashboard");
   }
   const inner = document.querySelector(".main-inner");
   if (inner) {
     inner.classList.toggle("tasks-wide", view === "tasks-list");
+    inner.classList.toggle("dash-wide", view === "dashboard");
     inner.classList.toggle("composer-wide", view === "tasks-new");
   }
 
@@ -1744,12 +1839,16 @@ function switchView(view) {
       loadTasks();
       startTaskPolling();
     }
+    if (view === "dashboard") {
+      loadDashboard(true);
+      startDashPolling();
+    }
     if (view === "workflows") loadWorkflows();
     if (view === "skills") loadSkills();
   }
 
   const u = new URL(location.href);
-  if (!view || view === "tasks-list") u.searchParams.delete("view");
+  if (!view || view === "dashboard") u.searchParams.delete("view");
   else u.searchParams.set("view", view);
   history.replaceState(null, "", u.pathname + u.search);
 }
@@ -1765,10 +1864,11 @@ if (skQ) skQ.addEventListener("input", renderSkills);
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopTaskPolling();
+    stopDashPolling();
     return;
   }
-  const listView = document.getElementById("view-tasks-list");
-  if (listView && listView.style.display !== "none") startTaskPolling();
+  if (CURRENT_VIEW === "tasks-list") startTaskPolling();
+  if (CURRENT_VIEW === "dashboard") startDashPolling();
 });
 
 loadHealth();
@@ -1782,9 +1882,12 @@ initSettingsUI();
     return;
   }
   const view = (URL_PARAMS.get("view") || "").trim();
-  if (view && ["workflows", "skills", "tasks-new", "tasks-list", "settings"].includes(view)) {
+  if (
+    view &&
+    ["dashboard", "workflows", "skills", "tasks-new", "tasks-list", "settings"].includes(view)
+  ) {
     switchView(view);
     return;
   }
-  switchView("tasks-list");
+  switchView("dashboard");
 })();

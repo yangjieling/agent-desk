@@ -25,9 +25,15 @@
                           gap: 16px; margin-bottom: 20px; }
   .page-head.tasks-mode .page-title { text-align: left; margin: 0; }
   .page-head.tasks-mode .page-sub { display: none; }
+  .page-head.dash-mode { display: flex; align-items: flex-start; justify-content: space-between;
+                         gap: 16px; margin-bottom: 20px; }
+  .page-head.dash-mode .page-title { text-align: left; margin: 0 0 4px; }
+  .page-head.dash-mode .page-sub { text-align: left; margin: 0; }
   .page-head-actions { display: none; gap: 8px; flex-shrink: 0; align-items: center; }
-  .page-head.tasks-mode .page-head-actions { display: flex; }
-  .main-inner.tasks-wide { max-width: 1120px; }
+  .page-head.tasks-mode .page-head-actions,
+  .page-head.dash-mode .page-head-actions { display: flex; }
+  .main-inner.tasks-wide,
+  .main-inner.dash-wide { max-width: 1120px; }
   .main-inner.composer-wide { max-width: 1180px; padding-left: 32px; padding-right: 32px; }
 
   /* 主区顶栏全局操作(反馈/停止/检查更新),避免与页面操作按钮重叠 */
