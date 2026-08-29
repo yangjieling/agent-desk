@@ -13,6 +13,8 @@ let TASK_PAGE = 1;
 let TASK_POLL_TIMER = null;
 let TASK_POLL_SIG = "";
 const EXPANDED_TASK_GROUPS = new Set();
+/** collapsed workspace keys (projectDir); absent = expanded */
+const COLLAPSED_WORKSPACES = new Set();
 
 let WORKFLOW_LIST = [];
 let WF_FILTER = "all";
@@ -214,6 +216,55 @@ function groupMatchesFilter(group) {
   if (taskMatchesFilter(group.parent)) return true;
   if (isSharedWorkflow(group.parent)) return false;
   return group.children.some(taskMatchesFilter);
+}
+
+
+function workspaceKeyOf(t) {
+  return String(tField(t, "projectDir", "project_dir") || "").trim();
+}
+
+function isWorkspaceExpanded(key) {
+  return !COLLAPSED_WORKSPACES.has(key || "");
+}
+
+function buildWorkspaceSections(taskGroups) {
+  const map = new Map();
+  for (const g of taskGroups || []) {
+    const key = workspaceKeyOf(g.parent);
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push(g);
+  }
+  const keys = [...map.keys()].sort((a, b) => {
+    if (!a && b) return 1;
+    if (a && !b) return -1;
+    return a.localeCompare(b);
+  });
+  return keys.map((key) => ({
+    key,
+    label: key ? shortPath(key) : "未指定工作区",
+    full: key || "",
+    groups: map.get(key),
+  }));
+}
+
+function renderWorkspaceSection(section) {
+  const key = section.key || "";
+  const open = isWorkspaceExpanded(key);
+  const count = (section.groups || []).length;
+  const title = esc(section.full || section.label);
+  const label = esc(section.label);
+  let html =
+    `<div class="ws-section${open ? " open" : ""}" data-ws-key="${esc(key)}">` +
+    `<button type="button" class="ws-section-head" data-act="toggle-ws" data-ws="${esc(key)}" title="${title}">` +
+    `<span class="ws-chev" aria-hidden="true">▸</span>` +
+    `<span class="ws-name">${label}</span>` +
+    `<span class="ws-count">${count}</span>` +
+    `</button>`;
+  if (open) {
+    html += `<div class="ws-section-body">${(section.groups || []).map(renderTaskGroup).join("")}</div>`;
+  }
+  html += "</div>";
+  return html;
 }
 
 function childStepLabel(child, idx, total) {
@@ -514,9 +565,13 @@ function applyLogViewMode() {
   const timeline = document.getElementById("logTimeline");
   const raw = document.getElementById("logBody");
   const toggle = document.getElementById("logViewToggle");
+  const panel = document.getElementById("sessionPanel");
+  const pane = document.getElementById("taskSessionPane");
   const isRaw = LOG_VIEW_MODE === "raw";
   if (timeline) timeline.hidden = isRaw;
   if (raw) raw.hidden = !isRaw;
+  if (panel) panel.classList.toggle("raw-view", isRaw);
+  if (pane) pane.classList.toggle("raw-view", isRaw);
   if (toggle) {
     const label = isRaw ? "会话" : "原始";
     toggle.title = label;
@@ -699,7 +754,7 @@ function renderListRow(t, opts = {}) {
   const awaiting = t.status === "awaiting";
   const canContinue = canContinueTask(t);
   const metaParts = [];
-  if (proj) metaParts.push(proj);
+  if (!LOG_ID && proj && proj !== "-") metaParts.push(proj);
   if (issue) metaParts.push(`<span class="bug-code">${issue}</span>`);
   const wfName = String(tField(t, "workflowName", "workflow_name") || "").trim();
   const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
@@ -729,9 +784,10 @@ function renderListRow(t, opts = {}) {
       ? '<span class="tag tag-mode-indep">独立</span> '
       : "";
   const tagClass = isChild ? "tag tag-step" : `tag tag-skill ${skill}`;
-  const rowClass = `task-row${isChild ? " task-row-child" : hasChildren ? " task-row-parent" : ""}`;
+  const selected = LOG_ID && String(t.id) === String(LOG_ID);
+  const rowClass = `task-row${isChild ? " task-row-child" : hasChildren ? " task-row-parent" : ""}${selected ? " selected" : ""}`;
   return (
-    `<div class="${rowClass}">` +
+    `<div class="${rowClass}" data-task-id="${id}">` +
     `<div class="tr-tag">${expandBtn}${modeTag}<span class="${tagClass}">${skillLabel}</span></div>` +
     `<div class="tr-main"><div class="tr-title" title="${title}">${title}</div>` +
     `<div class="tr-meta">${metaParts.join(" · ")}</div></div>` +
@@ -798,6 +854,13 @@ function bindTaskActs(root) {
       e.stopPropagation();
       const id = el.dataset.id;
       const act = el.dataset.act;
+      if (act === "toggle-ws") {
+        const key = el.dataset.ws || "";
+        if (COLLAPSED_WORKSPACES.has(key)) COLLAPSED_WORKSPACES.delete(key);
+        else COLLAPSED_WORKSPACES.add(key);
+        renderTasks();
+        return;
+      }
       if (act === "toggle-group") {
         if (EXPANDED_TASK_GROUPS.has(id)) EXPANDED_TASK_GROUPS.delete(id);
         else EXPANDED_TASK_GROUPS.add(id);
@@ -810,9 +873,24 @@ function bindTaskActs(root) {
       else if (act === "log") showLog(id);
     });
   });
-  root.querySelectorAll(".kb-card").forEach((el) => {
-    el.addEventListener("click", () => showLog(el.dataset.id));
+  root.querySelectorAll(".task-row[data-task-id]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      if (e.target.closest("[data-act],button,a,input")) return;
+      // Only switch tasks while session pane is already open.
+      if (!LOG_ID) return;
+      const id = el.dataset.taskId;
+      if (id) showLog(id);
+    });
   });
+}
+
+function ensureWorkspaceExpandedForTask(taskId) {
+  const t = TASKS.find((x) => x.id === taskId);
+  if (!t) return;
+  const root = isChildTask(t) ? getParentTask(t) || t : t;
+  const key = workspaceKeyOf(root);
+  COLLAPSED_WORKSPACES.delete(key);
+  if (isChildTask(t) && root && root.id) EXPANDED_TASK_GROUPS.add(root.id);
 }
 
 function renderTasks() {
@@ -825,6 +903,7 @@ function renderTasks() {
   });
 
   const list = document.getElementById("task-list");
+  if (!list) return;
   const allGroups = buildTaskGroups(TASKS).filter(groupMatchesFilter);
   const total = allGroups.length;
   const pages = Math.max(1, Math.ceil(total / TASK_PAGE_SIZE));
@@ -838,6 +917,10 @@ function renderTasks() {
   } else if (!total) {
     list.innerHTML = '<div class="task-empty">当前筛选下暂无任务</div>';
     renderTaskPager(0, 1, TASK_PAGE_SIZE);
+  } else if (LOG_ID) {
+    const sections = buildWorkspaceSections(groups);
+    list.innerHTML = sections.map(renderWorkspaceSection).join("");
+    renderTaskPager(total, TASK_PAGE, TASK_PAGE_SIZE);
   } else {
     list.innerHTML = groups.map(renderTaskGroup).join("");
     renderTaskPager(total, TASK_PAGE, TASK_PAGE_SIZE);
@@ -854,9 +937,18 @@ document.getElementById("taskFilters").addEventListener("click", (e) => {
   renderTasks();
 });
 
-document.getElementById("taskBoardToggle").addEventListener("click", () => {
-  document.getElementById("taskBoard").classList.toggle("collapsed");
-});
+const taskBoardToggle = document.getElementById("taskBoardToggle");
+if (taskBoardToggle) {
+  taskBoardToggle.addEventListener("click", () => {
+    document.getElementById("taskBoard")?.classList.toggle("collapsed");
+  });
+  taskBoardToggle.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      document.getElementById("taskBoard")?.classList.toggle("collapsed");
+    }
+  });
+}
 
 async function stopTask(id) {
   if (!id) return;
@@ -1044,27 +1136,50 @@ async function pollLog() {
   }
 }
 
+function setSessionPanelVisible(open) {
+  const view = document.getElementById("view-tasks-list");
+  if (view) view.classList.toggle("session-mode", !!open);
+  const split = document.querySelector("#view-tasks-list .task-split");
+  if (split) split.classList.toggle("session-open", !!open);
+  const board = document.getElementById("taskBoard");
+  // Split mode: collapse board by default; browse mode: expand again.
+  if (board) board.classList.toggle("collapsed", !!open);
+  const main = document.querySelector(".main");
+  if (main) main.classList.toggle("tasks-fill", !!open && CURRENT_VIEW === "tasks-list");
+  const inner = document.querySelector(".main-inner");
+  if (inner) inner.classList.toggle("tasks-session", !!open && CURRENT_VIEW === "tasks-list");
+  const panel = document.getElementById("sessionPanel");
+  if (panel) panel.hidden = !open;
+}
+
 function showLog(id) {
+  if (!id) return;
+  if (CURRENT_VIEW !== "tasks-list") switchView("tasks-list");
+  const switching = LOG_ID !== id;
   LOG_ID = id;
-  LOG_TITLE = "";
-  LOG_CHOICES_KEY = "";
-  LOG_RENDER_SIG = "";
-  LOG_PENDING_USER = "";
-  LOG_VIEW_MODE = "timeline";
-  clearLogWorkflowSteps();
-  applyLogViewMode();
-  document.getElementById("logMask").classList.add("show");
-  const input = document.getElementById("replyInput");
-  if (input) input.value = "";
-  const meta = document.getElementById("logMeta");
-  if (meta) meta.innerHTML = "";
-  const gate = document.getElementById("logGateCard");
-  if (gate) {
-    gate.hidden = true;
-    gate.innerHTML = "";
+  if (switching) {
+    LOG_TITLE = "";
+    LOG_CHOICES_KEY = "";
+    LOG_RENDER_SIG = "";
+    LOG_PENDING_USER = "";
+    LOG_VIEW_MODE = "timeline";
+    clearLogWorkflowSteps();
+    const input = document.getElementById("replyInput");
+    if (input) input.value = "";
+    const meta = document.getElementById("logMeta");
+    if (meta) meta.innerHTML = "";
+    const gate = document.getElementById("logGateCard");
+    if (gate) {
+      gate.hidden = true;
+      gate.innerHTML = "";
+    }
+    const timeline = document.getElementById("logTimeline");
+    if (timeline) timeline.innerHTML = '<div class="log-empty">加载中…</div>';
   }
-  const timeline = document.getElementById("logTimeline");
-  if (timeline) timeline.innerHTML = '<div class="log-empty">加载中…</div>';
+  ensureWorkspaceExpandedForTask(id);
+  setSessionPanelVisible(true);
+  applyLogViewMode();
+  renderTasks();
   pollLog();
 }
 
@@ -1124,23 +1239,20 @@ async function refreshLogWorkflowSteps(task) {
 }
 
 function closeLog() {
-  document.getElementById("logMask").classList.remove("show");
   LOG_ID = null;
   LOG_RENDER_SIG = "";
   LOG_PENDING_USER = "";
   clearLogWorkflowSteps();
+  setSessionPanelVisible(false);
   if (LOG_TIMER) {
     clearInterval(LOG_TIMER);
     LOG_TIMER = null;
   }
+  if (CURRENT_VIEW === "tasks-list") renderTasks();
 }
 
 function isLogOpen() {
-  return !!document.getElementById("logMask")?.classList.contains("show");
-}
-
-function onLogMaskClick(e) {
-  if (e.target === e.currentTarget) closeLog();
+  return !!LOG_ID && CURRENT_VIEW === "tasks-list";
 }
 
 function bindLogModalClose() {
@@ -3055,7 +3167,7 @@ async function loadDashboard(force) {
 }
 
 function switchView(view) {
-  if (view !== "tasks-list" && document.getElementById("logMask").classList.contains("show")) closeLog();
+  if (view !== "tasks-list" && LOG_ID) closeLog();
   if (view !== "tasks-list") stopTaskPolling();
   if (view !== "dashboard") stopDashPolling();
   CURRENT_VIEW = view;
@@ -3072,9 +3184,12 @@ function switchView(view) {
     head.classList.toggle("dash-mode", view === "dashboard");
     head.classList.toggle("bugs-mode", view === "bugs");
   }
+  const main = document.querySelector(".main");
+  if (main) main.classList.toggle("tasks-fill", view === "tasks-list" && !!LOG_ID);
   const inner = document.querySelector(".main-inner");
   if (inner) {
     inner.classList.toggle("tasks-wide", view === "tasks-list");
+    inner.classList.toggle("tasks-session", view === "tasks-list" && !!LOG_ID);
     inner.classList.toggle("dash-wide", view === "dashboard");
     inner.classList.toggle("bugs-wide", view === "bugs");
     inner.classList.toggle("composer-wide", view === "tasks-new");
@@ -3093,6 +3208,7 @@ function switchView(view) {
     document.getElementById("psub").textContent = meta[1] || "";
     if (view === "tasks-new") initTaskNewPage();
     if (view === "tasks-list") {
+      setSessionPanelVisible(!!LOG_ID);
       loadTasks();
       startTaskPolling();
     }

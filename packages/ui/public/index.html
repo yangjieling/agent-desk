@@ -113,20 +113,72 @@
           </div>
         </div>
       </div>
-      <div class="task-sec">
-        <div class="task-sec-head task-list-head">
-          <span>任务列表</span>
-          <div class="task-filters" id="taskFilters">
-            <button class="chip active" data-filter="all">全部</button>
-            <button class="chip" data-filter="created">待执行</button>
-            <button class="chip" data-filter="running">运行中</button>
-            <button class="chip" data-filter="awaiting">待确认</button>
-            <button class="chip" data-filter="failed">失败</button>
-            <button class="chip" data-filter="done">已完成</button>
+      <div class="task-split" id="taskSplit">
+        <aside class="task-pane-list">
+          <div class="task-sec-head task-list-head">
+            <span>任务列表</span>
+            <div class="task-filters" id="taskFilters">
+              <button class="chip active" data-filter="all">全部</button>
+              <button class="chip" data-filter="created">待执行</button>
+              <button class="chip" data-filter="running">运行中</button>
+              <button class="chip" data-filter="awaiting">待确认</button>
+              <button class="chip" data-filter="failed">失败</button>
+              <button class="chip" data-filter="done">已完成</button>
+            </div>
+          </div>
+          <div id="task-list" class="task-rows"></div>
+          <div class="task-pager" id="taskPager"></div>
+        </aside>
+        <div class="task-pane-session" id="taskSessionPane">
+          <div class="session-panel" id="sessionPanel" hidden>
+            <div class="modal-head session-head">
+              <div class="log-head-main">
+                <span class="mt" id="logTitle">任务会话</span>
+                <div class="log-meta" id="logMeta"></div>
+              </div>
+              <div class="log-head-actions">
+                <button type="button" class="log-icon-btn" id="logViewToggle"
+                  title="原始" aria-label="原始" onclick="toggleLogView()">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 7.5L5.5 12 9 16.5M15 7.5L18.5 12 15 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+                <button type="button" class="log-icon-btn log-icon-stop" id="logStopBtn" style="display:none"
+                  title="停止" aria-label="停止" onclick="stopTask(LOG_ID)">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+                </button>
+                <button type="button" class="log-icon-btn log-icon-play" id="logContinueBtn" style="display:none"
+                  title="继续" aria-label="继续" onclick="continueTask(LOG_ID)">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 6.5v11l10-5.5L8 6.5z" fill="currentColor"/></svg>
+                </button>
+                <button type="button" class="log-icon-btn" title="关闭会话" aria-label="关闭会话" onclick="closeLog()">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="log-wf-steps" id="logWfSteps" hidden></div>
+            <div class="log-gate-card" id="logGateCard" hidden></div>
+            <div class="log-scroll" id="logScroll">
+              <div class="log-timeline" id="logTimeline"></div>
+              <pre class="modal-body log-raw" id="logBody" hidden></pre>
+            </div>
+            <div class="modal-reply" id="replyBox">
+              <div class="reply-choices" id="replyChoices"></div>
+              <div class="reply-row">
+                <input id="replyInput" placeholder="继续本次会话，输入后回车发送…"
+                  onkeydown="onReplyKeyDown(event)" />
+                <button type="button" class="log-icon-btn log-icon-send" id="logSendBtn"
+                  title="发送" aria-label="发送" onclick="sendReply()">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4.5 11.2L19.2 4.6a.8.8 0 011.1 1L13.8 19.6a.9.9 0 01-1.6.1l-2.6-5.3-5.3-2.6a.9.9 0 01.2-1.6z" fill="currentColor"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-        <div id="task-list" class="task-rows"></div>
-        <div class="task-pager" id="taskPager"></div>
       </div>
     </section>
 
@@ -311,53 +363,6 @@
     </section>
   </div>
 </main>
-
-<div class="modal-mask" id="logMask" onclick="onLogMaskClick(event)">
-  <div class="modal log-modal" onclick="event.stopPropagation()">
-    <div class="modal-head">
-      <div class="log-head-main">
-        <span class="mt" id="logTitle">执行日志</span>
-        <div class="log-meta" id="logMeta"></div>
-      </div>
-      <div class="log-head-actions">
-        <button type="button" class="log-icon-btn" id="logViewToggle"
-          title="原始" aria-label="原始" onclick="toggleLogView()">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M9 7.5L5.5 12 9 16.5M15 7.5L18.5 12 15 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-          </svg>
-        </button>
-        <button type="button" class="log-icon-btn log-icon-stop" id="logStopBtn" style="display:none"
-          title="停止" aria-label="停止" onclick="stopTask(LOG_ID)">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
-        </button>
-        <button type="button" class="log-icon-btn log-icon-play" id="logContinueBtn" style="display:none"
-          title="继续" aria-label="继续" onclick="continueTask(LOG_ID)">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 6.5v11l10-5.5L8 6.5z" fill="currentColor"/></svg>
-        </button>
-        <button class="mc" onclick="closeLog()">×</button>
-      </div>
-    </div>
-    <div class="log-wf-steps" id="logWfSteps" hidden></div>
-    <div class="log-gate-card" id="logGateCard" hidden></div>
-    <div class="log-scroll" id="logScroll">
-      <div class="log-timeline" id="logTimeline"></div>
-      <pre class="modal-body log-raw" id="logBody" hidden></pre>
-    </div>
-    <div class="modal-reply" id="replyBox">
-      <div class="reply-choices" id="replyChoices"></div>
-      <div class="reply-row">
-        <input id="replyInput" placeholder="继续本次会话，输入后回车发送…"
-          onkeydown="onReplyKeyDown(event)" />
-        <button type="button" class="log-icon-btn log-icon-send" id="logSendBtn"
-          title="发送" aria-label="发送" onclick="sendReply()">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M4.5 11.2L19.2 4.6a.8.8 0 011.1 1L13.8 19.6a.9.9 0 01-1.6.1l-2.6-5.3-5.3-2.6a.9.9 0 01.2-1.6z" fill="currentColor"/>
-          </svg>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div class="modal-mask ws-mask" id="wsMask" onclick="onWsMaskClick(event)">
   <div class="ws-dialog" role="dialog" aria-modal="true" aria-label="选择工作区" onclick="event.stopPropagation()">
