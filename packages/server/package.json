@@ -22,6 +22,7 @@
     "@agent-desk/provider-issue": "workspace:*",
     "@agent-desk/provider-issue-github": "workspace:*",
     "@agent-desk/provider-issue-manual": "workspace:*",
+    "@agent-desk/provider-notify": "workspace:*",
     "@agent-desk/provider-notify-dingtalk": "workspace:*",
     "@agent-desk/provider-notify-feishu": "workspace:*",
     "@agent-desk/provider-notify-webhook": "workspace:*",

@@ -154,44 +154,56 @@
     <section id="view-settings" style="display:none">
       <div class="settings-wrap">
         <h2 class="settings-title">通知与偏好设置</h2>
-        <div class="settings-card" id="settingsCard">
+        <div class="settings-list" id="settingsCard">
           <div class="setting-row" data-key="notifyEnabled">
             <div class="setting-meta">
-              <p class="st">Webhook 通知</p>
-              <p class="sd">任务闸门与状态变更时发送 Webhook（需配置 AD_NOTIFY_WEBHOOK_URL）</p>
+              <p class="st">消息通知</p>
+              <p class="sd">任务进入闸门或状态变更时发送通知（通道见下方「通知通道」）</p>
             </div>
-            <label class="toggle" title="Webhook 通知">
-              <input type="checkbox" id="setNotify">
+            <label class="toggle" title="消息通知">
+              <input type="checkbox">
               <span class="track"><span class="thumb"></span></span>
             </label>
           </div>
           <div class="setting-row" data-key="autoConfirmGates">
             <div class="setting-meta">
               <p class="st">闸门自动确认</p>
-              <p class="sd">遇到确认项时自动选择推荐方案并继续</p>
+              <p class="sd">任务执行中遇到确认项时自动选择推荐方案并继续</p>
             </div>
             <label class="toggle" title="闸门自动确认">
-              <input type="checkbox" id="setAutoGate">
+              <input type="checkbox">
               <span class="track"><span class="thumb"></span></span>
             </label>
           </div>
-          <div class="setting-row" data-key="webBaseUrl">
+          <div class="setting-row" data-key="providers.notify" data-type="select">
+            <div class="setting-meta">
+              <p class="st">通知通道</p>
+              <p class="sd">Webhook / 飞书 / 钉钉等；未配置对应环境变量时发送可能失败</p>
+            </div>
+            <div class="setting-dropdown" id="setNotifyProvider" data-value=""></div>
+          </div>
+          <div class="setting-row" data-key="providers.issue" data-type="select">
+            <div class="setting-meta">
+              <p class="st">缺陷来源</p>
+              <p class="sd">任务关联的 Issue Provider（如 GitHub Issues）</p>
+            </div>
+            <div class="setting-dropdown" id="setIssueProvider" data-value=""></div>
+          </div>
+          <div class="setting-row" data-key="webBaseUrl" data-type="text">
             <div class="setting-meta">
               <p class="st">Web Base URL</p>
               <p class="sd">通知消息中的面板链接前缀</p>
             </div>
-            <input class="setting-select" id="setWebUrl" style="min-width:240px" placeholder="http://127.0.0.1:19877">
+            <input class="setting-select" type="text" id="setWebUrl" style="min-width:240px"
+              placeholder="http://127.0.0.1:19877">
           </div>
-          <div class="setting-row" data-key="codingAgent">
+          <div class="setting-row" data-key="codingAgent" data-type="select">
             <div class="setting-meta">
               <p class="st">默认编码 Agent</p>
               <p class="sd">新建任务默认使用的 CLI</p>
             </div>
-            <input class="setting-select" id="setAgent" readonly style="min-width:120px">
+            <div class="setting-dropdown" id="setAgent" data-value="claude"></div>
           </div>
-        </div>
-        <div style="margin-top:16px">
-          <button class="btn-install" type="button" onclick="saveSettingsUI()">保存设置</button>
         </div>
       </div>
     </section>

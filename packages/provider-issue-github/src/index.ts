@@ -63,11 +63,6 @@ function parseRepo(
   }
   const owner = (opts.owner ?? process.env.AD_GITHUB_OWNER ?? "").trim();
   const repo = (opts.repoName ?? process.env.AD_GITHUB_REPO_NAME ?? "").trim();
-  if (!owner || !repo) {
-    throw new Error(
-      "GitHub issue provider needs AD_GITHUB_REPO=owner/repo (or owner + repoName)",
-    );
-  }
   return { owner, repo };
 }
 
@@ -168,10 +163,16 @@ export class GitHubIssueProvider implements IssueProvider {
   }
 
   private repoPath(): string {
+    if (!this.owner || !this.repo) {
+      throw new Error(
+        "GitHub issue provider needs AD_GITHUB_REPO=owner/repo (or owner + repoName)",
+      );
+    }
     return `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}`;
   }
 
   async listIssues(opts?: ListIssuesOptions): Promise<IssueRecord[]> {
+    void this.repoPath();
     const state = opts?.state ?? "open";
     const limit = opts?.limit && opts.limit > 0 ? Math.min(opts.limit, 100) : 30;
     const params = new URLSearchParams({
@@ -233,19 +234,8 @@ export class GitHubIssueProvider implements IssueProvider {
 
 export function registerGitHubIssueProvider(
   options?: GitHubIssueProviderOptions,
-): GitHubIssueProvider | null {
-  const repo = (options?.repo ?? process.env.AD_GITHUB_REPO ?? "").trim();
-  const owner = (options?.owner ?? process.env.AD_GITHUB_OWNER ?? "").trim();
-  const repoName = (options?.repoName ?? process.env.AD_GITHUB_REPO_NAME ?? "").trim();
-  if (!repo && !(owner && repoName)) {
-    // Soft-skip when not configured so local demos still boot.
-    return null;
-  }
-  try {
-    const provider = new GitHubIssueProvider(options);
-    registerIssueProvider(provider);
-    return provider;
-  } catch {
-    return null;
-  }
+): GitHubIssueProvider {
+  const provider = new GitHubIssueProvider(options);
+  registerIssueProvider(provider);
+  return provider;
 }

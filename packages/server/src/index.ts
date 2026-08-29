@@ -10,6 +10,7 @@ import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
 import { registerDingTalkNotifyProvider } from "@agent-desk/provider-notify-dingtalk";
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
+import { listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
 import {
   createTask,
@@ -95,14 +96,26 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.get("/api/settings", async () => db.getSettings());
 
-  app.put<{ Body: Partial<typeof settings> }>("/api/settings", async (req) => {
-    const next = { ...db.getSettings(), ...req.body };
+  app.put<{ Body: Record<string, unknown> }>("/api/settings", async (req) => {
+    const cur = db.getSettings();
+    const body = req.body || {};
+    const next = { ...cur, ...body } as typeof cur;
+    if (body.providers && typeof body.providers === "object") {
+      next.providers = {
+        ...cur.providers,
+        ...(body.providers as Partial<typeof cur.providers>),
+      };
+    }
     db.saveSettings(next);
     return next;
   });
 
   app.get("/api/issue-providers", async () =>
     listIssueProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
+  );
+
+  app.get("/api/notify-providers", async () =>
+    listNotifyProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
   );
 
   app.get<{

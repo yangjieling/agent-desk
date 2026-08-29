@@ -1204,32 +1204,247 @@ async function runWorkflow(id) {
   }
 }
 
-async function initSettingsUI() {
+async function saveSettingsPatch(patch) {
+  return api("/api/settings", {
+    method: "PUT",
+    body: JSON.stringify(patch || {}),
+  });
+}
+
+function settingsLabel(row, key) {
+  return (row.querySelector(".st") && row.querySelector(".st").textContent) || key;
+}
+
+function dropdownChev() {
+  return `<svg class="setting-dropdown-chev" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+    <path d="M2.5 4.5L6 8l3.5-3.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function dropdownCheck() {
+  return `<svg class="setting-dropdown-check" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path d="M2.5 7.2l3 3 6-6.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function closeAllSettingDropdowns(except) {
+  document.querySelectorAll(".setting-dropdown.open").forEach((el) => {
+    if (except && el === except) return;
+    el.classList.remove("open");
+    const menu = el.querySelector(".setting-dropdown-menu");
+    if (menu) menu.hidden = true;
+  });
+}
+
+function bindSettingDropdownOutsideClose() {
+  if (document.body.dataset.settingDdBound) return;
+  document.body.dataset.settingDdBound = "1";
+  document.addEventListener("click", (e) => {
+    if (e.target.closest(".setting-dropdown")) return;
+    closeAllSettingDropdowns();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeAllSettingDropdowns();
+  });
+}
+
+function mountSettingDropdown(root, options, current, onChange) {
+  if (!root) return;
+  const opts = Array.isArray(options) ? options : [];
+  const value = current || (opts[0] && opts[0].id) || "";
+  const currentOpt = opts.find((o) => o.id === value) || opts[0] || { id: value, displayName: value };
+  root.dataset.value = value;
+  root.innerHTML =
+    `<button type="button" class="setting-dropdown-btn" aria-haspopup="listbox" aria-expanded="false">` +
+    `<span class="setting-dropdown-label">${esc(currentOpt.displayName || currentOpt.id || "")}</span>` +
+    dropdownChev() +
+    `</button>` +
+    `<div class="setting-dropdown-menu" role="listbox" hidden>` +
+    opts
+      .map((o) => {
+        const active = o.id === value;
+        return (
+          `<button type="button" class="setting-dropdown-item${active ? " is-active" : ""}" ` +
+          `role="option" data-value="${esc(o.id)}" aria-selected="${active ? "true" : "false"}">` +
+          `<span>${esc(o.displayName || o.id)}</span>${dropdownCheck()}</button>`
+        );
+      })
+      .join("") +
+    `</div>`;
+
+  const btn = root.querySelector(".setting-dropdown-btn");
+  const menu = root.querySelector(".setting-dropdown-menu");
+  const label = root.querySelector(".setting-dropdown-label");
+
+  btn.onclick = (e) => {
+    e.stopPropagation();
+    const open = !root.classList.contains("open");
+    closeAllSettingDropdowns(root);
+    root.classList.toggle("open", open);
+    menu.hidden = !open;
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+  };
+
+  menu.querySelectorAll(".setting-dropdown-item").forEach((item) => {
+    item.onclick = async (e) => {
+      e.stopPropagation();
+      const nextVal = item.getAttribute("data-value") || "";
+      const prev = root.dataset.value || "";
+      if (nextVal === prev) {
+        closeAllSettingDropdowns();
+        return;
+      }
+      const opt = opts.find((o) => o.id === nextVal);
+      root.dataset.value = nextVal;
+      if (label) label.textContent = (opt && (opt.displayName || opt.id)) || nextVal;
+      menu.querySelectorAll(".setting-dropdown-item").forEach((el) => {
+        const on = el.getAttribute("data-value") === nextVal;
+        el.classList.toggle("is-active", on);
+        el.setAttribute("aria-selected", on ? "true" : "false");
+      });
+      closeAllSettingDropdowns();
+      if (typeof onChange === "function") {
+        try {
+          await onChange(nextVal, prev);
+        } catch (err) {
+          root.dataset.value = prev;
+          const prevOpt = opts.find((o) => o.id === prev);
+          if (label) label.textContent = (prevOpt && (prevOpt.displayName || prevOpt.id)) || prev;
+          menu.querySelectorAll(".setting-dropdown-item").forEach((el) => {
+            const on = el.getAttribute("data-value") === prev;
+            el.classList.toggle("is-active", on);
+            el.setAttribute("aria-selected", on ? "true" : "false");
+          });
+          throw err;
+        }
+      }
+    };
+  });
+}
+
+async function loadProviderOptions(endpoint, fallback) {
   try {
-    const s = await api("/api/settings");
-    document.getElementById("setNotify").checked = !!s.notifyEnabled;
-    document.getElementById("setAutoGate").checked = !!s.autoConfirmGates;
-    document.getElementById("setWebUrl").value = s.webBaseUrl || "";
-    document.getElementById("setAgent").value = s.codingAgent || "";
+    const rows = await api(endpoint);
+    if (Array.isArray(rows) && rows.length) return rows;
   } catch {
     /* ignore */
   }
+  return fallback;
 }
 
-async function saveSettingsUI() {
+async function initSettingsUI() {
+  const card = document.getElementById("settingsCard");
+  if (!card) return;
+  bindSettingDropdownOutsideClose();
+
+  let state = {};
   try {
-    await api("/api/settings", {
-      method: "PUT",
-      body: JSON.stringify({
-        notifyEnabled: document.getElementById("setNotify").checked,
-        autoConfirmGates: document.getElementById("setAutoGate").checked,
-        webBaseUrl: document.getElementById("setWebUrl").value.trim(),
-      }),
-    });
-    toast("设置已保存");
-  } catch (e) {
-    toast(`保存失败: ${e.message || e}`);
+    state = await api("/api/settings");
+  } catch {
+    state = {};
   }
+
+  const notifyOpts = await loadProviderOptions("/api/notify-providers", [
+    { id: "webhook", displayName: "Webhook" },
+    { id: "feishu", displayName: "Feishu / Lark" },
+    { id: "dingtalk", displayName: "DingTalk" },
+  ]);
+  const issueOpts = await loadProviderOptions("/api/issue-providers", [
+    { id: "manual", displayName: "Manual (local JSON)" },
+    { id: "github", displayName: "GitHub Issues" },
+  ]);
+  const agentOpts = [{ id: "claude", displayName: "Claude Code" }];
+
+  const saveSelect = async (key, nextVal) => {
+    let patch;
+    if (key === "providers.notify") patch = { providers: { notify: nextVal } };
+    else if (key === "providers.issue") patch = { providers: { issue: nextVal } };
+    else patch = { [key]: nextVal };
+    const next = await saveSettingsPatch(patch);
+    state = next;
+  };
+
+  mountSettingDropdown(
+    document.getElementById("setNotifyProvider"),
+    notifyOpts,
+    (state.providers && state.providers.notify) || "webhook",
+    async (nextVal) => {
+      await saveSelect("providers.notify", nextVal);
+      toast("已更新：通知通道");
+    },
+  );
+  mountSettingDropdown(
+    document.getElementById("setIssueProvider"),
+    issueOpts,
+    (state.providers && state.providers.issue) || "manual",
+    async (nextVal) => {
+      await saveSelect("providers.issue", nextVal);
+      toast("已更新：缺陷来源");
+    },
+  );
+  mountSettingDropdown(
+    document.getElementById("setAgent"),
+    agentOpts,
+    state.codingAgent || "claude",
+    async (nextVal) => {
+      await saveSelect("codingAgent", nextVal);
+      toast("已更新：默认编码 Agent");
+    },
+  );
+
+  card.querySelectorAll(".setting-row").forEach((row) => {
+    const key = row.dataset.key;
+    if (!key) return;
+    if (row.dataset.type === "select") return;
+
+    if (row.dataset.type === "text") {
+      const input = row.querySelector('input[type="text"]');
+      if (!input) return;
+      input.value = state[key] || "";
+      const commit = async () => {
+        const prev = state[key] || "";
+        const nextVal = (input.value || "").trim();
+        if (nextVal === prev) return;
+        try {
+          const next = await saveSettingsPatch({ [key]: nextVal });
+          state = next;
+          input.value = next[key] || "";
+          toast(`已更新：${settingsLabel(row, key)}`);
+        } catch (e) {
+          input.value = prev;
+          toast(`保存失败: ${e.message || e}`);
+        }
+      };
+      input.onchange = () => {
+        commit();
+      };
+      input.onblur = () => {
+        commit();
+      };
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+        }
+      };
+      return;
+    }
+
+    const input = row.querySelector('.toggle input[type="checkbox"]');
+    if (!input) return;
+    input.checked = !!state[key];
+    input.onchange = async () => {
+      try {
+        const next = await saveSettingsPatch({ [key]: input.checked });
+        state = next;
+        input.checked = !!next[key];
+        toast(`${input.checked ? "已开启：" : "已关闭："}${settingsLabel(row, key)}`);
+      } catch (e) {
+        input.checked = !input.checked;
+        toast(`保存失败: ${e.message || e}`);
+      }
+    };
+  });
 }
 
 function showStoppedPage() {

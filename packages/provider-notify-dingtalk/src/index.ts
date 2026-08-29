@@ -91,7 +91,9 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     const wrapEnv = (process.env.AD_DINGTALK_WRAP_LINKS ?? "1").trim();
     this.wrapLinks =
       options.wrapLinks ?? !(wrapEnv === "0" || wrapEnv.toLowerCase() === "false");
+  }
 
+  private requireConfigured(): void {
     if (!this.webhook && !(this.appKey && this.appSecret && this.agentId && this.userIds)) {
       throw new Error(
         "DingTalk notify needs AD_DINGTALK_WEBHOOK, or app key/secret + AD_DINGTALK_AGENT_ID + AD_DINGTALK_USER_IDS",
@@ -198,6 +200,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     markdown: string;
     buttons: { label: string; url: string }[];
   }): Promise<void> {
+    this.requireConfigured();
     const btns = input.buttons.map((b) => ({
       title: b.label.slice(0, 20) || "打开",
       url: this.link(b.url),
@@ -264,18 +267,8 @@ export class DingTalkNotifyProvider implements NotifyProvider {
 
 export function registerDingTalkNotifyProvider(
   options?: DingTalkNotifyProviderOptions,
-): DingTalkNotifyProvider | null {
-  const webhook = (options?.webhook ?? process.env.AD_DINGTALK_WEBHOOK ?? "").trim();
-  const appKey = (options?.appKey ?? process.env.AD_DINGTALK_APP_KEY ?? "").trim();
-  const appSecret = (options?.appSecret ?? process.env.AD_DINGTALK_APP_SECRET ?? "").trim();
-  const agentId = (options?.agentId ?? process.env.AD_DINGTALK_AGENT_ID ?? "").trim();
-  const userIds = (options?.userIds ?? process.env.AD_DINGTALK_USER_IDS ?? "").trim();
-  if (!webhook && !(appKey && appSecret && agentId && userIds)) return null;
-  try {
-    const provider = new DingTalkNotifyProvider(options);
-    registerNotifyProvider(provider);
-    return provider;
-  } catch {
-    return null;
-  }
+): DingTalkNotifyProvider {
+  const provider = new DingTalkNotifyProvider(options);
+  registerNotifyProvider(provider);
+  return provider;
 }

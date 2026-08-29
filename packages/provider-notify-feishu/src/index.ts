@@ -81,13 +81,16 @@ export class FeishuNotifyProvider implements NotifyProvider {
     )
       .trim()
       .replace(/\/$/, "");
+  }
 
+  private requireConfigured(): void {
     if (!this.appId || !this.appSecret) {
       throw new Error("Feishu notify needs AD_FEISHU_APP_ID and AD_FEISHU_APP_SECRET");
     }
   }
 
   private async tenantToken(): Promise<string> {
+    this.requireConfigured();
     const now = Date.now();
     if (this.tokenCache && this.tokenCache.expiresAt > now + 60_000) {
       return this.tokenCache.token;
@@ -214,15 +217,8 @@ export class FeishuNotifyProvider implements NotifyProvider {
 
 export function registerFeishuNotifyProvider(
   options?: FeishuNotifyProviderOptions,
-): FeishuNotifyProvider | null {
-  const appId = (options?.appId ?? process.env.AD_FEISHU_APP_ID ?? "").trim();
-  const appSecret = (options?.appSecret ?? process.env.AD_FEISHU_APP_SECRET ?? "").trim();
-  if (!appId || !appSecret) return null;
-  try {
-    const provider = new FeishuNotifyProvider(options);
-    registerNotifyProvider(provider);
-    return provider;
-  } catch {
-    return null;
-  }
+): FeishuNotifyProvider {
+  const provider = new FeishuNotifyProvider(options);
+  registerNotifyProvider(provider);
+  return provider;
 }
