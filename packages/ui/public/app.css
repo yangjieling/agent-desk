@@ -40,6 +40,7 @@
                          gap: 16px; margin-bottom: 20px; }
   .page-head.bugs-mode .page-title { text-align: left; margin: 0 0 4px; }
   .page-head.bugs-mode .page-sub { text-align: left; margin: 0; }
+  .page-head.bugs-mode .btn-install { display: none; }
   .main-inner.composer-wide { max-width: 1180px; padding-left: 32px; padding-right: 32px; }
 
   /* 主区顶栏全局操作(反馈/停止/检查更新),避免与页面操作按钮重叠 */
@@ -156,6 +157,9 @@
                  padding: 5px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
                  white-space: nowrap; flex-shrink: 0; }
   .btn-outline:hover { background: #f8f9fa; }
+  .dash-item .btn-outline { margin-left: 6px; }
+  .dash-item .btn-outline:first-of-type { margin-left: 0; }
+  .dash-item .btn-outline:disabled { opacity: .55; cursor: not-allowed; }
   @media (max-width: 860px) {
     .dash-stats, .dash-cols { grid-template-columns: 1fr; }
   }
@@ -215,6 +219,7 @@
   .badge.comp-warn { background: #fff4e5; color: #b8730a; }
   .badge.comp-none { background: #f0f1f2; color: #909399; }
   .bug-empty, .bug-loading { text-align: center; color: #9aa0a6; padding: 40px 0; }
+  .bug-table .muted { color: #9aa0a6; }
   .btn-fix { background: #2f6feb; color: #fff; border: none; padding: 5px 12px;
              border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
   .btn-fix:hover { background: #245cc4; }

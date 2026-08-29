@@ -47,7 +47,7 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 
 const VIEW_TITLES = {
   dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
-  bugs: ["缺陷列表", "来自当前 Issue Provider（manual / GitHub 等）"],
+  bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "系统模板随安装包提供；创建任务时选择使用"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   "tasks-new": ["新建任务", ""],
@@ -1796,14 +1796,63 @@ function renderDashIssueItem(i) {
   const sevLabel = esc(i.severity || "medium");
   const when = esc(fmtTime(i.updatedAt));
   const codeAttr = esc(i.code || "").replace(/'/g, "\\'");
+  const related = relatedTaskForIssue(i.code);
+  const taskId = related ? esc(related.id) : "";
+  const busy =
+    related && ["running", "awaiting", "created", "preparing"].includes(String(related.status || ""));
+  let ops = "";
+  if (busy) {
+    ops =
+      `<button type="button" class="btn-outline" disabled title="已有关联任务进行中">AI 修复</button>` +
+      `<button type="button" class="btn-outline" onclick="openIssueTask('${taskId}')">查看任务</button>`;
+  } else {
+    ops = `<button type="button" class="btn-outline" onclick="startTaskFromIssue('${codeAttr}')">AI 修复</button>`;
+    if (related) {
+      ops += `<button type="button" class="btn-outline" onclick="openIssueTask('${taskId}')">查看任务</button>`;
+    }
+  }
   return `<div class="dash-item">
     <span class="badge sev-${esc(sev)}">${sevLabel}</span>
     <div class="di-body">
       <div class="di-title" title="${title}"><span class="bug-code">${code}</span> ${title}</div>
       <div class="di-sub">${when}</div>
     </div>
-    <button type="button" class="btn-outline" onclick="startTaskFromIssue('${codeAttr}')">创建任务</button>
+    ${ops}
   </div>`;
+}
+
+function normalizeIssueCode(code) {
+  return String(code || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^#/, "");
+}
+
+function tasksForIssue(code) {
+  const key = normalizeIssueCode(code);
+  if (!key) return [];
+  return (TASKS || []).filter((t) => normalizeIssueCode(tField(t, "issueCode", "issue_code")) === key);
+}
+
+function relatedTaskForIssue(code) {
+  const rows = tasksForIssue(code);
+  if (!rows.length) return null;
+  const busy = rows.find((t) =>
+    ["running", "awaiting", "created", "preparing"].includes(String(t.status || "")),
+  );
+  if (busy) return busy;
+  return rows
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.lastActivityAt || b.updatedAt || 0) - Number(a.lastActivityAt || a.updatedAt || 0),
+    )[0];
+}
+
+function openIssueTask(taskId) {
+  if (!taskId) return;
+  switchView("tasks-list");
+  loadTasks().then(() => showLog(taskId));
 }
 
 function severityBadge(sev) {
@@ -1885,20 +1934,30 @@ function renderBugs() {
       const link = url
         ? `<a class="bug-code" href="${esc(url)}" target="_blank" rel="noopener">${code}</a>`
         : `<span class="bug-code">${code}</span>`;
-      const ops =
-        `<span class="bug-ops">` +
-        `<button type="button" class="btn-fix" data-code="${codeAttr}">创建任务</button>` +
-        (url
-          ? `<button type="button" class="btn-task" data-url="${esc(url)}">打开</button>`
-          : "") +
-        `</span>`;
+      const related = relatedTaskForIssue(b.code);
+      const busy = related && ["running", "awaiting", "created", "preparing"].includes(String(related.status || ""));
+      let ops = `<span class="bug-ops">`;
+      if (busy) {
+        ops +=
+          `<button type="button" class="btn-fix" disabled title="已有关联任务进行中">AI 修复</button>` +
+          `<button type="button" class="btn-task" data-task="${esc(related.id)}">查看任务</button>`;
+      } else {
+        ops += `<button type="button" class="btn-fix" data-code="${codeAttr}">AI 修复</button>`;
+        if (related) {
+          ops += `<button type="button" class="btn-task" data-task="${esc(related.id)}">查看任务</button>`;
+        }
+      }
+      ops += `</span>`;
+      const relatedCell = related
+        ? `<span class="bug-code" title="${esc(related.title || related.id)}">${esc(STATUS_LABEL[related.status] || related.status)}</span>`
+        : '<span class="muted">-</span>';
       return (
         `<tr>` +
         `<td>${link}</td>` +
         `<td>${statusBadge(b.status)}</td>` +
         `<td>${severityBadge(b.severity)}</td>` +
         `<td title="${title}">${title}</td>` +
-        `<td>${labels || "-"}</td>` +
+        `<td>${relatedCell}</td>` +
         `<td>${when}</td>` +
         `<td>${ops}</td>` +
         `</tr>`
@@ -1907,16 +1966,17 @@ function renderBugs() {
     .join("");
   box.innerHTML =
     '<table class="bug-table"><thead><tr>' +
-    "<th>编号</th><th>状态</th><th>严重程度</th><th>标题</th><th>标签</th><th>更新</th><th>操作</th>" +
+    "<th>编号</th><th>状态</th><th>严重程度</th><th>标题</th><th>关联任务</th><th>更新</th><th>操作</th>" +
     `</tr></thead><tbody>${rows}</tbody></table>`;
   renderBugPager(list.length, BUG_PAGE, BUG_PAGE_SIZE);
   box.querySelectorAll(".btn-fix").forEach((btn) => {
-    btn.addEventListener("click", () => startTaskFromIssue(btn.dataset.code));
-  });
-  box.querySelectorAll(".btn-task").forEach((btn) => {
     btn.addEventListener("click", () => {
-      if (btn.dataset.url) window.open(btn.dataset.url, "_blank", "noopener");
+      if (btn.disabled) return;
+      startTaskFromIssue(btn.dataset.code);
     });
+  });
+  box.querySelectorAll(".btn-task[data-task]").forEach((btn) => {
+    btn.addEventListener("click", () => openIssueTask(btn.dataset.task));
   });
 }
 
@@ -1930,8 +1990,12 @@ async function loadBugs(opts = {}) {
   const state = ((stateEl && stateEl.value) || "open").trim();
   box.innerHTML = '<div class="bug-loading">加载中…</div>';
   try {
-    const rows = await api(`/api/issues?state=${encodeURIComponent(state)}&limit=100`);
+    const [rows, tasks] = await Promise.all([
+      api(`/api/issues?state=${encodeURIComponent(state)}&limit=100`),
+      api("/api/tasks").catch(() => TASKS || []),
+    ]);
     BUGS = Array.isArray(rows) ? rows : [];
+    if (Array.isArray(tasks)) TASKS = tasks;
     BUGS.forEach((i) => {
       if (i && i.code) ISSUE_CACHE.set(String(i.code), i);
     });
@@ -2010,7 +2074,11 @@ async function loadDashboard(force) {
     issuesBox.innerHTML = '<div class="dash-empty">加载中…</div>';
   }
   try {
-    const d = await api("/api/dashboard");
+    const [d, tasks] = await Promise.all([
+      api("/api/dashboard"),
+      api("/api/tasks").catch(() => TASKS || []),
+    ]);
+    if (Array.isArray(tasks)) TASKS = tasks;
     const setNum = (id, n) => {
       const el = document.getElementById(id);
       if (el) el.textContent = String(n ?? 0);
