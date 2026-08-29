@@ -1,0 +1,14 @@
+{
+  "seedVersion": "0.3.0",
+  "updatedAt": "2026-08-29T08:00:00.000Z",
+  "note": "Optional one-time seeds from hb-cli (installed as user skills, removable). Not managed by CLI updates.",
+  "skills": [
+    { "id": "bug-fix", "version": "1.0.9", "desc": "缺陷修复全流程" },
+    { "id": "bug-fix-report", "version": "1.0.0", "desc": "缺陷修复报告生成" },
+    { "id": "api-selftest", "version": "1.0.0", "desc": "编码完成后的接口自测桥接" },
+    { "id": "code-merge", "version": "1.0.0", "desc": "审查后合并到主干或创建 PR" },
+    { "id": "code-review", "version": "1.0.0", "desc": "代码审查(可选对照需求)" },
+    { "id": "coding-impl", "version": "1.0.0", "desc": "按任务文件编码实现" },
+    { "id": "function-test", "version": "1.0.0", "desc": "单分支改动的功能测试执行与验证报告" }
+  ]
+}

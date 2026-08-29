@@ -53,6 +53,9 @@ importers:
       '@agent-desk/server':
         specifier: workspace:*
         version: link:../server
+      '@agent-desk/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@agent-desk/workflow':
         specifier: workspace:*
         version: link:../workflow
@@ -131,6 +134,9 @@ importers:
       '@agent-desk/provider-notify':
         specifier: workspace:*
         version: link:../provider-notify
+      '@agent-desk/skills':
+        specifier: workspace:*
+        version: link:../skills
 
   packages/server:
     dependencies:
@@ -167,6 +173,9 @@ importers:
       '@agent-desk/runner':
         specifier: workspace:*
         version: link:../runner
+      '@agent-desk/skills':
+        specifier: workspace:*
+        version: link:../skills
       '@agent-desk/ui':
         specifier: workspace:*
         version: link:../ui
@@ -179,6 +188,8 @@ importers:
       fastify:
         specifier: ^5.2.1
         version: 5.12.1
+
+  packages/skills: {}
 
   packages/ui: {}
 

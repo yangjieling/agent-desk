@@ -17,6 +17,9 @@ const EXPANDED_TASK_GROUPS = new Set();
 let WORKFLOW_LIST = [];
 let WF_FILTER = "all";
 
+let SKILL_LIST = [];
+let SK_FILTER = "all";
+
 let LOG_ID = null;
 let LOG_TITLE = "";
 let LOG_TIMER = null;
@@ -35,9 +38,18 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 
 const VIEW_TITLES = {
   workflows: ["流程编排", "系统模板随安装包提供；创建任务时选择使用"],
+  skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   "tasks-new": ["新建任务", ""],
   "tasks-list": ["任务管理", ""],
   settings: ["通知与偏好设置", ""],
+};
+
+const SKILL_SOURCE_LABEL = {
+  bundled: "内置",
+  user: "用户自建",
+  "project-agent-desk": "项目",
+  "project-agents": "项目 (.agents)",
+  custom: "自定义",
 };
 
 const RECENT_DIR_KEY = "ad_recent_project_dirs";
@@ -662,8 +674,44 @@ function onTaskTypeChange() {
   const t = (modeSel && modeSel.value) || (hidden && hidden.value) || "skill";
   if (hidden) hidden.value = t;
   const wfWrap = document.getElementById("t-target-workflow-wrap");
+  const skillWrap = document.getElementById("t-target-skill-wrap");
   if (wfWrap) wfWrap.style.display = t === "workflow" ? "" : "none";
+  if (skillWrap) skillWrap.style.display = t === "skill" ? "" : "none";
   if (t === "workflow") fillWorkflowOptions();
+  if (t === "skill") fillSkillOptions();
+}
+
+async function fillSkillOptions() {
+  const sel = document.getElementById("t-skill");
+  if (!sel) return;
+  const prev = sel.value || "default";
+  const cwd = getTaskDir() || undefined;
+  let rows = [];
+  try {
+    const q = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+    rows = await api(`/api/skills${q}`);
+  } catch {
+    rows = [];
+  }
+  const opts = [{ id: "default", label: "default（无技能包）" }].concat(
+    (Array.isArray(rows) ? rows : []).map((s) => ({
+      id: s.id,
+      label: s.description ? `${s.id} · ${s.description}` : `${s.id} (${s.source})`,
+    })),
+  );
+  sel.innerHTML = opts
+    .map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`)
+    .join("");
+  if (opts.some((o) => o.id === prev)) sel.value = prev;
+}
+
+function setTaskDir(dirPath) {
+  const val = (dirPath || "").trim();
+  const hidden = document.getElementById("t-dir");
+  if (hidden) hidden.value = val;
+  syncWorkspaceLabel();
+  const type = document.getElementById("t-type");
+  if (!type || type.value === "skill") fillSkillOptions();
 }
 
 function shortProjectPath(p) {
@@ -676,13 +724,6 @@ function shortProjectPath(p) {
 function getTaskDir() {
   const hidden = document.getElementById("t-dir");
   return ((hidden && hidden.value) || "").trim();
-}
-
-function setTaskDir(dirPath) {
-  const val = (dirPath || "").trim();
-  const hidden = document.getElementById("t-dir");
-  if (hidden) hidden.value = val;
-  syncWorkspaceLabel();
 }
 
 function syncComposerState() {
@@ -1029,6 +1070,7 @@ async function initTaskNewPage() {
   bindTaskNewFormOnce();
   onTaskTypeChange();
   syncWorkspaceLabel();
+  fillSkillOptions();
   try {
     const s = await api("/api/settings");
     const agentEl = document.getElementById("t-run-agent");
@@ -1099,9 +1141,11 @@ async function createTask() {
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
     } else {
+      const skillEl = document.getElementById("t-skill");
+      const skill = ((skillEl && skillEl.value) || "default").trim();
       const task = await api("/api/tasks", {
         method: "POST",
-        body: JSON.stringify({ title: title || "Untitled", prompt, projectDir }),
+        body: JSON.stringify({ title: title || "Untitled", prompt, projectDir, skill }),
       });
       pushRecentDir(projectDir);
       toast("任务已创建");
@@ -1202,6 +1246,196 @@ async function runWorkflow(id) {
   } catch (e) {
     toast(`启动失败: ${e.message || e}`);
   }
+}
+
+function skillSourceLabel(source) {
+  return SKILL_SOURCE_LABEL[source] || source || "未知";
+}
+
+function skillFilterBucket(s) {
+  if (s.managed || s.source === "bundled") return "bundled";
+  if (s.removable || s.source === "user") return "user";
+  if (s.source === "custom") return "custom";
+  if (String(s.source || "").startsWith("project")) return "project";
+  return "other";
+}
+
+function matchSkillSearch(s, kw) {
+  if (!kw) return true;
+  const hay = [s.id, s.name, s.description, s.source, s.version].join(" ").toLowerCase();
+  return hay.includes(kw);
+}
+
+function renderSkillItem(s) {
+  const id = esc(s.id || "");
+  const name = esc(s.name || s.id || "-");
+  const desc = esc(s.description || "（无描述）");
+  const kind = s.managed || s.source === "bundled" ? "内置" : skillSourceLabel(s.source);
+  const ver = s.version ? ` · v${esc(s.version)}` : "";
+  const meta = `${esc(kind)}${ver}`;
+  const letter = esc((s.name || s.id || "?").charAt(0).toUpperCase());
+  const uninstallBtn = s.removable
+    ? `<button class="btn-stop" type="button" onclick="uninstallSkill('${id}')">卸载</button>`
+    : "";
+  return `<div class="skill-item wf-item">
+    <div class="sk-icon" style="background:${iconColor(s.id || s.name)}">${letter}</div>
+    <div class="sk-info">
+      <div class="n">${name}</div>
+      <div class="d">${desc}</div>
+      <div class="sk-ver">${meta}</div>
+    </div>
+    <div class="sk-right">
+      <div class="sk-act" style="display:flex">
+        <button class="btn-refresh" type="button" onclick="showSkillDetail('${id}')">查看</button>
+        <button class="btn-install" type="button" onclick="useSkillInNewTask('${id}')">使用</button>
+        ${uninstallBtn}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSkillSection(title, items) {
+  if (!items.length) return "";
+  return `<div class="wf-section"><h3 class="wf-sec-title">${title}</h3><div class="skill-grid">${items.map(renderSkillItem).join("")}</div></div>`;
+}
+
+function renderSkills() {
+  const box = document.getElementById("sk-list");
+  if (!box) return;
+  const kw = ((document.getElementById("sk-q") || {}).value || "").trim().toLowerCase();
+  let items = SKILL_LIST.filter((s) => matchSkillSearch(s, kw));
+  if (SK_FILTER !== "all") {
+    items = items.filter((s) => skillFilterBucket(s) === SK_FILTER);
+  }
+  const groups = [
+    ["内置（随 CLI 安装 / 更新）", items.filter((s) => skillFilterBucket(s) === "bundled")],
+    ["用户自建（可卸载）", items.filter((s) => skillFilterBucket(s) === "user")],
+    ["项目", items.filter((s) => skillFilterBucket(s) === "project")],
+    ["自定义", items.filter((s) => skillFilterBucket(s) === "custom")],
+    ["其他", items.filter((s) => skillFilterBucket(s) === "other")],
+  ];
+  let html = "";
+  for (const [title, rows] of groups) html += renderSkillSection(title, rows);
+  if (!html) {
+    box.innerHTML = `<div class="wf-empty">${kw ? "无匹配的技能" : "暂无技能。内置技能请点「同步内置」；自建请放到 ~/.agent-desk/skills/&lt;name&gt;/SKILL.md"}</div>`;
+    return;
+  }
+  box.innerHTML = html;
+}
+
+async function loadSkills() {
+  try {
+    const cwd = getTaskDir() || undefined;
+    const q = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+    SKILL_LIST = await api(`/api/skills${q}`);
+    if (!Array.isArray(SKILL_LIST)) SKILL_LIST = [];
+    renderSkills();
+  } catch (e) {
+    toast(`加载技能失败: ${e.message || e}`);
+  }
+}
+
+async function syncSkills(force) {
+  try {
+    const result = await api("/api/skills/sync", {
+      method: "POST",
+      body: JSON.stringify({ force: !!force }),
+    });
+    const sync = result.sync || result;
+    const seed = result.seed || {};
+    const bits = [];
+    if (sync.installed?.length) bits.push(`内置新装 ${sync.installed.length}`);
+    if (sync.updated?.length) bits.push(`内置更新 ${sync.updated.length}`);
+    if (seed.seeded?.length) bits.push(`种子 ${seed.seeded.length}`);
+    if (seed.demoted?.length) bits.push(`转为自建 ${seed.demoted.length}`);
+    if (sync.errors?.length || seed.errors?.length) {
+      bits.push(`失败 ${(sync.errors?.length || 0) + (seed.errors?.length || 0)}`);
+    }
+    toast(bits.length ? `技能同步完成（${bits.join(" · ")}）` : "技能已是最新");
+    await loadSkills();
+  } catch (e) {
+    toast(`同步失败: ${e.message || e}`);
+  }
+}
+
+async function uninstallSkill(id) {
+  if (!confirm(`确定卸载用户技能「${id}」？内置技能不能卸载。`)) return;
+  try {
+    await api(`/api/skills/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast(`已卸载：${id}`);
+    await loadSkills();
+  } catch (e) {
+    toast(`卸载失败: ${e.message || e}`);
+  }
+}
+
+function setSkillFilter(v) {
+  SK_FILTER = v || "all";
+  const sel = document.getElementById("sk-filter");
+  if (sel && sel.value !== v) sel.value = v;
+  renderSkills();
+}
+
+function closeSkillDetail() {
+  const mask = document.getElementById("skillMask");
+  if (mask) mask.classList.remove("show");
+}
+
+function onSkillMaskClick(e) {
+  if (e.target === e.currentTarget) closeSkillDetail();
+}
+
+async function showSkillDetail(id) {
+  const mask = document.getElementById("skillMask");
+  const titleEl = document.getElementById("skillTitle");
+  const metaEl = document.getElementById("skillMeta");
+  const bodyEl = document.getElementById("skillBody");
+  if (!mask || !bodyEl) return;
+  titleEl.textContent = id;
+  metaEl.textContent = "加载中…";
+  bodyEl.textContent = "";
+  mask.classList.add("show");
+  try {
+    const cwd = getTaskDir() || undefined;
+    const q = cwd ? `?cwd=${encodeURIComponent(cwd)}` : "";
+    const skill = await api(`/api/skills/${encodeURIComponent(id)}${q}`);
+    titleEl.textContent = skill.name || skill.id || id;
+    const bits = [
+      skill.id ? `id: ${skill.id}` : "",
+      skill.managed || skill.source === "bundled" ? "内置" : skillSourceLabel(skill.source),
+      skill.version ? `v${skill.version}` : "",
+      skill.removable ? "可卸载" : "",
+    ].filter(Boolean);
+    metaEl.textContent = bits.join(" · ");
+    metaEl.title = skill.dir || skill.path || "";
+    bodyEl.textContent = skill.instructions || "(空)";
+  } catch (e) {
+    metaEl.textContent = "";
+    bodyEl.textContent = `加载失败: ${e.message || e}`;
+  }
+}
+
+function useSkillInNewTask(id) {
+  switchView("tasks-new");
+  const mode = document.getElementById("t-mode");
+  if (mode) {
+    mode.value = "skill";
+    onTaskTypeChange();
+  }
+  fillSkillOptions().then(() => {
+    const sel = document.getElementById("t-skill");
+    if (sel) {
+      const opt = [...sel.options].find((o) => o.value === id);
+      if (!opt) {
+        const o = document.createElement("option");
+        o.value = id;
+        o.textContent = id;
+        sel.appendChild(o);
+      }
+      sel.value = id;
+    }
+    toast(`已选择技能：${id}`);
+  });
 }
 
 async function saveSettingsPatch(patch) {
@@ -1480,7 +1714,7 @@ function switchView(view) {
   if (view !== "tasks-list" && document.getElementById("logMask").classList.contains("show")) closeLog();
   if (view !== "tasks-list") stopTaskPolling();
 
-  ["tasks-list", "tasks-new", "workflows", "settings"].forEach((v) => {
+  ["tasks-list", "tasks-new", "workflows", "skills", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
@@ -1513,6 +1747,7 @@ function switchView(view) {
       startTaskPolling();
     }
     if (view === "workflows") loadWorkflows();
+    if (view === "skills") loadSkills();
   }
 
   const u = new URL(location.href);
@@ -1526,6 +1761,8 @@ document.querySelectorAll(".nav-item[data-view]").forEach((el) => {
 });
 
 document.getElementById("wf-q").addEventListener("input", renderWorkflows);
+const skQ = document.getElementById("sk-q");
+if (skQ) skQ.addEventListener("input", renderSkills);
 
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
@@ -1547,7 +1784,7 @@ initSettingsUI();
     return;
   }
   const view = (URL_PARAMS.get("view") || "").trim();
-  if (view && ["workflows", "tasks-new", "tasks-list", "settings"].includes(view)) {
+  if (view && ["workflows", "skills", "tasks-new", "tasks-list", "settings"].includes(view)) {
     switchView(view);
     return;
   }

@@ -14,6 +14,7 @@ This repository is **independent** from the internal `quality-shipyard/hb-cli` P
   - **Agent**: Claude Code (`provider-agent-claude`)
   - **Issue**: manual (`provider-issue-manual`) or **GitHub Issues** (`provider-issue-github`)
   - **Notify**: webhook / **Feishu** / **DingTalk**
+- **Skills**: portable `SKILL.md` packs (discover + prompt/`--add-dir` mount); bundled coding skills sync to `~/.agent-desk/skills` on web start — see [docs/skills.md](docs/skills.md)
 - SQLite persistence (`~/.agent-desk/agent-desk.db`)
 - Local HTTP API (Fastify) + CLI
 
@@ -42,7 +43,14 @@ pnpm cli workflows run sys-fix-pipeline -p "Issue: login button broken"
 # Create a single skill task
 pnpm cli tasks create \
   -t "Demo task" \
-  -p "Say hello and open gate「Demo」with hb-choices."
+  -p "Say hello and open gate「Demo」with hb-choices." \
+  --skill triage
+
+# List discovered skills
+pnpm cli skills list
+
+# Install/update bundled skills into ~/.agent-desk/skills
+pnpm cli skills sync
 
 # List issues (GitHub when configured)
 pnpm cli issues list
@@ -98,6 +106,9 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | `AD_DINGTALK_AGENT_ID` | DingTalk agent id |
 | `AD_DINGTALK_USER_IDS` | Comma-separated userids for work notification |
 | `AD_DINGTALK_WRAP_LINKS` | `1` (default) wrap links for PC external browser |
+| `AD_SKILL_DIRS` | Extra skill roots (`:` / `;` separated) |
+| `AD_BUNDLED_SKILL_DIR` | Override bundled `templates/skills` |
+| `AD_SKILL_PROMPT_MAX_CHARS` | Cap for injected SKILL.md body (default `100000`) |
 
 Set `providers.issue` to `"github"` and/or `providers.notify` to `"feishu"` / `"dingtalk"` via PUT `/api/settings` after configuring the env vars above.
 
@@ -121,8 +132,10 @@ packages/
   provider-notify-webhook/
   provider-notify-feishu/ # Feishu / Lark cards
   provider-notify-dingtalk/ # DingTalk ActionCard
+  skills/                # Skill discovery + mount helpers
 schemas/                 # JSON Schema (language-agnostic)
 templates/workflows/     # Example workflow YAML
+templates/skills/        # Bundled SKILL.md packs (triage/fix/test)
 ```
 
 ## Relationship to hb-cli
@@ -132,6 +145,7 @@ templates/workflows/     # Example workflow YAML
 | `bug_code` | `issueCode` |
 | `workflow_runner.py` | `@agent-desk/workflow` |
 | `agent_backend.py` | `@agent-desk/provider-agent*` |
+| `skill_pack.py` | `@agent-desk/skills` |
 | `notify.py` | `@agent-desk/provider-notify*` |
 | `bugs.py` | `@agent-desk/provider-issue*` |
 | `runner.py` | `@agent-desk/runner` |

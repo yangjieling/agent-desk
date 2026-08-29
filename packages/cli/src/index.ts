@@ -11,6 +11,7 @@ import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
 import { createTask, startTask } from "@agent-desk/runner";
 import { startServer } from "@agent-desk/server";
+import { listSkillSummaries, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import { listWorkflows } from "@agent-desk/workflow";
 import {
   registerForegroundLifecycle,
@@ -154,9 +155,16 @@ tasks
   .description("Create and start a task")
   .requiredOption("-t, --title <title>", "task title")
   .requiredOption("-p, --prompt <prompt>", "task prompt")
+  .option("--skill <id>", "skill id (SKILL.md pack)", "default")
   .option("--project-dir <dir>", "project directory", process.cwd())
   .option("--data-dir <dir>", "data directory", defaultDataDir())
-  .action(async (opts: { title: string; prompt: string; projectDir: string; dataDir: string }) => {
+  .action(async (opts: {
+    title: string;
+    prompt: string;
+    skill: string;
+    projectDir: string;
+    dataDir: string;
+  }) => {
     registerProviders();
     const db = openDb(opts.dataDir);
     const settings = db.getSettings();
@@ -165,12 +173,73 @@ tasks
         title: clipTitle(opts.title),
         prompt: clipPrompt(opts.prompt),
         projectDir: opts.projectDir,
+        skill: opts.skill,
       },
       settings,
     );
     db.upsertTask(task);
     await startTask({ db, settings }, task.id);
     console.log(task.id);
+  });
+
+const skills = program.command("skills").description("List / sync bundled skills");
+
+skills
+  .command("list")
+  .description("List skills from project / user / bundled roots")
+  .option("--cwd <dir>", "project directory for discovery", process.cwd())
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .action((opts: { cwd: string; dataDir: string }) => {
+    const userDir = `${opts.dataDir.replace(/\/$/, "")}/skills`;
+    const rows = listSkillSummaries({ cwd: opts.cwd, userDir });
+    if (!rows.length) {
+      console.log("No skills found.");
+      return;
+    }
+    for (const s of rows) {
+      const kind = s.managed || s.source === "bundled" ? "builtin" : s.source;
+      const flag = s.removable ? "removable" : s.managed ? "managed" : "";
+      const ver = s.version ? `v${s.version}` : "";
+      const desc = s.description ? `\t${s.description}` : "";
+      console.log([s.id, kind, ver, flag].filter(Boolean).join("\t") + desc);
+    }
+  });
+
+skills
+  .command("sync")
+  .description("Install/update bundled skills into ~/.agent-desk/skills")
+  .option("--force", "overwrite managed installs even if up to date")
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .action((opts: { force?: boolean; dataDir: string }) => {
+    const userDir = `${opts.dataDir.replace(/\/$/, "")}/skills`;
+    const sync = syncBundledSkills({ force: !!opts.force, userDir });
+    const seed = seedUserSkills({ userDir });
+    console.log(`builtin bundle ${sync.bundleVersion}`);
+    if (sync.installed.length) console.log(`installed: ${sync.installed.join(", ")}`);
+    if (sync.updated.length) console.log(`updated:   ${sync.updated.join(", ")}`);
+    if (sync.skipped.length) console.log(`skipped:   ${sync.skipped.join(", ")}`);
+    for (const e of sync.errors) console.error(`error ${e.id}: ${e.error}`);
+    console.log(`seeds ${seed.seedVersion}`);
+    if (seed.seeded.length) console.log(`seeded:    ${seed.seeded.join(", ")}`);
+    if (seed.demoted.length) console.log(`demoted:   ${seed.demoted.join(", ")} (now user)`);
+    if (seed.skipped.length) console.log(`seed-skip: ${seed.skipped.join(", ")}`);
+    for (const e of seed.errors) console.error(`seed-error ${e.id}: ${e.error}`);
+    if (sync.errors.length || seed.errors.length) process.exitCode = 1;
+  });
+
+skills
+  .command("uninstall <id>")
+  .description("Uninstall a user-authored skill (built-in managed skills cannot be removed)")
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .action((id: string, opts: { dataDir: string }) => {
+    const userDir = `${opts.dataDir.replace(/\/$/, "")}/skills`;
+    try {
+      const r = uninstallUserSkill(id, { userDir });
+      console.log(`removed ${r.id}\n${r.removed}`);
+    } catch (e) {
+      console.error(e instanceof Error ? e.message : e);
+      process.exitCode = 1;
+    }
   });
 
 const issues = program.command("issues").description("List / show bugs via issue provider");

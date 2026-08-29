@@ -11,6 +11,8 @@
     "build": "pnpm -r run build",
     "dev": "pnpm --filter @agent-desk/server run dev",
     "cli": "node ./packages/cli/dist/index.js",
+    "skills:import": "node ./scripts/import-hb-skills.mjs",
+    "skills:sync": "node ./packages/cli/dist/index.js skills sync",
     "typecheck": "pnpm -r run typecheck",
     "clean": "pnpm -r exec rm -rf dist"
   },

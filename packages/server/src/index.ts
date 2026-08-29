@@ -12,6 +12,7 @@ import { registerDingTalkNotifyProvider } from "@agent-desk/provider-notify-ding
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
 import { listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
+import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import {
   createTask,
   resumeTask,
@@ -68,6 +69,21 @@ function uiPublicDir(): string {
 export async function createServer(opts: ServerOptions = {}) {
   registerProviders();
   const dataDir = opts.dataDir ?? defaultDataDir();
+  const skillsUserDir = path.join(dataDir, "skills");
+  try {
+    const ready = ensureSkillsReady({ userDir: skillsUserDir });
+    const parts: string[] = [];
+    if (ready.sync && (ready.sync.installed.length || ready.sync.updated.length)) {
+      parts.push(
+        `builtin +${ready.sync.installed.length} ~${ready.sync.updated.length}`,
+      );
+    }
+    if (ready.seed.seeded.length) parts.push(`seeded ${ready.seed.seeded.length}`);
+    if (ready.seed.demoted.length) parts.push(`demoted ${ready.seed.demoted.length}`);
+    if (parts.length) console.log(`[skills] ${parts.join("; ")}`);
+  } catch (e) {
+    console.warn(`[skills] sync skipped: ${e instanceof Error ? e.message : e}`);
+  }
   const db = openDb(dataDir);
   const settings = db.getSettings();
   const runnerOpts = { db, settings };
@@ -117,6 +133,38 @@ export async function createServer(opts: ServerOptions = {}) {
   app.get("/api/notify-providers", async () =>
     listNotifyProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
   );
+
+  app.get<{ Querystring: { cwd?: string } }>("/api/skills", async (req) => {
+    const cwd = (req.query.cwd || "").trim() || process.cwd();
+    return listSkillSummaries({ cwd, userDir: skillsUserDir });
+  });
+
+  app.get<{ Params: { id: string }; Querystring: { cwd?: string } }>(
+    "/api/skills/:id",
+    async (req, reply) => {
+      const cwd = (req.query.cwd || "").trim() || process.cwd();
+      const skill = resolveSkill(req.params.id, { cwd, userDir: skillsUserDir });
+      if (!skill) return reply.code(404).send({ error: "not_found" });
+      return skill;
+    },
+  );
+
+  app.post<{ Body: { force?: boolean } }>("/api/skills/sync", async (req) => {
+    const force = !!req.body?.force;
+    const sync = syncBundledSkills({ force, userDir: skillsUserDir });
+    const seed = seedUserSkills({ userDir: skillsUserDir });
+    return { sync, seed };
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/skills/:id", async (req, reply) => {
+    try {
+      return uninstallUserSkill(req.params.id, { userDir: skillsUserDir });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const code = /内置|不能卸载/.test(msg) ? 403 : /not found/.test(msg) ? 404 : 400;
+      return reply.code(code).send({ error: msg });
+    }
+  });
 
   app.get<{
     Querystring: { state?: string; label?: string | string[]; limit?: string; provider?: string };
@@ -184,27 +232,35 @@ export async function createServer(opts: ServerOptions = {}) {
     return task;
   });
 
-  app.post<{ Body: { title?: string; prompt?: string; projectDir?: string; issueCode?: string } }>(
-    "/api/tasks",
-    async (req, reply) => {
-      const title = clipTitle(req.body.title ?? "Untitled task");
-      const prompt = clipPrompt(req.body.prompt ?? "");
-      if (!prompt.trim()) return reply.code(400).send({ error: "prompt_required" });
+  app.post<{
+    Body: {
+      title?: string;
+      prompt?: string;
+      projectDir?: string;
+      issueCode?: string;
+      skill?: string;
+      codingAgent?: string;
+    };
+  }>("/api/tasks", async (req, reply) => {
+    const title = clipTitle(req.body.title ?? "Untitled task");
+    const prompt = clipPrompt(req.body.prompt ?? "");
+    if (!prompt.trim()) return reply.code(400).send({ error: "prompt_required" });
 
-      const task = createTask(
-        {
-          title,
-          prompt,
-          projectDir: req.body.projectDir,
-          issueCode: req.body.issueCode,
-        },
-        settings,
-      );
-      db.upsertTask(task);
-      void startTask(runnerOpts, task.id);
-      return task;
-    },
-  );
+    const task = createTask(
+      {
+        title,
+        prompt,
+        projectDir: req.body.projectDir,
+        issueCode: req.body.issueCode,
+        skill: req.body.skill,
+        codingAgent: req.body.codingAgent,
+      },
+      settings,
+    );
+    db.upsertTask(task);
+    void startTask(runnerOpts, task.id);
+    return task;
+  });
 
   async function handleResume(taskId: string, replyText: string) {
     const task = db.getTask(taskId);

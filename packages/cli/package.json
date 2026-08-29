@@ -28,6 +28,7 @@
     "@agent-desk/provider-notify-webhook": "workspace:*",
     "@agent-desk/runner": "workspace:*",
     "@agent-desk/server": "workspace:*",
+    "@agent-desk/skills": "workspace:*",
     "@agent-desk/workflow": "workspace:*",
     "commander": "^13.1.0"
   },

@@ -11,6 +11,7 @@
   <div class="brand">Open Harness<span class="ver" id="ver"></span></div>
   <div class="nav-item active" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
   <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
+  <div class="nav-item" data-view="skills"><span class="ic">✦</span>技能</div>
   <div class="nav-item" data-view="settings"><span class="ic">⚙</span>设置</div>
 </aside>
 <main class="main">
@@ -104,6 +105,12 @@
             </select>
           </div>
 
+          <div class="topbar-item" id="t-target-skill-wrap">
+            <select id="t-skill" class="topbar-select topbar-select-wide" title="技能">
+              <option value="default">default（无技能包）</option>
+            </select>
+          </div>
+
           <div class="topbar-item" id="t-target-workflow-wrap" style="display:none">
             <select id="t-workflow" class="topbar-select topbar-select-wide" title="流程模板"></select>
           </div>
@@ -149,6 +156,25 @@
         <button class="btn-refresh" onclick="loadWorkflows()">刷新</button>
       </div>
       <div id="wf-list"></div>
+    </section>
+
+    <section id="view-skills" style="display:none">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M11 19a8 8 0 100-16 8 8 0 000 16zM21 21l-4.35-4.35" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <input id="sk-q" placeholder="搜索技能">
+        </div>
+        <select id="sk-filter" onchange="setSkillFilter(this.value)">
+          <option value="all">全部来源</option>
+          <option value="bundled">内置</option>
+          <option value="user">用户自建</option>
+          <option value="project">项目</option>
+          <option value="custom">自定义</option>
+        </select>
+        <button class="btn-refresh" onclick="loadSkills()">刷新</button>
+        <button class="btn-install" onclick="syncSkills()">同步内置</button>
+      </div>
+      <div id="sk-list"></div>
     </section>
 
     <section id="view-settings" style="display:none">
@@ -289,6 +315,17 @@
       <div class="ws-selected" id="ws-selected" title="">未选择</div>
       <button type="button" class="ws-confirm" id="wsConfirmBtn" onclick="fsSelectCurrent()">确认</button>
     </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="skillMask" onclick="onSkillMaskClick(event)">
+  <div class="modal skill-modal" role="dialog" aria-modal="true" aria-labelledby="skillTitle" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <span class="mt" id="skillTitle">技能</span>
+      <button class="mc" type="button" onclick="closeSkillDetail()">×</button>
+    </div>
+    <div class="skill-meta" id="skillMeta"></div>
+    <pre class="modal-body skill-body" id="skillBody"></pre>
   </div>
 </div>
 

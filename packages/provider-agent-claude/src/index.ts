@@ -27,29 +27,25 @@ export class ClaudeBackend implements AgentBackend {
   }
 
   buildExecCommand(params: AgentExecParams): string[] {
-    return [
-      bin(),
-      "-p",
-      "--output-format",
-      "stream-json",
-      "--dangerously-skip-permissions",
-      "--",
-      params.promptFile,
-    ];
+    return this.buildArgs(params);
   }
 
   buildResumeCommand(params: AgentResumeParams): string[] {
-    return [
-      bin(),
-      "-p",
-      "--resume",
-      params.sessionId,
-      "--output-format",
-      "stream-json",
-      "--dangerously-skip-permissions",
-      "--",
-      params.promptFile,
-    ];
+    return this.buildArgs(params, params.sessionId);
+  }
+
+  private buildArgs(params: AgentExecParams, sessionId?: string): string[] {
+    const args = [bin(), "-p"];
+    if (sessionId) {
+      args.push("--resume", sessionId);
+    }
+    args.push("--output-format", "stream-json", "--dangerously-skip-permissions");
+    for (const dir of params.extraSkillDirs ?? []) {
+      const d = (dir || "").trim();
+      if (d) args.push("--add-dir", d);
+    }
+    args.push("--", params.promptFile);
+    return args;
   }
 
   parseEventLine(line: string): AgentEvent | null {

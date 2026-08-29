@@ -1,0 +1,10 @@
+{
+  "bundleVersion": "0.3.0",
+  "updatedAt": "2026-08-29T08:00:00.000Z",
+  "note": "Built-in skills shipped with CLI (managed install/update). hb-cli coding packs live in templates/skill-seeds and install once as user skills.",
+  "skills": [
+    { "id": "triage", "version": "0.1.0", "desc": "分诊并打开 Triage 闸门" },
+    { "id": "fix", "version": "0.1.0", "desc": "实现确认后的修复" },
+    { "id": "test", "version": "0.1.0", "desc": "验证修复结果" }
+  ]
+}

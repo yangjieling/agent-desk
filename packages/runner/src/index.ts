@@ -17,6 +17,7 @@ import {
 import type { AgentDeskDb } from "@agent-desk/db";
 import { getAgentBackend } from "@agent-desk/provider-agent";
 import { getNotifyProvider } from "@agent-desk/provider-notify";
+import { mountSkill } from "@agent-desk/skills";
 
 export interface CreateTaskInput {
   title: string;
@@ -115,12 +116,21 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
   running.set(taskId, controller);
 
   const cwd = task.projectDir || process.cwd();
+  const skillMount = mountSkill(task.skill || "default", { cwd });
+  const promptBody = skillMount.promptPrefix
+    ? `${skillMount.promptPrefix}\n${task.prompt}`
+    : task.prompt;
   const promptFile = promptPath(task.id);
-  fs.writeFileSync(promptFile, task.prompt, "utf8");
+  fs.writeFileSync(promptFile, promptBody, "utf8");
 
+  const execParams = {
+    cwd,
+    promptFile,
+    extraSkillDirs: skillMount.extraSkillDirs,
+  };
   const args = task.sessionId
-    ? backend.buildResumeCommand({ cwd, promptFile, sessionId: task.sessionId })
-    : backend.buildExecCommand({ cwd, promptFile });
+    ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })
+    : backend.buildExecCommand(execParams);
 
   opts.db.updateTask(taskId, { status: "running" });
 

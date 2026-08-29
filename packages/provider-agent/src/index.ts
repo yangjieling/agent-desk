@@ -3,6 +3,7 @@ export type AgentId = string;
 export interface AgentExecParams {
   cwd: string;
   promptFile: string;
+  /** Skill bundle dirs for CLIs that support --add-dir (or equivalent). */
   extraSkillDirs?: string[];
   env?: Record<string, string>;
 }

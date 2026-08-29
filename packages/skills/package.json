@@ -1,0 +1,20 @@
+{
+  "name": "@agent-desk/skills",
+  "version": "0.1.0",
+  "description": "Portable skill descriptors, discovery, and agent mount helpers",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "files": ["dist"]
+}
