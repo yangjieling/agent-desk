@@ -15,6 +15,8 @@ import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webho
 import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import {
   createTask,
+  enqueueStartTask,
+  isTaskRunning,
   resumeTask,
   startTask,
   stopTask,
@@ -323,8 +325,21 @@ export async function createServer(opts: ServerOptions = {}) {
       settings,
     );
     db.upsertTask(task);
-    void startTask(runnerOpts, task.id);
+    enqueueStartTask(runnerOpts, task.id);
     return task;
+  });
+
+  app.post<{ Params: { id: string } }>("/api/tasks/:id/start", async (req, reply) => {
+    const task = db.getTask(req.params.id);
+    if (!task) return reply.code(404).send({ error: "not_found" });
+    if (isTaskRunning(task.id) || task.status === "running") {
+      return reply.code(409).send({ error: "already_running", task });
+    }
+    if (!["created", "failed", "stopped"].includes(task.status)) {
+      return reply.code(409).send({ error: "not_startable", status: task.status, task });
+    }
+    const updated = await startTask(runnerOpts, task.id);
+    return updated;
   });
 
   async function handleResume(taskId: string, replyText: string) {

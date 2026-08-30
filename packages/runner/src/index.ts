@@ -91,6 +91,34 @@ function webUrlFor(task: Task, settings: Settings): string {
   return `${settings.webBaseUrl}/?task=${task.id}`;
 }
 
+function errMessage(err: unknown): string {
+  if (err instanceof Error) return err.message || String(err);
+  return String(err ?? "unknown error");
+}
+
+async function markTaskFailed(
+  opts: RunnerOptions,
+  taskId: string,
+  err: unknown,
+): Promise<Task> {
+  const prev = opts.db.getTask(taskId);
+  const msg = errMessage(err);
+  const stamp = `\n\n[start error] ${msg}`;
+  const result = prev?.result?.trim() ? `${prev.result.trim()}${stamp}` : `[start error] ${msg}`;
+  const updated = opts.db.updateTask(taskId, {
+    status: "failed",
+    result,
+    lastActivityAt: Date.now(),
+  });
+  const task = updated ?? prev;
+  if (task) {
+    await maybeNotifyTaskUpdate(task, opts.settings);
+    await emitTaskComplete(task);
+  }
+  if (!task) throw new Error(`Task not found after fail: ${taskId}`);
+  return task;
+}
+
 async function safeNotify(label: string, fn: () => Promise<void>): Promise<boolean> {
   try {
     await fn();
@@ -140,86 +168,115 @@ async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<vo
   );
 }
 
+/**
+ * Launch (or re-launch) a task's coding agent.
+ * Launch failures are recorded as status=failed and do not reject, so
+ * fire-and-forget callers cannot crash the web process.
+ */
 export async function startTask(opts: RunnerOptions, taskId: string): Promise<Task> {
   const task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
   if (running.has(taskId)) return task;
 
-  const backend = getAgentBackend(task.codingAgent || opts.settings.codingAgent);
-  await backend.requireReady();
+  try {
+    const backend = getAgentBackend(task.codingAgent || opts.settings.codingAgent);
+    await backend.requireReady();
 
-  const controller = new AbortController();
-  running.set(taskId, controller);
+    const controller = new AbortController();
+    running.set(taskId, controller);
 
-  const cwd = task.projectDir || process.cwd();
-  const skillMount = mountSkill(task.skill || "default", { cwd });
-  const promptBody = skillMount.promptPrefix
-    ? `${skillMount.promptPrefix}\n${task.prompt}`
-    : task.prompt;
-  const promptFile = promptPath(task.id);
-  fs.writeFileSync(promptFile, promptBody, "utf8");
+    const cwd = task.projectDir || process.cwd();
+    const skillMount = mountSkill(task.skill || "default", { cwd });
+    const promptBody = skillMount.promptPrefix
+      ? `${skillMount.promptPrefix}\n${task.prompt}`
+      : task.prompt;
+    const promptFile = promptPath(task.id);
+    fs.writeFileSync(promptFile, promptBody, "utf8");
 
-  const execParams = {
-    cwd,
-    promptFile,
-    extraSkillDirs: skillMount.extraSkillDirs,
-  };
-  const args = task.sessionId
-    ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })
-    : backend.buildExecCommand(execParams);
+    const execParams = {
+      cwd,
+      promptFile,
+      extraSkillDirs: skillMount.extraSkillDirs,
+    };
+    const args = task.sessionId
+      ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })
+      : backend.buildExecCommand(execParams);
 
-  opts.db.updateTask(taskId, { status: "running" });
+    opts.db.updateTask(taskId, { status: "running" });
 
-  const child = spawn(args[0], args.slice(1), {
-    cwd,
-    stdio: ["ignore", "pipe", "pipe"],
-    signal: controller.signal,
-    env: process.env,
-  });
-
-  let output = task.result ? `${task.result}\n` : "";
-  const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
-
-  const onData = (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    output += text;
-    for (const line of text.split("\n")) {
-      const evt = backend.parseEventLine(line);
-      if (evt) events.push(evt);
-    }
-    opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
-  };
-
-  child.stdout?.on("data", onData);
-  child.stderr?.on("data", onData);
-
-  child.on("close", async (code) => {
-    running.delete(taskId);
-    const sessionId = backend.extractSessionId(events) ?? task.sessionId;
-    let status: Task["status"] = code === 0 ? "done" : "failed";
-    if (controller.signal.aborted) status = "stopped";
-    if (looksLikeUserAbort(output)) status = "stopped";
-    if (looksLikeQuestion(output) && status !== "stopped" && status !== "failed") {
-      status = "awaiting";
-    }
-
-    const updated = opts.db.updateTask(taskId, {
-      status,
-      sessionId,
-      result: output,
+    const child = spawn(args[0], args.slice(1), {
+      cwd,
+      stdio: ["ignore", "pipe", "pipe"],
+      signal: controller.signal,
+      env: process.env,
     });
-    if (updated) {
-      if (status === "awaiting") {
-        const sent = await maybeNotifyGate(updated, opts.settings);
-        if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
-      } else {
-        await maybeNotifyTaskUpdate(updated, opts.settings);
-      }
-      await emitTaskComplete(updated);
-    }
-  });
 
-  return opts.db.getTask(taskId)!;
+    let output = task.result ? `${task.result}\n` : "";
+    const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
+    let settled = false;
+
+    const onData = (chunk: Buffer) => {
+      const text = chunk.toString("utf8");
+      output += text;
+      for (const line of text.split("\n")) {
+        const evt = backend.parseEventLine(line);
+        if (evt) events.push(evt);
+      }
+      opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
+    };
+
+    child.stdout?.on("data", onData);
+    child.stderr?.on("data", onData);
+
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      running.delete(taskId);
+      console.error(`[agent-desk] task ${taskId} spawn error:`, errMessage(err));
+      void markTaskFailed(opts, taskId, err);
+    });
+
+    child.on("close", async (code) => {
+      if (settled) return;
+      settled = true;
+      running.delete(taskId);
+      const sessionId = backend.extractSessionId(events) ?? task.sessionId;
+      let status: Task["status"] = code === 0 ? "done" : "failed";
+      if (controller.signal.aborted) status = "stopped";
+      if (looksLikeUserAbort(output)) status = "stopped";
+      if (looksLikeQuestion(output) && status !== "stopped" && status !== "failed") {
+        status = "awaiting";
+      }
+
+      const updated = opts.db.updateTask(taskId, {
+        status,
+        sessionId,
+        result: output,
+      });
+      if (updated) {
+        if (status === "awaiting") {
+          const sent = await maybeNotifyGate(updated, opts.settings);
+          if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+        } else {
+          await maybeNotifyTaskUpdate(updated, opts.settings);
+        }
+        await emitTaskComplete(updated);
+      }
+    });
+
+    return opts.db.getTask(taskId)!;
+  } catch (err) {
+    running.delete(taskId);
+    console.error(`[agent-desk] task ${taskId} start failed:`, errMessage(err));
+    return markTaskFailed(opts, taskId, err);
+  }
+}
+
+/** Fire-and-forget start that never surfaces as an unhandled rejection. */
+export function enqueueStartTask(opts: RunnerOptions, taskId: string): void {
+  void startTask(opts, taskId).catch((err) => {
+    console.error(`[agent-desk] enqueueStartTask ${taskId}:`, errMessage(err));
+  });
 }
 
 export function stopTask(taskId: string, reason = "user_stop"): boolean {

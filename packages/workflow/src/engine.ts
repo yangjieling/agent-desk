@@ -12,6 +12,7 @@ import {
 import type { AgentDeskDb } from "@agent-desk/db";
 import {
   createTask,
+  enqueueStartTask,
   isTaskRunning,
   onTaskComplete,
   startTask,
@@ -334,7 +335,7 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
     opts.db.upsertTask(childTask);
     run = updateRunNode(dataDir, run, i, { taskId: childTask.id, status: "running" });
     run = persistRun(dataDir, opts.db, run);
-    void startTask(opts, childTask.id);
+    enqueueStartTask(opts, childTask.id);
   }
 
   const deadline = Date.now() + 3_600_000;

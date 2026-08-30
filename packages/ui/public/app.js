@@ -764,6 +764,9 @@ function renderListRow(t, opts = {}) {
   const running = t.status === "running";
   const awaiting = t.status === "awaiting";
   const canContinue = canContinueTask(t);
+  const hasSession = !!(tField(t, "sessionId", "session_id") || "").trim();
+  const needsFreshStart =
+    t.status === "created" || (t.status === "failed" && !hasSession);
   const metaParts = [];
   if (!LOG_ID && proj && proj !== "-") metaParts.push(proj);
   if (issue) metaParts.push(`<span class="bug-code">${issue}</span>`);
@@ -779,6 +782,8 @@ function renderListRow(t, opts = {}) {
     ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "停止" });
   } else if (running) {
     ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "停止" });
+  } else if (needsFreshStart) {
+    ops += taskIconBtn({ act: "start", id, kind: "play", label: "运行" });
   } else if (canContinue) {
     ops += taskIconBtn({ act: "continue", id, kind: "play", label: "继续" });
   }
@@ -879,6 +884,7 @@ function bindTaskActs(root) {
         return;
       }
       if (act === "continue") continueTask(id);
+      else if (act === "start") runTask(id);
       else if (act === "stop") stopTask(id);
       else if (act === "del") deleteTask(id);
       else if (act === "log") showLog(id);
@@ -971,6 +977,19 @@ async function stopTask(id) {
     if (LOG_ID === id) await pollLog();
   } catch (e) {
     toast(`停止失败: ${e.message || e}`);
+  }
+}
+
+async function runTask(id) {
+  if (!id) return;
+  try {
+    await api(`/api/tasks/${encodeURIComponent(id)}/start`, { method: "POST" });
+    toast("已开始运行");
+    await loadTasks();
+    showLog(id);
+  } catch (e) {
+    toast(`运行失败: ${e.message || e}`);
+    await loadTasks();
   }
 }
 
@@ -1109,10 +1128,25 @@ async function pollLog() {
     if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
 
     const contBtn = document.getElementById("logContinueBtn");
-    if (contBtn) contBtn.style.display = !running && canContinueTask(d) && !awaiting ? "" : "none";
+    if (contBtn) {
+      const hasSession = !!(tField(d, "sessionId", "session_id") || "").trim();
+      const showStart =
+        !running && (d.status === "created" || (d.status === "failed" && !hasSession));
+      const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
+      contBtn.style.display = showStart || showCont ? "" : "none";
+      if (showStart) {
+        contBtn.title = "运行";
+        contBtn.setAttribute("aria-label", "运行");
+        contBtn.onclick = () => runTask(LOG_ID);
+      } else {
+        contBtn.title = "继续";
+        contBtn.setAttribute("aria-label", "继续");
+        contBtn.onclick = () => continueTask(LOG_ID);
+      }
+    }
 
     const rb = document.getElementById("replyBox");
-    const canChat = !running && ["awaiting", "done", "failed", "stopped"].includes(d.status);
+    const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
     if (rb) rb.classList.toggle("show", canChat);
 
     // Gate card already shows choices while awaiting; keep chips for other statuses only.
