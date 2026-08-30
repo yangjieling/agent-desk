@@ -85,7 +85,35 @@ export interface Settings {
     issue: string;
     notify: string;
   };
+  /**
+   * DingTalk credentials stored under ~/.agent-desk (SQLite settings).
+   * Environment variables AD_DINGTALK_* still override when set.
+   */
+  dingtalk: DingTalkSettings;
 }
+
+/** Persisted DingTalk notify / interactive-card settings (no env required). */
+export interface DingTalkSettings {
+  webhook: string;
+  secret: string;
+  keyword: string;
+  appKey: string;
+  appSecret: string;
+  agentId: string;
+  userIds: string;
+  cardTemplateId: string;
+}
+
+export const DEFAULT_DINGTALK_SETTINGS: DingTalkSettings = {
+  webhook: "",
+  secret: "",
+  keyword: "",
+  appKey: "",
+  appSecret: "",
+  agentId: "",
+  userIds: "",
+  cardTemplateId: "",
+};
 
 export const DEFAULT_SETTINGS: Settings = {
   notifyEnabled: true,
@@ -101,6 +129,7 @@ export const DEFAULT_SETTINGS: Settings = {
     issue: "manual",
     notify: "webhook",
   },
+  dingtalk: { ...DEFAULT_DINGTALK_SETTINGS },
 };
 
 export const TITLE_MAX_LEN = 80;

@@ -2502,6 +2502,44 @@ async function saveSettingsPatch(patch) {
   });
 }
 
+const SETTINGS_SECRET_MASK = "********";
+
+function secretEyeIcon(visible) {
+  const common = 'viewBox="0 0 24 24" fill="none" aria-hidden="true"';
+  if (visible) {
+    return (
+      `<svg ${common}>` +
+      `<path d="M4 4l16 16M9.9 9.9A3 3 0 0114.1 14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>` +
+      `<path d="M10.5 5.2A10.5 10.5 0 0121.5 12a10.6 10.6 0 01-3.2 4.3M6.7 6.7A10.5 10.5 0 002.5 12a10.5 10.5 0 0012.8 6.7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>` +
+      `</svg>`
+    );
+  }
+  return (
+    `<svg ${common}>` +
+    `<path d="M2.5 12S6.5 6.5 12 6.5 21.5 12 21.5 12 17.5 17.5 12 17.5 2.5 12 2.5 12z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>` +
+    `<circle cx="12" cy="12" r="2.8" stroke="currentColor" stroke-width="1.7"/>` +
+    `</svg>`
+  );
+}
+
+function settingsGet(state, key) {
+  if (!key.includes(".")) return state[key];
+  return key.split(".").reduce((o, k) => (o == null ? undefined : o[k]), state);
+}
+
+function settingsPatchForKey(key, value) {
+  if (!key.includes(".")) return { [key]: value };
+  const parts = key.split(".");
+  const root = {};
+  let cur = root;
+  for (let i = 0; i < parts.length - 1; i++) {
+    cur[parts[i]] = {};
+    cur = cur[parts[i]];
+  }
+  cur[parts[parts.length - 1]] = value;
+  return root;
+}
+
 function settingsLabel(row, key) {
   return (row.querySelector(".st") && row.querySelector(".st").textContent) || key;
 }
@@ -2655,12 +2693,25 @@ async function initSettingsUI() {
     state = next;
   };
 
+  const syncNotifyChannelPanels = (providerId) => {
+    const id = (providerId || "").trim() || "webhook";
+    document.querySelectorAll("[data-notify-panel]").forEach((panel) => {
+      const match = panel.getAttribute("data-notify-panel") === id;
+      panel.hidden = !match;
+    });
+  };
+
+  const initialNotify =
+    (state.providers && state.providers.notify) || "webhook";
+  syncNotifyChannelPanels(initialNotify);
+
   mountSettingDropdown(
     document.getElementById("setNotifyProvider"),
     notifyOpts,
-    (state.providers && state.providers.notify) || "webhook",
+    initialNotify,
     async (nextVal) => {
       await saveSelect("providers.notify", nextVal);
+      syncNotifyChannelPanels(nextVal);
       toast("已更新：通知通道");
     },
   );
@@ -2725,21 +2776,121 @@ async function initSettingsUI() {
     if (!key) return;
     if (row.dataset.type === "select") return;
 
-    if (row.dataset.type === "text") {
-      const input = row.querySelector('input[type="text"]');
+    if (row.dataset.type === "text" || row.dataset.type === "secret") {
+      const input = row.querySelector("input");
       if (!input) return;
-      input.value = state[key] || "";
+      const isSecret = row.dataset.type === "secret";
+      const loaded = settingsGet(state, key);
+      const loadedStr = loaded == null ? "" : String(loaded);
+      const hasStoredSecret = isSecret && !!loadedStr;
+      input.value = isSecret && loadedStr ? SETTINGS_SECRET_MASK : loadedStr;
+      input.dataset.revealed = "0";
+
+      if (isSecret) {
+        const toggle = row.querySelector(".setting-secret-toggle");
+        if (toggle) {
+          const setEye = (visible) => {
+            toggle.innerHTML = secretEyeIcon(visible);
+            toggle.setAttribute("aria-label", visible ? "隐藏密钥" : "显示密钥");
+            toggle.setAttribute("aria-pressed", visible ? "true" : "false");
+          };
+          setEye(false);
+          toggle.onclick = async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const showing = input.type === "text";
+            if (showing) {
+              input.type = "password";
+              input.dataset.revealed = "0";
+              setEye(false);
+              return;
+            }
+            try {
+              if (
+                input.value === SETTINGS_SECRET_MASK ||
+                (hasStoredSecret && !input.value.trim())
+              ) {
+                const revealed = await api("/api/settings?revealSecrets=1");
+                const real = settingsGet(revealed, key);
+                const realStr = real == null ? "" : String(real);
+                if (realStr && realStr !== SETTINGS_SECRET_MASK) {
+                  input.value = realStr;
+                  // Keep in-memory state for this field so edits compare correctly.
+                  const parts = key.split(".");
+                  if (parts.length === 2 && parts[0] === "dingtalk") {
+                    state.dingtalk = { ...(state.dingtalk || {}), [parts[1]]: realStr };
+                  }
+                }
+              }
+              input.type = "text";
+              input.dataset.revealed = "1";
+              setEye(true);
+            } catch (err) {
+              toast(`无法显示密钥: ${(err && err.message) || err}`);
+            }
+          };
+        }
+        input.addEventListener("focus", () => {
+          if (input.value === SETTINGS_SECRET_MASK) {
+            input.value = "";
+          }
+        });
+        input.addEventListener("blur", () => {
+          if (
+            input.type === "password" &&
+            !input.value.trim() &&
+            settingsGet(state, key)
+          ) {
+            input.value = SETTINGS_SECRET_MASK;
+          }
+        });
+      }
+
       const commit = async () => {
-        const prev = state[key] || "";
+        const prev = settingsGet(state, key);
+        const prevStr = prev == null ? "" : String(prev);
         const nextVal = (input.value || "").trim();
-        if (nextVal === prev) return;
+        if (isSecret) {
+          if (!nextVal || nextVal === SETTINGS_SECRET_MASK) {
+            input.value =
+              prevStr && prevStr !== SETTINGS_SECRET_MASK
+                ? input.type === "text"
+                  ? prevStr
+                  : SETTINGS_SECRET_MASK
+                : prevStr
+                  ? SETTINGS_SECRET_MASK
+                  : "";
+            return;
+          }
+          if (nextVal === prevStr) return;
+        } else if (nextVal === prevStr) {
+          return;
+        }
         try {
-          const next = await saveSettingsPatch({ [key]: nextVal });
+          const next = await saveSettingsPatch(settingsPatchForKey(key, nextVal));
           state = next;
-          input.value = next[key] || "";
+          const saved = settingsGet(next, key);
+          const savedStr = saved == null ? "" : String(saved);
+          if (isSecret && savedStr === SETTINGS_SECRET_MASK) {
+            // PUT returns redacted; keep typed plaintext while revealed.
+            if (input.dataset.revealed === "1") {
+              state.dingtalk = {
+                ...(state.dingtalk || {}),
+                [key.split(".")[1]]: nextVal,
+              };
+              input.value = nextVal;
+            } else {
+              input.value = SETTINGS_SECRET_MASK;
+            }
+          } else {
+            input.value = isSecret && savedStr ? SETTINGS_SECRET_MASK : savedStr;
+          }
           toast(`已更新：${settingsLabel(row, key)}`);
         } catch (e) {
-          input.value = prev;
+          input.value =
+            isSecret && prevStr && input.dataset.revealed !== "1"
+              ? SETTINGS_SECRET_MASK
+              : prevStr;
           toast(`保存失败: ${e.message || e}`);
         }
       };

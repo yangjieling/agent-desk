@@ -108,11 +108,15 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | `AD_DINGTALK_USER_IDS` | Comma-separated userids for work notification |
 | `AD_DINGTALK_API_BASE` | Default `https://oapi.dingtalk.com` |
 | `AD_DINGTALK_WRAP_LINKS` | `1` (default) wrap links for PC external browser |
+| `AD_DINGTALK_CARD_TEMPLATE_ID` | Interactive card template id (`xxx.schema`); enables Stream gate cards |
+| `AD_DINGTALK_OPEN_API_BASE` | Default `https://api.dingtalk.com` (createAndDeliver) |
 | `AD_SKILL_DIRS` | Extra skill roots (`:` / `;` separated) |
 | `AD_BUNDLED_SKILL_DIR` | Override bundled `templates/skills` |
 | `AD_SKILL_PROMPT_MAX_CHARS` | Cap for injected SKILL.md body (default `100000`) |
 
-Set `providers.issue` to `"github"` and/or `providers.notify` to `"feishu"` / `"dingtalk"` via PUT `/api/settings` after configuring the env vars above.
+DingTalk 也可在 Web **设置 → 钉钉** 写入 `~/.agent-desk`（`Settings.dingtalk`）；非空环境变量仍优先覆盖。改 AppKey/模板后需重启 `oh web` 重连 Stream。
+
+Set `providers.issue` to `"github"` and/or `providers.notify` to `"feishu"` / `"dingtalk"` via the settings UI or PUT `/api/settings`.
 
 ## Monorepo layout
 

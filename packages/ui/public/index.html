@@ -317,10 +317,90 @@
           <div class="setting-row" data-key="providers.notify" data-type="select">
             <div class="setting-meta">
               <p class="st">通知通道</p>
-              <p class="sd">Webhook / 飞书 / 钉钉等；未配置对应环境变量时发送可能失败</p>
+              <p class="sd">Webhook / 飞书 / 钉钉；切换后显示对应通道配置</p>
             </div>
             <div class="setting-dropdown" id="setNotifyProvider" data-value=""></div>
           </div>
+
+          <div class="notify-channel-panels" id="notifyChannelPanels">
+            <div class="notify-channel-panel" data-notify-panel="dingtalk" hidden>
+              <h3 class="settings-subtitle">钉钉配置</h3>
+              <p class="settings-section-desc">保存在 ~/.agent-desk；环境变量 AD_DINGTALK_* 非空时优先。改 AppKey / 模板后需重启 Web 才能重连 Stream。</p>
+              <div class="setting-row is-stack" data-key="dingtalk.appKey" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">AppKey (Client ID)</p>
+                  <p class="sd">企业内部应用；互动卡片 / 工作通知需要</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="ding…">
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.appSecret" data-type="secret">
+                <div class="setting-meta">
+                  <p class="st">AppSecret</p>
+                  <p class="sd">已保存时显示为掩码；留空表示不修改</p>
+                </div>
+                <div class="setting-secret-wrap">
+                  <input class="setting-select" type="password" autocomplete="off" placeholder="********">
+                  <button type="button" class="setting-secret-toggle" aria-label="显示密钥" title="显示/隐藏"></button>
+                </div>
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.agentId" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">AgentId</p>
+                  <p class="sd">工作通知（ActionCard）需要；纯互动卡片可留空</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="数字 AgentId">
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.userIds" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">接收人 userid</p>
+                  <p class="sd">逗号分隔，如 manager5260（不是钉钉号）</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="userid1,userid2">
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.cardTemplateId" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">互动卡片模板 ID</p>
+                  <p class="sd">形如 xxx.schema；配置后闸门走 Stream 回传（无需浏览器）</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="….schema">
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.webhook" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">群机器人 Webhook（可选）</p>
+                  <p class="sd">自定义机器人 URL；与应用凭证二选一或并用</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="https://oapi.dingtalk.com/robot/send?access_token=…">
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.secret" data-type="secret">
+                <div class="setting-meta">
+                  <p class="st">群机器人加签 Secret</p>
+                  <p class="sd">SEC…；已保存时显示掩码，留空不修改</p>
+                </div>
+                <div class="setting-secret-wrap">
+                  <input class="setting-select" type="password" autocomplete="off" placeholder="********">
+                  <button type="button" class="setting-secret-toggle" aria-label="显示密钥" title="显示/隐藏"></button>
+                </div>
+              </div>
+              <div class="setting-row is-stack" data-key="dingtalk.keyword" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">自定义关键词</p>
+                  <p class="sd">机器人开启关键词安全时自动写入正文</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="agent-desk">
+              </div>
+            </div>
+
+            <div class="notify-channel-panel" data-notify-panel="feishu" hidden>
+              <h3 class="settings-subtitle">飞书 / Lark</h3>
+              <p class="settings-section-desc">当前请用环境变量配置：AD_FEISHU_APP_ID、AD_FEISHU_APP_SECRET、AD_FEISHU_RECEIVE_ID 等。设置页表单后续可补。</p>
+            </div>
+
+            <div class="notify-channel-panel" data-notify-panel="webhook" hidden>
+              <h3 class="settings-subtitle">Webhook</h3>
+              <p class="settings-section-desc">通用 HTTP Webhook。详细地址等请按 docs/providers.md 用环境变量配置；设置页表单后续可补。</p>
+            </div>
+          </div>
+
           <div class="setting-row" data-key="providers.issue" data-type="select">
             <div class="setting-meta">
               <p class="st">缺陷来源</p>

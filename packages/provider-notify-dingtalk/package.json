@@ -11,7 +11,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@agent-desk/provider-notify": "workspace:*"
+    "@agent-desk/core": "workspace:*",
+    "@agent-desk/provider-notify": "workspace:*",
+    "dingtalk-stream": "^2.1.4"
   },
   "files": ["dist"]
 }

@@ -77,10 +77,14 @@ Keep `oh web` running so the browser can hit localhost. This avoids a public cal
 
 ### DingTalk setup
 
+配置优先级：**非空的 `AD_DINGTALK_*` 环境变量** > **Web 设置页「钉钉」**（写入 `~/.agent-desk/agent-desk.db` 的 `Settings.dingtalk`）。两边有一处配齐即可；`export` 可选保留。
+
+在 Web：**设置 → 通知通道选钉钉 → 填写 AppKey / AppSecret / userid / 模板 ID 等**。改凭证或模板后需重启 `oh web` 才会重连 Stream。
+
 **方式 A — 群自定义机器人（推荐上手）**
 
 1. 钉钉群 → 智能群助手 → 添加机器人 → 自定义 → 安全设置选「加签」或「自定义关键词」。
-2. 复制 Webhook：
+2. 在设置页填 Webhook / Secret / Keyword，或：
 
 ```bash
 export AD_DINGTALK_WEBHOOK='https://oapi.dingtalk.com/robot/send?access_token=...'
@@ -88,28 +92,42 @@ export AD_DINGTALK_SECRET='SEC...'   # 若启用了加签
 export AD_DINGTALK_KEYWORD='agent-desk'  # 若启用了自定义关键词（会自动写入正文）
 ```
 
-**方式 B — 企业内部应用工作通知（发到个人）**
+**方式 B — 企业内部应用工作通知 / 互动卡片（发到个人）**
+
+在设置页填写，或：
 
 ```bash
 export AD_DINGTALK_APP_KEY=...
 export AD_DINGTALK_APP_SECRET=...
-export AD_DINGTALK_AGENT_ID=...
+export AD_DINGTALK_AGENT_ID=...          # ActionCard 工作通知需要
 export AD_DINGTALK_USER_IDS=userid1,userid2
 # optional:
 # export AD_DINGTALK_API_BASE=https://oapi.dingtalk.com
+
+# Interactive gate cards (Stream callback → resume, no browser jump):
+export AD_DINGTALK_CARD_TEMPLATE_ID='922d2faf-....schema'
+# robot must use Stream receive mode; keep only one Stream client per AppKey
 ```
 
 然后：
 
 ```bash
-# PUT /api/settings
-# { "providers": { "agent": "claude", "issue": "github", "notify": "dingtalk" }, "notifyEnabled": true }
+# PUT /api/settings（或 Web 设置页）
+# { "providers": { "notify": "dingtalk" }, "notifyEnabled": true,
+#   "dingtalk": { "appKey": "...", "appSecret": "...", "userIds": "...", "cardTemplateId": "....schema" } }
+
+# 启动 web（会自动挂 Stream，若配置了卡片模板 + AppKey/Secret）：
+oh web --foreground
+
+# 或单独监听回调（勿与 oh web 同时开）：
+oh notify dingtalk-stream
 
 # 验证配置（发一张测试闸门卡片）：
-oh notify test
+oh notify test --provider dingtalk
 ```
 
-闸门卡片含选项按钮；任务 `done` / `failed` 时也会发状态更新。按钮深链本机 `GET /api/tasks/<id>/resume?reply=...`。默认会用 `dingtalk://…/page/link` 包装链接以便 PC 端外开浏览器；可用 `AD_DINGTALK_WRAP_LINKS=0` 关闭。
+- **未配置** 卡片模板 ID：仍发 ActionCard，按钮深链本机 `GET /api/tasks/<id>/resume?reply=...`（可用 `AD_DINGTALK_WRAP_LINKS=0` 关闭 dingtalk:// 包装）。
+- **已配置** 模板 ID：闸门发互动卡片，点按钮 / 提交输入经 Stream 回调直接 `resumeTask`。
 
 ## Adding a provider
 

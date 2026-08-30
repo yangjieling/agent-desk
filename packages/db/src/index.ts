@@ -108,8 +108,20 @@ export class AgentDeskDb {
     const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get("main") as
       | { value: string }
       | undefined;
-    if (!row) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(row.value) };
+    if (!row) return structuredClone(DEFAULT_SETTINGS);
+    const parsed = JSON.parse(row.value) as Partial<Settings>;
+    return {
+      ...DEFAULT_SETTINGS,
+      ...parsed,
+      providers: {
+        ...DEFAULT_SETTINGS.providers,
+        ...(parsed.providers || {}),
+      },
+      dingtalk: {
+        ...DEFAULT_SETTINGS.dingtalk,
+        ...(parsed.dingtalk || {}),
+      },
+    };
   }
 
   saveSettings(settings: Settings): void {

@@ -8,7 +8,13 @@ import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
-import { registerDingTalkNotifyProvider } from "@agent-desk/provider-notify-dingtalk";
+import {
+  createDingTalkGateResumeHandler,
+  registerDingTalkNotifyProvider,
+  resolveDingTalkConfig,
+  setDingTalkSettingsSource,
+  startDingTalkCardStream,
+} from "@agent-desk/provider-notify-dingtalk";
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
 import { listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
@@ -33,7 +39,41 @@ import {
   startRun,
   stopRun,
 } from "@agent-desk/workflow";
+import {
+  DEFAULT_DINGTALK_SETTINGS,
+  type DingTalkSettings,
+  type Settings,
+} from "@agent-desk/core";
 import { browse as fsBrowse, mkdir as fsMkdir } from "./fs-browser.js";
+
+/** Mask stored secrets in API responses (UI shows placeholder; blank save keeps old). */
+const SECRET_MASK = "********";
+
+function redactSettings(settings: Settings): Settings {
+  const dt = { ...settings.dingtalk };
+  if (dt.secret) dt.secret = SECRET_MASK;
+  if (dt.appSecret) dt.appSecret = SECRET_MASK;
+  return { ...settings, dingtalk: dt };
+}
+
+function keepSecret(incoming: string | undefined, current: string): string {
+  const v = (incoming ?? "").trim();
+  if (!v || v === SECRET_MASK) return current;
+  return v;
+}
+
+function mergeDingTalkSettings(
+  cur: DingTalkSettings,
+  patch: Partial<DingTalkSettings>,
+): DingTalkSettings {
+  return {
+    ...DEFAULT_DINGTALK_SETTINGS,
+    ...cur,
+    ...patch,
+    secret: keepSecret(patch.secret, cur.secret),
+    appSecret: keepSecret(patch.appSecret, cur.appSecret),
+  };
+}
 
 export interface ServerOptions {
   host?: string;
@@ -89,6 +129,7 @@ export async function createServer(opts: ServerOptions = {}) {
     console.warn(`[skills] sync skipped: ${e instanceof Error ? e.message : e}`);
   }
   const db = openDb(dataDir);
+  setDingTalkSettingsSource(() => db.getSettings());
   const settings = db.getSettings();
   const runnerOpts = { db, settings };
   registerWorkflowHooks(dataDir, runnerOpts);
@@ -177,7 +218,13 @@ export async function createServer(opts: ServerOptions = {}) {
     return fsMkdir((req.body?.path || "").trim(), (req.body?.name || "").trim());
   });
 
-  app.get("/api/settings", async () => db.getSettings());
+  app.get<{ Querystring: { revealSecrets?: string } }>("/api/settings", async (req) => {
+    const settings = db.getSettings();
+    const reveal =
+      req.query.revealSecrets === "1" ||
+      req.query.revealSecrets === "true";
+    return reveal ? settings : redactSettings(settings);
+  });
 
   app.put<{ Body: Record<string, unknown> }>("/api/settings", async (req) => {
     const cur = db.getSettings();
@@ -189,8 +236,16 @@ export async function createServer(opts: ServerOptions = {}) {
         ...(body.providers as Partial<typeof cur.providers>),
       };
     }
+    if (body.dingtalk && typeof body.dingtalk === "object") {
+      next.dingtalk = mergeDingTalkSettings(
+        cur.dingtalk,
+        body.dingtalk as Partial<DingTalkSettings>,
+      );
+    } else {
+      next.dingtalk = cur.dingtalk;
+    }
     db.saveSettings(next);
-    return next;
+    return redactSettings(next);
   });
 
   app.get("/api/issue-providers", async () =>
@@ -603,8 +658,49 @@ export async function createServer(opts: ServerOptions = {}) {
 export async function startServer(opts: ServerOptions = {}) {
   const host = opts.host ?? process.env.AD_HOST ?? "127.0.0.1";
   const port = opts.port ?? Number(process.env.AD_PORT ?? 19877);
-  const { app } = await createServer(opts);
+  const { app, db, dataDir } = await createServer(opts);
   await app.listen({ host, port });
+
+  // Interactive DingTalk cards: one Stream connection with the web process.
+  // Config from env AD_DINGTALK_* (preferred) or Settings.dingtalk in ~/.agent-desk.
+  const dtCfg = resolveDingTalkConfig();
+  if (dtCfg.cardTemplateId && dtCfg.appKey && dtCfg.appSecret) {
+    const runnerOpts = { db, settings: db.getSettings() };
+    try {
+      await startDingTalkCardStream({
+        onCardCallback: createDingTalkGateResumeHandler({
+          resume: async (taskId, reply) => {
+            const task = db.getTask(taskId);
+            if (!task) return { ok: false, message: `task not found: ${taskId}` };
+            if (task.status !== "awaiting" && task.status !== "created") {
+              return {
+                ok: false,
+                message: `task status is ${task.status}, expected awaiting`,
+              };
+            }
+            const updated = await resumeTask(runnerOpts, taskId, reply);
+            if (task.workflowRunId && updated?.status === "stopped") {
+              try {
+                stopRun(dataDir, runnerOpts, task.workflowRunId);
+              } catch {
+                /* ignore */
+              }
+            }
+            return { ok: true, message: `status=${updated?.status ?? "?"}` };
+          },
+        }),
+      });
+      console.log(
+        "[dingtalk-stream] interactive gate callbacks enabled (card template configured)",
+      );
+    } catch (err) {
+      console.error(
+        "[dingtalk-stream] failed to start:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
   return app;
 }
 

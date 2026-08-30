@@ -1,43 +1,43 @@
 import { createHmac } from "node:crypto";
+import type { DingTalkSettings } from "@agent-desk/core";
 import {
   registerNotifyProvider,
   type GateNotifyPayload,
   type NotifyProvider,
   type TaskNotifyPayload,
 } from "@agent-desk/provider-notify";
+import { encodeGateOutTrackId } from "./card-track.js";
+import {
+  isDingTalkConfigured,
+  resolveDingTalkConfig,
+  usesInteractiveGate,
+  type ResolvedDingTalkConfig,
+} from "./resolve.js";
 
-export interface DingTalkNotifyProviderOptions {
-  /** Custom robot webhook URL (群机器人). */
-  webhook?: string;
-  /** Robot SEC secret for signed webhooks (加签). */
-  secret?: string;
-  /**
-   * Custom keyword for robot security (自定义关键词).
-   * Injected into ActionCard text so keyword-only robots accept the message.
-   */
-  keyword?: string;
-  /** Enterprise app — alternative to webhook. */
-  appKey?: string;
-  appSecret?: string;
-  agentId?: string;
-  /** Comma-separated DingTalk userids for work notification. */
-  userIds?: string;
+export interface DingTalkNotifyProviderOptions extends Partial<DingTalkSettings> {
   apiBase?: string;
-  /**
-   * Wrap http(s) links with dingtalk://…/page/link so PC client opens
-   * system browser (better for localhost). Default true.
-   */
+  openApiBase?: string;
   wrapLinks?: boolean;
 }
 
 interface TokenCache {
   token: string;
   expiresAt: number;
+  appKey: string;
 }
 
 const MAX_CHOICE_BUTTONS = 3;
 /** DingTalk ActionCard independent buttons max out at 5. */
 const MAX_CARD_BUTTONS = 5;
+
+function toStringMap(obj: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v == null) continue;
+    out[k] = typeof v === "string" ? v : JSON.stringify(v);
+  }
+  return out;
+}
 
 function originOf(webUrl: string): string {
   try {
@@ -96,69 +96,100 @@ export class DingTalkNotifyProvider implements NotifyProvider {
   readonly id = "dingtalk";
   readonly displayName = "DingTalk";
 
-  private readonly webhook: string;
-  private readonly secret: string;
-  private readonly keyword: string;
-  private readonly appKey: string;
-  private readonly appSecret: string;
-  private readonly agentId: string;
-  private readonly userIds: string;
-  private readonly apiBase: string;
-  private readonly wrapLinks: boolean;
+  private readonly overrides: Partial<DingTalkSettings>;
+  private readonly wrapLinksOverride?: boolean;
+  private readonly apiBaseOverride?: string;
+  private readonly openApiBaseOverride?: string;
   private tokenCache: TokenCache | null = null;
 
   constructor(options: DingTalkNotifyProviderOptions = {}) {
-    this.webhook = (options.webhook ?? process.env.AD_DINGTALK_WEBHOOK ?? "").trim();
-    this.secret = (options.secret ?? process.env.AD_DINGTALK_SECRET ?? "").trim();
-    this.keyword = (options.keyword ?? process.env.AD_DINGTALK_KEYWORD ?? "").trim();
-    this.appKey = (options.appKey ?? process.env.AD_DINGTALK_APP_KEY ?? "").trim();
-    this.appSecret = (options.appSecret ?? process.env.AD_DINGTALK_APP_SECRET ?? "").trim();
-    this.agentId = (options.agentId ?? process.env.AD_DINGTALK_AGENT_ID ?? "").trim();
-    this.userIds = (options.userIds ?? process.env.AD_DINGTALK_USER_IDS ?? "").trim();
-    this.apiBase = (options.apiBase ?? process.env.AD_DINGTALK_API_BASE ?? "https://oapi.dingtalk.com")
-      .trim()
-      .replace(/\/$/, "");
-    const wrapEnv = (process.env.AD_DINGTALK_WRAP_LINKS ?? "1").trim();
-    this.wrapLinks =
-      options.wrapLinks ?? !(wrapEnv === "0" || wrapEnv.toLowerCase() === "false");
+    const {
+      apiBase,
+      openApiBase,
+      wrapLinks,
+      webhook,
+      secret,
+      keyword,
+      appKey,
+      appSecret,
+      agentId,
+      userIds,
+      cardTemplateId,
+    } = options;
+    this.apiBaseOverride = apiBase?.trim();
+    this.openApiBaseOverride = openApiBase?.trim();
+    this.wrapLinksOverride = wrapLinks;
+    this.overrides = {
+      webhook,
+      secret,
+      keyword,
+      appKey,
+      appSecret,
+      agentId,
+      userIds,
+      cardTemplateId,
+    };
   }
 
-  /** Whether webhook or work-notify credentials are present. */
-  isConfigured(): boolean {
-    return Boolean(
-      this.webhook || (this.appKey && this.appSecret && this.agentId && this.userIds),
+  private cfg(): ResolvedDingTalkConfig {
+    const base = resolveDingTalkConfig(
+      Object.fromEntries(
+        Object.entries(this.overrides).filter(([, v]) => v != null && String(v).trim() !== ""),
+      ) as Partial<DingTalkSettings>,
     );
+    return {
+      ...base,
+      apiBase: this.apiBaseOverride || base.apiBase,
+      openApiBase: this.openApiBaseOverride || base.openApiBase,
+      wrapLinks: this.wrapLinksOverride ?? base.wrapLinks,
+    };
+  }
+
+  /** Interactive card + Stream path (no browser jump). */
+  usesInteractiveGate(): boolean {
+    return usesInteractiveGate(this.cfg());
+  }
+
+  /** Whether webhook or work-notify / interactive credentials are present. */
+  isConfigured(): boolean {
+    return isDingTalkConfigured(this.cfg());
   }
 
   private requireConfigured(): void {
     if (!this.isConfigured()) {
       throw new Error(
-        "DingTalk notify needs AD_DINGTALK_WEBHOOK, or app key/secret + AD_DINGTALK_AGENT_ID + AD_DINGTALK_USER_IDS",
+        "DingTalk notify needs webhook or app key/secret + userIds (set via env AD_DINGTALK_* or Settings → 钉钉)",
       );
     }
   }
 
   private link(url: string): string {
-    return dingtalkOpenUrl(url, this.wrapLinks);
+    return dingtalkOpenUrl(url, this.cfg().wrapLinks);
   }
 
   /** Ensure keyword-security robots accept the message. */
   private withKeyword(markdown: string): string {
-    if (!this.keyword) return markdown;
-    if (markdown.includes(this.keyword)) return markdown;
-    return `${this.keyword}\n\n${markdown}`;
+    const keyword = this.cfg().keyword;
+    if (!keyword) return markdown;
+    if (markdown.includes(keyword)) return markdown;
+    return `${keyword}\n\n${markdown}`;
   }
 
   private async accessToken(): Promise<string> {
+    const cfg = this.cfg();
     const now = Date.now();
-    if (this.tokenCache && this.tokenCache.expiresAt > now + 60_000) {
+    if (
+      this.tokenCache &&
+      this.tokenCache.appKey === cfg.appKey &&
+      this.tokenCache.expiresAt > now + 60_000
+    ) {
       return this.tokenCache.token;
     }
     const qs = new URLSearchParams({
-      appkey: this.appKey,
-      appsecret: this.appSecret,
+      appkey: cfg.appKey,
+      appsecret: cfg.appSecret,
     });
-    const res = await fetch(`${this.apiBase}/gettoken?${qs}`);
+    const res = await fetch(`${cfg.apiBase}/gettoken?${qs}`);
     const data = await readDingTalkJson(res);
     if (!res.ok || data.errcode !== 0 || !data.access_token) {
       throw new Error(
@@ -168,6 +199,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     this.tokenCache = {
       token: data.access_token,
       expiresAt: now + (data.expires_in ?? 7200) * 1000,
+      appKey: cfg.appKey,
     };
     return data.access_token;
   }
@@ -177,8 +209,9 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     text: string;
     btns: { title: string; actionURL: string }[];
   }): Promise<void> {
-    let url = this.webhook;
-    if (this.secret) url = signedWebhookUrl(url, this.secret);
+    const cfg = this.cfg();
+    let url = cfg.webhook;
+    if (cfg.secret) url = signedWebhookUrl(url, cfg.secret);
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
@@ -205,15 +238,16 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     markdown: string;
     btns: { title: string; action_url: string }[];
   }): Promise<void> {
+    const cfg = this.cfg();
     const token = await this.accessToken();
     const res = await fetch(
-      `${this.apiBase}/topapi/message/corpconversation/asyncsend_v2?access_token=${encodeURIComponent(token)}`,
+      `${cfg.apiBase}/topapi/message/corpconversation/asyncsend_v2?access_token=${encodeURIComponent(token)}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json; charset=utf-8" },
         body: JSON.stringify({
-          agent_id: Number(this.agentId) || this.agentId,
-          userid_list: this.userIds,
+          agent_id: Number(cfg.agentId) || cfg.agentId,
+          userid_list: cfg.userIds,
           msg: {
             msgtype: "action_card",
             action_card: {
@@ -234,6 +268,127 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     }
   }
 
+  private userIdList(): string[] {
+    return this.cfg()
+      .userIds.split(/[,;\s]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Create + deliver an interactive gate card (Stream callback, no browser jump).
+   */
+  private async sendInteractiveGate(payload: GateNotifyPayload): Promise<void> {
+    const cfg = this.cfg();
+    const token = await this.accessToken();
+    const recipients = this.userIdList();
+    if (!recipients.length) {
+      throw new Error("DingTalk interactive card needs AD_DINGTALK_USER_IDS or Settings.dingtalk.userIds");
+    }
+
+    const choiceLimit = Math.min(MAX_CHOICE_BUTTONS, payload.choices.length);
+    const choices = payload.choices.slice(0, choiceLimit);
+    const issue = payload.issueCode ? ` · ${payload.issueCode}` : "";
+    const description = [
+      payload.gateHeading || "需要确认",
+      "",
+      "点选项按钮或输入自定义内容后点「提交」即可回复任务（无需打开浏览器）。",
+      "请保持 `oh web` / Stream 在运行。",
+    ].join("\n");
+
+    const buttonTexts = ["", "", ""];
+    const btns = choices.map((c, i) => {
+      const text = (c.label || c.value || `选项${i + 1}`).slice(0, 20);
+      buttonTexts[i] = text;
+      return {
+        text,
+        color: i === 0 ? "blue" : "gray",
+        status: "normal",
+        event: {
+          type: "sendCardRequest",
+          params: {
+            actionId: `choice_${i + 1}`,
+            params: { reply: c.value || text },
+          },
+        },
+      };
+    });
+
+    const cardParamMap = toStringMap({
+      title: `${payload.title || "Task"}${issue}`,
+      description,
+      buttonText1: buttonTexts[0],
+      buttonText2: buttonTexts[1],
+      buttonText3: buttonTexts[2],
+      reply: "",
+      btns,
+    });
+
+    const outTrackIdBase = encodeGateOutTrackId(payload.taskId);
+    const errors: string[] = [];
+
+    for (const userId of recipients) {
+      const outTrackId =
+        recipients.length === 1
+          ? outTrackIdBase
+          : encodeGateOutTrackId(payload.taskId, userId);
+      const res = await fetch(`${cfg.openApiBase}/v1.0/card/instances/createAndDeliver`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "x-acs-dingtalk-access-token": token,
+        },
+        body: JSON.stringify({
+          userId,
+          cardTemplateId: cfg.cardTemplateId,
+          outTrackId,
+          callbackType: "STREAM",
+          userIdType: 1,
+          openSpaceId: `dtv1.card//IM_ROBOT.${userId}`,
+          cardData: { cardParamMap },
+          imRobotOpenSpaceModel: {
+            supportForward: false,
+            lastMessageI18n: {
+              ZH_CN: `闸门确认 · ${payload.title || payload.taskId}`,
+            },
+            searchSupport: {
+              searchDesc: `gate ${payload.taskId}`,
+            },
+          },
+          imRobotOpenDeliverModel: {
+            spaceType: "IM_ROBOT",
+            robotCode: cfg.appKey,
+          },
+        }),
+      });
+      const raw = await res.text();
+      let body: {
+        success?: boolean;
+        result?: { deliverResults?: Array<{ success?: boolean; errorMsg?: string }> };
+        code?: string;
+        message?: string;
+      } = {};
+      try {
+        body = JSON.parse(raw) as typeof body;
+      } catch {
+        body = { message: raw.slice(0, 200) };
+      }
+      const deliverOk = body.result?.deliverResults?.every((d) => d.success) ?? false;
+      if (!res.ok || body.success === false || !deliverOk) {
+        const detail =
+          body.result?.deliverResults?.map((d) => d.errorMsg).filter(Boolean).join("; ") ||
+          body.message ||
+          body.code ||
+          raw.slice(0, 200);
+        errors.push(`${userId}: HTTP ${res.status} ${detail}`);
+      }
+    }
+
+    if (errors.length) {
+      throw new Error(`DingTalk interactive card failed: ${errors.join(" | ")}`);
+    }
+  }
+
   private async sendCard(input: {
     title: string;
     markdown: string;
@@ -246,7 +401,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
       url: this.link(b.url),
     }));
 
-    if (this.webhook) {
+    if (this.cfg().webhook) {
       await this.sendWebhookActionCard({
         title: input.title,
         text: markdown,
@@ -263,6 +418,14 @@ export class DingTalkNotifyProvider implements NotifyProvider {
   }
 
   async sendGate(payload: GateNotifyPayload): Promise<void> {
+    this.requireConfigured();
+
+    // Prefer interactive card (Stream callback) when template is configured.
+    if (this.usesInteractiveGate()) {
+      await this.sendInteractiveGate(payload);
+      return;
+    }
+
     const issue = payload.issueCode ? ` · \`${payload.issueCode}\`` : "";
     const markdown = [
       `### agent-desk 闸门确认`,
@@ -314,3 +477,24 @@ export function registerDingTalkNotifyProvider(
   registerNotifyProvider(provider);
   return provider;
 }
+
+export {
+  encodeGateOutTrackId,
+  parseGateOutTrackId,
+  replyFromCardCallback,
+} from "./card-track.js";
+export { createDingTalkGateResumeHandler } from "./resume-handler.js";
+export {
+  isDingTalkConfigured,
+  resolveDingTalkConfig,
+  setDingTalkSettingsSource,
+  usesInteractiveGate,
+  type ResolvedDingTalkConfig,
+} from "./resolve.js";
+export {
+  parseDingTalkCardCallback,
+  startDingTalkCardStream,
+  type DingTalkCardCallbackEvent,
+  type DingTalkCardCallbackResponse,
+  type DingTalkStreamOptions,
+} from "./stream.js";

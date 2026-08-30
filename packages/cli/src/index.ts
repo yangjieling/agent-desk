@@ -6,11 +6,16 @@ import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
-import { registerDingTalkNotifyProvider } from "@agent-desk/provider-notify-dingtalk";
+import {
+  createDingTalkGateResumeHandler,
+  registerDingTalkNotifyProvider,
+  setDingTalkSettingsSource,
+  startDingTalkCardStream,
+} from "@agent-desk/provider-notify-dingtalk";
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
 import { getNotifyProvider, listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
-import { createTask, startTask } from "@agent-desk/runner";
+import { createTask, resumeTask, startTask } from "@agent-desk/runner";
 import { startServer } from "@agent-desk/server";
 import { listSkillSummaries, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import { listWorkflows } from "@agent-desk/workflow";
@@ -326,6 +331,7 @@ notify
   .action(async (opts: { provider?: string; dataDir: string }) => {
     registerProviders();
     const db = openDb(opts.dataDir);
+    setDingTalkSettingsSource(() => db.getSettings());
     const settings = db.getSettings();
     const id = (opts.provider || settings.providers.notify || "webhook").trim();
     const provider = getNotifyProvider(id);
@@ -344,6 +350,77 @@ notify
       webUrl,
     });
     console.log(`sent gate test via ${provider.id} (${provider.displayName}) at ${stamp}`);
+  });
+
+notify
+  .command("dingtalk-stream")
+  .description(
+    "Listen for DingTalk interactive-card Stream callbacks and resume awaiting tasks",
+  )
+  .option("--debug", "verbose Stream client logs")
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .option("--probe-only", "only log/ACK callbacks; do not resume tasks")
+  .action(async (opts: { debug?: boolean; dataDir: string; probeOnly?: boolean }) => {
+    const db = openDb(opts.dataDir);
+    setDingTalkSettingsSource(() => db.getSettings());
+    const settings = db.getSettings();
+    const runnerOpts = { db, settings };
+
+    const onCardCallback = opts.probeOnly
+      ? (event: { actionIds: string[]; params: Record<string, unknown>; outTrackId?: string }) => {
+          const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
+          return {
+            cardUpdateOptions: { updateCardDataByKey: true },
+            cardData: {
+              cardParamMap: {
+                description: [
+                  `probe-only（${stamp}）`,
+                  `actionIds: ${event.actionIds.join(",") || "(none)"}`,
+                  `params: ${JSON.stringify(event.params)}`,
+                  `outTrackId: ${event.outTrackId || "(none)"}`,
+                ].join("\n"),
+              },
+            },
+          };
+        }
+      : createDingTalkGateResumeHandler({
+          resume: async (taskId, reply) => {
+            const task = db.getTask(taskId);
+            if (!task) return { ok: false, message: `task not found: ${taskId}` };
+            if (task.status !== "awaiting" && task.status !== "created") {
+              return {
+                ok: false,
+                message: `task status is ${task.status}, expected awaiting`,
+              };
+            }
+            const updated = await resumeTask(runnerOpts, taskId, reply);
+            return { ok: true, message: `status=${updated?.status ?? "?"}` };
+          },
+        });
+
+    const client = await startDingTalkCardStream({
+      debug: Boolean(opts.debug),
+      onCardCallback,
+    });
+    console.log(
+      opts.probeOnly
+        ? "Probe mode: callbacks will not resume tasks. Press Ctrl+C to stop."
+        : "Resume mode: awaiting-task gate clicks will call resumeTask. Press Ctrl+C to stop.",
+    );
+    console.log(
+      "Tip: when card template + app credentials are configured (env or settings), `oh web` also starts Stream — do not run both.",
+    );
+    const stop = () => {
+      try {
+        client.disconnect();
+      } catch {
+        /* ignore */
+      }
+      process.exit(0);
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+    await new Promise(() => {});
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {
