@@ -330,17 +330,20 @@ notify
     const id = (opts.provider || settings.providers.notify || "webhook").trim();
     const provider = getNotifyProvider(id);
     const webUrl = `${settings.webBaseUrl}/?task=notify-test`;
+    // Unique body each run — DingTalk work-notify clients often suppress
+    // duplicate cards with identical title/markdown.
+    const stamp = new Date().toLocaleString("zh-CN", { hour12: false });
     await provider.sendGate({
       taskId: "notify-test",
-      title: "oh notify test",
-      gateHeading: "这是一条测试闸门通知",
+      title: `oh notify test · ${stamp}`,
+      gateHeading: `这是一条测试闸门通知（${stamp}）`,
       choices: [
         { label: "确认", value: "确认" },
         { label: "取消", value: "取消" },
       ],
       webUrl,
     });
-    console.log(`sent gate test via ${provider.id} (${provider.displayName})`);
+    console.log(`sent gate test via ${provider.id} (${provider.displayName}) at ${stamp}`);
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {
