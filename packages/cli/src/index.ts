@@ -8,6 +8,7 @@ import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
 import { registerDingTalkNotifyProvider } from "@agent-desk/provider-notify-dingtalk";
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
+import { getNotifyProvider, listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
 import { createTask, startTask } from "@agent-desk/runner";
 import { startServer } from "@agent-desk/server";
@@ -303,6 +304,43 @@ issues
       process.exit(1);
     }
     console.log(JSON.stringify(issue, null, 2));
+  });
+
+const notify = program.command("notify").description("Notify provider helpers");
+
+notify
+  .command("providers")
+  .description("List registered notify providers")
+  .action(() => {
+    registerProviders();
+    for (const p of listNotifyProviders()) {
+      console.log(`${p.id}\t${p.displayName}`);
+    }
+  });
+
+notify
+  .command("test")
+  .description("Send a test gate card via the configured notify provider")
+  .option("--provider <id>", "override providers.notify (e.g. dingtalk)")
+  .option("--data-dir <dir>", "data directory", defaultDataDir())
+  .action(async (opts: { provider?: string; dataDir: string }) => {
+    registerProviders();
+    const db = openDb(opts.dataDir);
+    const settings = db.getSettings();
+    const id = (opts.provider || settings.providers.notify || "webhook").trim();
+    const provider = getNotifyProvider(id);
+    const webUrl = `${settings.webBaseUrl}/?task=notify-test`;
+    await provider.sendGate({
+      taskId: "notify-test",
+      title: "oh notify test",
+      gateHeading: "这是一条测试闸门通知",
+      choices: [
+        { label: "确认", value: "确认" },
+        { label: "取消", value: "取消" },
+      ],
+      webUrl,
+    });
+    console.log(`sent gate test via ${provider.id} (${provider.displayName})`);
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {

@@ -38,6 +38,9 @@ importers:
       '@agent-desk/provider-issue-manual':
         specifier: workspace:*
         version: link:../provider-issue-manual
+      '@agent-desk/provider-notify':
+        specifier: workspace:*
+        version: link:../provider-notify
       '@agent-desk/provider-notify-dingtalk':
         specifier: workspace:*
         version: link:../provider-notify-dingtalk

@@ -101,10 +101,12 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | `AD_FEISHU_API_BASE` | Default `https://open.feishu.cn` (Lark intl: `https://open.larksuite.com`) |
 | `AD_DINGTALK_WEBHOOK` | DingTalk custom robot webhook URL |
 | `AD_DINGTALK_SECRET` | DingTalk robot SEC secret (加签) |
+| `AD_DINGTALK_KEYWORD` | Custom keyword injected into card text (自定义关键词) |
 | `AD_DINGTALK_APP_KEY` | DingTalk app key (工作通知模式) |
 | `AD_DINGTALK_APP_SECRET` | DingTalk app secret |
 | `AD_DINGTALK_AGENT_ID` | DingTalk agent id |
 | `AD_DINGTALK_USER_IDS` | Comma-separated userids for work notification |
+| `AD_DINGTALK_API_BASE` | Default `https://oapi.dingtalk.com` |
 | `AD_DINGTALK_WRAP_LINKS` | `1` (default) wrap links for PC external browser |
 | `AD_SKILL_DIRS` | Extra skill roots (`:` / `;` separated) |
 | `AD_BUNDLED_SKILL_DIR` | Override bundled `templates/skills` |

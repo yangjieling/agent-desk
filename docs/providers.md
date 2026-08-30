@@ -85,6 +85,7 @@ Keep `oh web` running so the browser can hit localhost. This avoids a public cal
 ```bash
 export AD_DINGTALK_WEBHOOK='https://oapi.dingtalk.com/robot/send?access_token=...'
 export AD_DINGTALK_SECRET='SEC...'   # 若启用了加签
+export AD_DINGTALK_KEYWORD='agent-desk'  # 若启用了自定义关键词（会自动写入正文）
 ```
 
 **方式 B — 企业内部应用工作通知（发到个人）**
@@ -94,6 +95,8 @@ export AD_DINGTALK_APP_KEY=...
 export AD_DINGTALK_APP_SECRET=...
 export AD_DINGTALK_AGENT_ID=...
 export AD_DINGTALK_USER_IDS=userid1,userid2
+# optional:
+# export AD_DINGTALK_API_BASE=https://oapi.dingtalk.com
 ```
 
 然后：
@@ -101,9 +104,12 @@ export AD_DINGTALK_USER_IDS=userid1,userid2
 ```bash
 # PUT /api/settings
 # { "providers": { "agent": "claude", "issue": "github", "notify": "dingtalk" }, "notifyEnabled": true }
+
+# 验证配置（发一张测试闸门卡片）：
+oh notify test
 ```
 
-按钮同样深链本机 `GET /api/tasks/<id>/resume?reply=...`。默认会用 `dingtalk://…/page/link` 包装链接以便 PC 端外开浏览器；可用 `AD_DINGTALK_WRAP_LINKS=0` 关闭。
+闸门卡片含选项按钮；任务 `done` / `failed` 时也会发状态更新。按钮深链本机 `GET /api/tasks/<id>/resume?reply=...`。默认会用 `dingtalk://…/page/link` 包装链接以便 PC 端外开浏览器；可用 `AD_DINGTALK_WRAP_LINKS=0` 关闭。
 
 ## Adding a provider
 

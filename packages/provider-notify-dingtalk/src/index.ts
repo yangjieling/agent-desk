@@ -11,6 +11,11 @@ export interface DingTalkNotifyProviderOptions {
   webhook?: string;
   /** Robot SEC secret for signed webhooks (加签). */
   secret?: string;
+  /**
+   * Custom keyword for robot security (自定义关键词).
+   * Injected into ActionCard text so keyword-only robots accept the message.
+   */
+  keyword?: string;
   /** Enterprise app — alternative to webhook. */
   appKey?: string;
   appSecret?: string;
@@ -31,6 +36,8 @@ interface TokenCache {
 }
 
 const MAX_CHOICE_BUTTONS = 3;
+/** DingTalk ActionCard independent buttons max out at 5. */
+const MAX_CARD_BUTTONS = 5;
 
 function originOf(webUrl: string): string {
   try {
@@ -64,12 +71,34 @@ function signedWebhookUrl(webhook: string, secret: string): string {
   return u.toString();
 }
 
+async function readDingTalkJson(res: Response): Promise<{
+  errcode?: number;
+  errmsg?: string;
+  access_token?: string;
+  expires_in?: number;
+  raw: string;
+}> {
+  const raw = await res.text();
+  try {
+    return { ...(JSON.parse(raw) as Record<string, unknown>), raw } as {
+      errcode?: number;
+      errmsg?: string;
+      access_token?: string;
+      expires_in?: number;
+      raw: string;
+    };
+  } catch {
+    return { raw };
+  }
+}
+
 export class DingTalkNotifyProvider implements NotifyProvider {
   readonly id = "dingtalk";
   readonly displayName = "DingTalk";
 
   private readonly webhook: string;
   private readonly secret: string;
+  private readonly keyword: string;
   private readonly appKey: string;
   private readonly appSecret: string;
   private readonly agentId: string;
@@ -81,6 +110,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
   constructor(options: DingTalkNotifyProviderOptions = {}) {
     this.webhook = (options.webhook ?? process.env.AD_DINGTALK_WEBHOOK ?? "").trim();
     this.secret = (options.secret ?? process.env.AD_DINGTALK_SECRET ?? "").trim();
+    this.keyword = (options.keyword ?? process.env.AD_DINGTALK_KEYWORD ?? "").trim();
     this.appKey = (options.appKey ?? process.env.AD_DINGTALK_APP_KEY ?? "").trim();
     this.appSecret = (options.appSecret ?? process.env.AD_DINGTALK_APP_SECRET ?? "").trim();
     this.agentId = (options.agentId ?? process.env.AD_DINGTALK_AGENT_ID ?? "").trim();
@@ -93,8 +123,15 @@ export class DingTalkNotifyProvider implements NotifyProvider {
       options.wrapLinks ?? !(wrapEnv === "0" || wrapEnv.toLowerCase() === "false");
   }
 
+  /** Whether webhook or work-notify credentials are present. */
+  isConfigured(): boolean {
+    return Boolean(
+      this.webhook || (this.appKey && this.appSecret && this.agentId && this.userIds),
+    );
+  }
+
   private requireConfigured(): void {
-    if (!this.webhook && !(this.appKey && this.appSecret && this.agentId && this.userIds)) {
+    if (!this.isConfigured()) {
       throw new Error(
         "DingTalk notify needs AD_DINGTALK_WEBHOOK, or app key/secret + AD_DINGTALK_AGENT_ID + AD_DINGTALK_USER_IDS",
       );
@@ -103,6 +140,13 @@ export class DingTalkNotifyProvider implements NotifyProvider {
 
   private link(url: string): string {
     return dingtalkOpenUrl(url, this.wrapLinks);
+  }
+
+  /** Ensure keyword-security robots accept the message. */
+  private withKeyword(markdown: string): string {
+    if (!this.keyword) return markdown;
+    if (markdown.includes(this.keyword)) return markdown;
+    return `${this.keyword}\n\n${markdown}`;
   }
 
   private async accessToken(): Promise<string> {
@@ -115,15 +159,10 @@ export class DingTalkNotifyProvider implements NotifyProvider {
       appsecret: this.appSecret,
     });
     const res = await fetch(`${this.apiBase}/gettoken?${qs}`);
-    const data = (await res.json()) as {
-      errcode?: number;
-      errmsg?: string;
-      access_token?: string;
-      expires_in?: number;
-    };
+    const data = await readDingTalkJson(res);
     if (!res.ok || data.errcode !== 0 || !data.access_token) {
       throw new Error(
-        `DingTalk token failed: HTTP ${res.status} errcode=${data.errcode} ${data.errmsg ?? ""}`,
+        `DingTalk token failed: HTTP ${res.status} errcode=${data.errcode} ${data.errmsg ?? data.raw.slice(0, 200)}`,
       );
     }
     this.tokenCache = {
@@ -153,10 +192,10 @@ export class DingTalkNotifyProvider implements NotifyProvider {
         },
       }),
     });
-    const data = (await res.json()) as { errcode?: number; errmsg?: string };
+    const data = await readDingTalkJson(res);
     if (!res.ok || (data.errcode !== undefined && data.errcode !== 0)) {
       throw new Error(
-        `DingTalk webhook failed: HTTP ${res.status} errcode=${data.errcode} ${data.errmsg ?? ""}`,
+        `DingTalk webhook failed: HTTP ${res.status} errcode=${data.errcode} ${data.errmsg ?? data.raw.slice(0, 200)}`,
       );
     }
   }
@@ -187,10 +226,10 @@ export class DingTalkNotifyProvider implements NotifyProvider {
         }),
       },
     );
-    const data = (await res.json()) as { errcode?: number; errmsg?: string };
+    const data = await readDingTalkJson(res);
     if (!res.ok || data.errcode !== 0) {
       throw new Error(
-        `DingTalk work notify failed: HTTP ${res.status} errcode=${data.errcode} ${data.errmsg ?? ""}`,
+        `DingTalk work notify failed: HTTP ${res.status} errcode=${data.errcode} ${data.errmsg ?? data.raw.slice(0, 200)}`,
       );
     }
   }
@@ -201,7 +240,8 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     buttons: { label: string; url: string }[];
   }): Promise<void> {
     this.requireConfigured();
-    const btns = input.buttons.map((b) => ({
+    const markdown = this.withKeyword(input.markdown);
+    const btns = input.buttons.slice(0, MAX_CARD_BUTTONS).map((b) => ({
       title: b.label.slice(0, 20) || "打开",
       url: this.link(b.url),
     }));
@@ -209,7 +249,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     if (this.webhook) {
       await this.sendWebhookActionCard({
         title: input.title,
-        text: input.markdown,
+        text: markdown,
         btns: btns.map((b) => ({ title: b.title, actionURL: b.url })),
       });
       return;
@@ -217,7 +257,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
 
     await this.sendWorkActionCard({
       title: input.title,
-      markdown: input.markdown,
+      markdown,
       btns: btns.map((b) => ({ title: b.title, action_url: b.url })),
     });
   }
@@ -234,7 +274,9 @@ export class DingTalkNotifyProvider implements NotifyProvider {
       "> 按钮会打开本机 Web；请保持 `oh web` 在运行。",
     ].join("\n");
 
-    const buttons = payload.choices.slice(0, MAX_CHOICE_BUTTONS).map((c) => ({
+    // Reserve one slot for “打开任务”.
+    const choiceLimit = Math.min(MAX_CHOICE_BUTTONS, MAX_CARD_BUTTONS - 1);
+    const buttons = payload.choices.slice(0, choiceLimit).map((c) => ({
       label: c.label || c.value,
       url: gateChoiceUrl(payload.webUrl, payload.taskId, c.value),
     }));

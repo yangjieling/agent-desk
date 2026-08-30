@@ -87,21 +87,57 @@ function gateHash(text: string): string {
   return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
-async function maybeNotifyGate(task: Task, settings: Settings): Promise<void> {
-  if (!settings.notifyEnabled) return;
+function webUrlFor(task: Task, settings: Settings): string {
+  return `${settings.webBaseUrl}/?task=${task.id}`;
+}
+
+async function safeNotify(label: string, fn: () => Promise<void>): Promise<boolean> {
+  try {
+    await fn();
+    return true;
+  } catch (err) {
+    console.error(
+      `[agent-desk] ${label} failed:`,
+      err instanceof Error ? err.message : err,
+    );
+    return false;
+  }
+}
+
+async function maybeNotifyGate(task: Task, settings: Settings): Promise<boolean> {
+  if (!settings.notifyEnabled) return false;
   const gate = parseGate(task.result);
-  if (!gate) return;
+  if (!gate) return false;
   const hash = gateHash(task.result);
-  if (task.gateNotifyHash === hash) return;
+  if (task.gateNotifyHash === hash) return false;
   const notify = getNotifyProvider(settings.providers.notify);
-  await notify.sendGate({
-    taskId: task.id,
-    title: task.title,
-    gateHeading: gate.heading,
-    choices: gate.choices,
-    webUrl: `${settings.webBaseUrl}/?task=${task.id}`,
-    issueCode: task.issueCode || undefined,
-  });
+  return safeNotify("gate notify", () =>
+    notify.sendGate({
+      taskId: task.id,
+      title: task.title,
+      gateHeading: gate.heading,
+      choices: gate.choices,
+      webUrl: webUrlFor(task, settings),
+      issueCode: task.issueCode || undefined,
+    }),
+  );
+}
+
+async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<void> {
+  if (!settings.notifyEnabled) return;
+  if (task.status !== "done" && task.status !== "failed") return;
+  const notify = getNotifyProvider(settings.providers.notify);
+  const snippet = (task.result || "").trim().slice(-400);
+  await safeNotify("task update notify", () =>
+    notify.sendTaskUpdate({
+      taskId: task.id,
+      title: task.title,
+      status: task.status,
+      message: snippet || `任务已${task.status === "done" ? "完成" : "失败"}`,
+      webUrl: webUrlFor(task, settings),
+      issueCode: task.issueCode || undefined,
+    }),
+  );
 }
 
 export async function startTask(opts: RunnerOptions, taskId: string): Promise<Task> {
@@ -174,8 +210,10 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     });
     if (updated) {
       if (status === "awaiting") {
-        await maybeNotifyGate(updated, opts.settings);
-        opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+        const sent = await maybeNotifyGate(updated, opts.settings);
+        if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+      } else {
+        await maybeNotifyTaskUpdate(updated, opts.settings);
       }
       await emitTaskComplete(updated);
     }
