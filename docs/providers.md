@@ -19,11 +19,17 @@ Bug / ticket **source of truth**. Selected by `Settings.providers.issue`.
 
 ### GitHub setup
 
+配置优先级：**非空的 `AD_GITHUB_*` 环境变量** > **Web 设置页「GitHub」**（写入 `~/.agent-desk/agent-desk.db` 的 `Settings.github`）。
+
+在 Web：**设置 → 缺陷来源选 GitHub → 填写仓库与 Token**。也可继续用环境变量（非空时覆盖设置页）。
+
 ```bash
 export AD_GITHUB_TOKEN=ghp_xxx          # classic PAT: repo scope; fine-grained: Issues read/write
 export AD_GITHUB_REPO=owner/repo        # e.g. acme/my-app
 # optional:
 # export AD_GITHUB_PROJECT_DIR=/path/to/checkout
+# optional: auto-clone missing repos to ~/.agent-desk/workspaces/auto/<owner>/<repo>
+# (user-local clones found by folder name are reused and never deleted)
 # export AD_GITHUB_API_BASE=https://api.github.com
 
 # point settings at github (PUT /api/settings):

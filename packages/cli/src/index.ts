@@ -4,7 +4,7 @@ import { clipPrompt, clipTitle } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
-import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
+import { registerGitHubIssueProvider, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
 import {
   createDingTalkGateResumeHandler,
@@ -32,6 +32,13 @@ function registerProviders(): void {
   registerWebhookNotifyProvider();
   registerFeishuNotifyProvider();
   registerDingTalkNotifyProvider();
+}
+
+function wireSettingsSources(dataDir: string) {
+  const db = openDb(dataDir);
+  setDingTalkSettingsSource(() => db.getSettings());
+  setGitHubSettingsSource(() => db.getSettings());
+  return db;
 }
 
 function activeIssueProviderId(dataDir: string): string {
@@ -277,6 +284,7 @@ issues
     dataDir: string;
   }) => {
     registerProviders();
+    wireSettingsSources(opts.dataDir);
     const id = activeIssueProviderId(opts.dataDir);
     const provider = getIssueProvider(id);
     const state = opts.state === "closed" || opts.state === "all" ? opts.state : "open";
@@ -301,6 +309,7 @@ issues
   .option("--data-dir <dir>", "data directory", defaultDataDir())
   .action(async (code: string, opts: { dataDir: string }) => {
     registerProviders();
+    wireSettingsSources(opts.dataDir);
     const id = activeIssueProviderId(opts.dataDir);
     const provider = getIssueProvider(id);
     const issue = await provider.getIssue(code);
@@ -330,8 +339,7 @@ notify
   .option("--data-dir <dir>", "data directory", defaultDataDir())
   .action(async (opts: { provider?: string; dataDir: string }) => {
     registerProviders();
-    const db = openDb(opts.dataDir);
-    setDingTalkSettingsSource(() => db.getSettings());
+    const db = wireSettingsSources(opts.dataDir);
     const settings = db.getSettings();
     const id = (opts.provider || settings.providers.notify || "webhook").trim();
     const provider = getNotifyProvider(id);
@@ -361,8 +369,7 @@ notify
   .option("--data-dir <dir>", "data directory", defaultDataDir())
   .option("--probe-only", "only log/ACK callbacks; do not resume tasks")
   .action(async (opts: { debug?: boolean; dataDir: string; probeOnly?: boolean }) => {
-    const db = openDb(opts.dataDir);
-    setDingTalkSettingsSource(() => db.getSettings());
+    const db = wireSettingsSources(opts.dataDir);
     const settings = db.getSettings();
     const runnerOpts = { db, settings };
 

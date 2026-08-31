@@ -121,6 +121,10 @@ export class AgentDeskDb {
         ...DEFAULT_SETTINGS.dingtalk,
         ...(parsed.dingtalk || {}),
       },
+      github: {
+        ...DEFAULT_SETTINGS.github,
+        ...(parsed.github || {}),
+      },
     };
   }
 
@@ -214,6 +218,20 @@ export class AgentDeskDb {
   deleteTask(id: string): boolean {
     const r = this.db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
     return r.changes > 0;
+  }
+
+  /** Tasks still using a workspace (created / running / awaiting). */
+  countActiveTasksForProjectDir(projectDir: string, exceptId?: string): number {
+    const resolved = path.resolve(projectDir);
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+         WHERE project_dir = @projectDir
+           AND status IN ('created', 'running', 'awaiting')
+           AND (@exceptId = '' OR id != @exceptId)`,
+      )
+      .get({ projectDir: resolved, exceptId: exceptId ?? "" }) as { n: number };
+    return row?.n ?? 0;
   }
 }
 

@@ -5,6 +5,10 @@ import {
   type IssueRecord,
   type ListIssuesOptions,
 } from "@agent-desk/provider-issue";
+import {
+  resolveGitHubConfig,
+  type ResolvedGitHubConfig,
+} from "./resolve.js";
 
 export interface GitHubIssueProviderOptions {
   token?: string;
@@ -53,19 +57,6 @@ const DEFAULT_SEVERITY_LABELS: Record<string, string> = {
   minor: "low",
 };
 
-function parseRepo(
-  opts: GitHubIssueProviderOptions,
-): { owner: string; repo: string } {
-  const combined = (opts.repo ?? process.env.AD_GITHUB_REPO ?? "").trim();
-  if (combined.includes("/")) {
-    const [owner, repo] = combined.split("/", 2);
-    if (owner && repo) return { owner, repo };
-  }
-  const owner = (opts.owner ?? process.env.AD_GITHUB_OWNER ?? "").trim();
-  const repo = (opts.repoName ?? process.env.AD_GITHUB_REPO_NAME ?? "").trim();
-  return { owner, repo };
-}
-
 function parseIssueNumber(code: IssueId): number | null {
   const raw = String(code ?? "").trim();
   if (!raw) return null;
@@ -84,43 +75,49 @@ export class GitHubIssueProvider implements IssueProvider {
   readonly id = "github";
   readonly displayName = "GitHub Issues";
 
-  private readonly token: string;
-  private readonly owner: string;
-  private readonly repo: string;
-  private readonly projectDir: string;
-  private readonly apiBase: string;
+  private readonly options: GitHubIssueProviderOptions;
   private readonly severityLabels: Record<string, string>;
 
   constructor(options: GitHubIssueProviderOptions = {}) {
-    this.token = (options.token ?? process.env.AD_GITHUB_TOKEN ?? "").trim();
-    const { owner, repo } = parseRepo(options);
-    this.owner = owner;
-    this.repo = repo;
-    this.projectDir = (options.projectDir ?? process.env.AD_GITHUB_PROJECT_DIR ?? "").trim();
-    this.apiBase = (options.apiBase ?? process.env.AD_GITHUB_API_BASE ?? "https://api.github.com")
-      .trim()
-      .replace(/\/$/, "");
+    this.options = options;
     this.severityLabels = {
       ...DEFAULT_SEVERITY_LABELS,
       ...(options.severityLabels ?? {}),
     };
   }
 
-  private headers(): Record<string, string> {
+  private cfg(): ResolvedGitHubConfig {
+    const o = this.options;
+    return resolveGitHubConfig({
+      token: o.token,
+      repo: o.repo,
+      owner: o.owner,
+      repoName: o.repoName,
+      projectDir: o.projectDir,
+      apiBase: o.apiBase,
+    });
+  }
+
+  private headers(token: string): Record<string, string> {
     const h: Record<string, string> = {
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       "User-Agent": "agent-desk",
     };
-    if (this.token) h.Authorization = `Bearer ${this.token}`;
+    if (token) h.Authorization = `Bearer ${token}`;
     return h;
   }
 
-  private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.apiBase}${path}`, {
+  private async request<T>(
+    cfg: ResolvedGitHubConfig,
+    method: string,
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    const res = await fetch(`${cfg.apiBase}${path}`, {
       method,
       headers: {
-        ...this.headers(),
+        ...this.headers(cfg.token),
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -147,7 +144,7 @@ export class GitHubIssueProvider implements IssueProvider {
     return "medium";
   }
 
-  private toRecord(issue: GhIssue): IssueRecord {
+  private toRecord(cfg: ResolvedGitHubConfig, issue: GhIssue): IssueRecord {
     const labels = labelNames(issue.labels);
     return {
       code: `#${issue.number}`,
@@ -155,24 +152,25 @@ export class GitHubIssueProvider implements IssueProvider {
       status: issue.state === "closed" ? "closed" : "open",
       severity: this.severityFromLabels(labels),
       description: issue.body ?? "",
-      projectDir: this.projectDir,
+      projectDir: cfg.projectDir,
       updatedAt: Date.parse(issue.updated_at) || Date.now(),
       url: issue.html_url,
       labels,
     };
   }
 
-  private repoPath(): string {
-    if (!this.owner || !this.repo) {
+  private repoPath(cfg: ResolvedGitHubConfig): string {
+    if (!cfg.owner || !cfg.repo) {
       throw new Error(
-        "GitHub issue provider needs AD_GITHUB_REPO=owner/repo (or owner + repoName)",
+        "GitHub issue provider needs repo=owner/repo in settings or AD_GITHUB_REPO",
       );
     }
-    return `/repos/${encodeURIComponent(this.owner)}/${encodeURIComponent(this.repo)}`;
+    return `/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}`;
   }
 
   async listIssues(opts?: ListIssuesOptions): Promise<IssueRecord[]> {
-    void this.repoPath();
+    const cfg = this.cfg();
+    void this.repoPath(cfg);
     const state = opts?.state ?? "open";
     const limit = opts?.limit && opts.limit > 0 ? Math.min(opts.limit, 100) : 30;
     const params = new URLSearchParams({
@@ -186,25 +184,32 @@ export class GitHubIssueProvider implements IssueProvider {
     }
 
     const rows = await this.request<GhIssue[] | null>(
+      cfg,
       "GET",
-      `${this.repoPath()}/issues?${params}`,
+      `${this.repoPath(cfg)}/issues?${params}`,
     );
     if (!rows) return [];
     // GitHub mixes PRs into /issues — drop them.
-    return rows.filter((i) => !i.pull_request).map((i) => this.toRecord(i));
+    return rows.filter((i) => !i.pull_request).map((i) => this.toRecord(cfg, i));
   }
 
   async getIssue(code: IssueId): Promise<IssueRecord | null> {
+    const cfg = this.cfg();
     const n = parseIssueNumber(code);
     if (!n) return null;
-    const issue = await this.request<GhIssue | null>("GET", `${this.repoPath()}/issues/${n}`);
+    const issue = await this.request<GhIssue | null>(
+      cfg,
+      "GET",
+      `${this.repoPath(cfg)}/issues/${n}`,
+    );
     if (!issue || issue.pull_request) return null;
-    return this.toRecord(issue);
+    return this.toRecord(cfg, issue);
   }
 
   async upsertIssue(
     record: Partial<IssueRecord> & { code: IssueId },
   ): Promise<IssueRecord> {
+    const cfg = this.cfg();
     const n = parseIssueNumber(record.code);
     if (n) {
       const body: Record<string, unknown> = {};
@@ -215,20 +220,21 @@ export class GitHubIssueProvider implements IssueProvider {
       }
       if (record.labels !== undefined) body.labels = record.labels;
       const updated = await this.request<GhIssue>(
+        cfg,
         "PATCH",
-        `${this.repoPath()}/issues/${n}`,
+        `${this.repoPath(cfg)}/issues/${n}`,
         body,
       );
-      return this.toRecord(updated);
+      return this.toRecord(cfg, updated);
     }
 
     const title = (record.title ?? "").trim() || record.code;
-    const created = await this.request<GhIssue>("POST", `${this.repoPath()}/issues`, {
+    const created = await this.request<GhIssue>(cfg, "POST", `${this.repoPath(cfg)}/issues`, {
       title,
       body: record.description ?? "",
       labels: record.labels ?? [],
     });
-    return this.toRecord(created);
+    return this.toRecord(cfg, created);
   }
 }
 
@@ -239,3 +245,20 @@ export function registerGitHubIssueProvider(
   registerIssueProvider(provider);
   return provider;
 }
+
+export {
+  autoWorkspacePath,
+  ensureIssueWorkspace,
+  isManagedAutoWorkspace,
+  maybeReleaseAutoWorkspace,
+  parseGitHubRepoFromEnv,
+  type IssueWorkspaceResult,
+  type WorkspaceSource,
+} from "./workspace.js";
+
+export {
+  isGitHubConfigured,
+  resolveGitHubConfig,
+  setGitHubSettingsSource,
+  type ResolvedGitHubConfig,
+} from "./resolve.js";

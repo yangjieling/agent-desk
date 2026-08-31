@@ -28,6 +28,32 @@
         "notify": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "dingtalk": {
+      "type": "object",
+      "properties": {
+        "webhook": { "type": "string" },
+        "secret": { "type": "string" },
+        "keyword": { "type": "string" },
+        "appKey": { "type": "string" },
+        "appSecret": { "type": "string" },
+        "agentId": { "type": "string" },
+        "userIds": { "type": "string" },
+        "cardTemplateId": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "github": {
+      "type": "object",
+      "properties": {
+        "token": { "type": "string" },
+        "repo": { "type": "string" },
+        "owner": { "type": "string" },
+        "repoName": { "type": "string" },
+        "projectDir": { "type": "string" },
+        "apiBase": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

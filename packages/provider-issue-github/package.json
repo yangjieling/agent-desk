@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@agent-desk/core": "workspace:*",
     "@agent-desk/provider-issue": "workspace:*"
   },
   "files": ["dist"]

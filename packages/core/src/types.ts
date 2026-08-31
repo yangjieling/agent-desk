@@ -90,6 +90,11 @@ export interface Settings {
    * Environment variables AD_DINGTALK_* still override when set.
    */
   dingtalk: DingTalkSettings;
+  /**
+   * GitHub Issues credentials stored under ~/.agent-desk (SQLite settings).
+   * Environment variables AD_GITHUB_* still override when set.
+   */
+  github: GitHubSettings;
 }
 
 /** Persisted DingTalk notify / interactive-card settings (no env required). */
@@ -115,6 +120,26 @@ export const DEFAULT_DINGTALK_SETTINGS: DingTalkSettings = {
   cardTemplateId: "",
 };
 
+/** Persisted GitHub issue provider settings (no env required). */
+export interface GitHubSettings {
+  token: string;
+  /** owner/repo, e.g. "acme/app" */
+  repo: string;
+  owner: string;
+  repoName: string;
+  projectDir: string;
+  apiBase: string;
+}
+
+export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = {
+  token: "",
+  repo: "",
+  owner: "",
+  repoName: "",
+  projectDir: "",
+  apiBase: "",
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   notifyEnabled: true,
   autoConfirmGates: false,
@@ -130,6 +155,7 @@ export const DEFAULT_SETTINGS: Settings = {
     notify: "webhook",
   },
   dingtalk: { ...DEFAULT_DINGTALK_SETTINGS },
+  github: { ...DEFAULT_GITHUB_SETTINGS },
 };
 
 export const TITLE_MAX_LEN = 80;

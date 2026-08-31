@@ -6,7 +6,7 @@ import { clipPrompt, clipTitle } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
-import { registerGitHubIssueProvider } from "@agent-desk/provider-issue-github";
+import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
 import {
   createDingTalkGateResumeHandler,
@@ -41,7 +41,9 @@ import {
 } from "@agent-desk/workflow";
 import {
   DEFAULT_DINGTALK_SETTINGS,
+  DEFAULT_GITHUB_SETTINGS,
   type DingTalkSettings,
+  type GitHubSettings,
   type Settings,
 } from "@agent-desk/core";
 import { browse as fsBrowse, mkdir as fsMkdir } from "./fs-browser.js";
@@ -53,7 +55,9 @@ function redactSettings(settings: Settings): Settings {
   const dt = { ...settings.dingtalk };
   if (dt.secret) dt.secret = SECRET_MASK;
   if (dt.appSecret) dt.appSecret = SECRET_MASK;
-  return { ...settings, dingtalk: dt };
+  const gh = { ...settings.github };
+  if (gh.token) gh.token = SECRET_MASK;
+  return { ...settings, dingtalk: dt, github: gh };
 }
 
 function keepSecret(incoming: string | undefined, current: string): string {
@@ -72,6 +76,18 @@ function mergeDingTalkSettings(
     ...patch,
     secret: keepSecret(patch.secret, cur.secret),
     appSecret: keepSecret(patch.appSecret, cur.appSecret),
+  };
+}
+
+function mergeGitHubSettings(
+  cur: GitHubSettings,
+  patch: Partial<GitHubSettings>,
+): GitHubSettings {
+  return {
+    ...DEFAULT_GITHUB_SETTINGS,
+    ...cur,
+    ...patch,
+    token: keepSecret(patch.token, cur.token),
   };
 }
 
@@ -130,8 +146,9 @@ export async function createServer(opts: ServerOptions = {}) {
   }
   const db = openDb(dataDir);
   setDingTalkSettingsSource(() => db.getSettings());
+  setGitHubSettingsSource(() => db.getSettings());
   const settings = db.getSettings();
-  const runnerOpts = { db, settings };
+  const runnerOpts = { db, settings, dataDir };
   registerWorkflowHooks(dataDir, runnerOpts);
 
   const app = Fastify({ logger: true });
@@ -244,6 +261,14 @@ export async function createServer(opts: ServerOptions = {}) {
     } else {
       next.dingtalk = cur.dingtalk;
     }
+    if (body.github && typeof body.github === "object") {
+      next.github = mergeGitHubSettings(
+        cur.github,
+        body.github as Partial<GitHubSettings>,
+      );
+    } else {
+      next.github = cur.github;
+    }
     db.saveSettings(next);
     return redactSettings(next);
   });
@@ -255,6 +280,17 @@ export async function createServer(opts: ServerOptions = {}) {
   app.get("/api/notify-providers", async () =>
     listNotifyProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
   );
+
+  app.post("/api/github/resolve-workspace", async (_req, reply) => {
+    if (db.getSettings().providers.issue !== "github") {
+      return reply.code(400).send({ error: "issue_provider_not_github" });
+    }
+    try {
+      return await ensureIssueWorkspace(dataDir);
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
 
   app.get<{ Querystring: { cwd?: string } }>("/api/skills", async (req) => {
     const cwd = (req.query.cwd || "").trim() || process.cwd();
@@ -301,7 +337,7 @@ export async function createServer(opts: ServerOptions = {}) {
         error: e instanceof Error ? e.message : String(e),
         hint:
           providerId === "github"
-            ? "Set AD_GITHUB_REPO=owner/repo and AD_GITHUB_TOKEN, then restart"
+            ? "Configure GitHub in Settings → GitHub, or set AD_GITHUB_REPO and AD_GITHUB_TOKEN"
             : undefined,
       });
     }
@@ -665,7 +701,7 @@ export async function startServer(opts: ServerOptions = {}) {
   // Config from env AD_DINGTALK_* (preferred) or Settings.dingtalk in ~/.agent-desk.
   const dtCfg = resolveDingTalkConfig();
   if (dtCfg.cardTemplateId && dtCfg.appKey && dtCfg.appSecret) {
-    const runnerOpts = { db, settings: db.getSettings() };
+    const runnerOpts = { db, settings: db.getSettings(), dataDir };
     try {
       await startDingTalkCardStream({
         onCardCallback: createDingTalkGateResumeHandler({
