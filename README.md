@@ -2,7 +2,7 @@
 
 Open-source **Agent task harness**: workflows, human gates, and pluggable providers.
 
-This repository is **independent** from the internal `quality-shipyard/hb-cli` Python project. It shares **JSON Schemas** and API shape, not runtime code.
+JSON Schemas in `schemas/` define portable task, workflow, and settings shapes.
 
 ## Features (v0.2)
 
@@ -72,6 +72,36 @@ pnpm cli tasks list
 
 Open the browser at `http://127.0.0.1:19877` for the Web UI.
 
+## Coding agents
+
+agent-desk runs **local CLI tools** for coding tasks. It does not store model API keys in SQLite (unlike a direct HTTP API such as DeepSeek). Authentication is handled by each CLI on the machine that runs `oh web` / the runner.
+
+### Claude Code (current)
+
+| Item | Notes |
+|------|-------|
+| Backend | `provider-agent-claude` (`Settings.providers.agent`: `"claude"`) |
+| Binary | `claude` (override with `AD_CLAUDE_BIN`) |
+| agent-desk | Checks `claude --version`, then spawns `claude -p ...` |
+
+**Before creating tasks**, verify Claude Code on that host:
+
+```bash
+claude --version
+claude -p "say hi"
+```
+
+**Credentials** (outside agent-desk — pick one):
+
+1. **API key** (token-style): set `ANTHROPIC_API_KEY` in the environment where the server/runner runs.
+2. **Account login**: run `claude login` once (Anthropic account / subscription).
+
+If the CLI is missing or not authenticated, tasks remain at `created` or fail; fix the CLI, then use **Run** in the Web UI or `POST /api/tasks/:id/start`.
+
+### Codex (planned)
+
+**OpenAI Codex** CLI is not wired up yet. The agent provider interface (`@agent-desk/provider-agent`) is meant for more backends; a future `provider-agent-codex` would mirror Claude (local `codex` binary, `OPENAI_API_KEY` and/or CLI login). `Settings.providers.agent` will gain a `"codex"` option when that package lands.
+
 ## Workflow modes
 
 | Mode | Behavior |
@@ -83,22 +113,51 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 
 ## Environment
 
+### Server
+
 | Variable | Description |
 |----------|-------------|
 | `AD_DATA_DIR` | Data directory (default `~/.agent-desk`) |
-| `AD_PORT` | Server port (default `19877`; hb-cli uses `19876`) |
+| `AD_PORT` | Server port (default `19877`) |
 | `AD_HOST` | Server host (default `127.0.0.1`) |
+
+### Coding agent
+
+| Variable | Description |
+|----------|-------------|
 | `AD_CLAUDE_BIN` | Claude CLI binary (default `claude`) |
+
+Claude credentials (`ANTHROPIC_API_KEY` or `claude login`) are read by the CLI, not agent-desk — see [Coding agents](#coding-agents).
+
+### Notify — webhook
+
+| Variable | Description |
+|----------|-------------|
 | `AD_NOTIFY_WEBHOOK_URL` | Webhook URL for gate/task notifications |
+
+### Issue — GitHub
+
+| Variable | Description |
+|----------|-------------|
 | `AD_GITHUB_TOKEN` | GitHub PAT for Issues API |
 | `AD_GITHUB_REPO` | `owner/repo` for GitHub Issues provider |
 | `AD_GITHUB_PROJECT_DIR` | Optional default `projectDir` on mapped issues |
 | `AD_GITHUB_API_BASE` | Optional API host (GHES); default `https://api.github.com` |
+
+### Notify — Feishu / Lark
+
+| Variable | Description |
+|----------|-------------|
 | `AD_FEISHU_APP_ID` | Feishu / Lark app id |
 | `AD_FEISHU_APP_SECRET` | Feishu / Lark app secret |
 | `AD_FEISHU_RECEIVE_ID` | Recipient (`open_id` / email / `chat_id`, …) |
 | `AD_FEISHU_RECEIVE_ID_TYPE` | Default `open_id` |
 | `AD_FEISHU_API_BASE` | Default `https://open.feishu.cn` (Lark intl: `https://open.larksuite.com`) |
+
+### Notify — DingTalk
+
+| Variable | Description |
+|----------|-------------|
 | `AD_DINGTALK_WEBHOOK` | DingTalk custom robot webhook URL |
 | `AD_DINGTALK_SECRET` | DingTalk robot SEC secret (加签) |
 | `AD_DINGTALK_KEYWORD` | Custom keyword injected into card text (自定义关键词) |
@@ -110,6 +169,11 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | `AD_DINGTALK_WRAP_LINKS` | `1` (default) wrap links for PC external browser |
 | `AD_DINGTALK_CARD_TEMPLATE_ID` | Interactive card template id (`xxx.schema`); enables Stream gate cards |
 | `AD_DINGTALK_OPEN_API_BASE` | Default `https://api.dingtalk.com` (createAndDeliver) |
+
+### Skills
+
+| Variable | Description |
+|----------|-------------|
 | `AD_SKILL_DIRS` | Extra skill roots (`:` / `;` separated) |
 | `AD_BUNDLED_SKILL_DIR` | Override bundled `templates/skills` |
 | `AD_SKILL_PROMPT_MAX_CHARS` | Cap for injected SKILL.md body (default `100000`) |
@@ -143,21 +207,6 @@ schemas/                 # JSON Schema (language-agnostic)
 templates/workflows/     # Example workflow YAML
 templates/skills/        # Bundled SKILL.md packs (triage/fix/test)
 ```
-
-## Relationship to hb-cli
-
-| Internal (Python) | Open source (TS) |
-|-------------------|------------------|
-| `bug_code` | `issueCode` |
-| `workflow_runner.py` | `@agent-desk/workflow` |
-| `agent_backend.py` | `@agent-desk/provider-agent*` |
-| `skill_pack.py` | `@agent-desk/skills` |
-| `notify.py` | `@agent-desk/provider-notify*` |
-| `bugs.py` | `@agent-desk/provider-issue*` |
-| `runner.py` | `@agent-desk/runner` |
-| `web.py` + `static/*` | `@agent-desk/server` + `@agent-desk/ui` |
-
-JingME cards, Xingyun bugs, and other internal integrations stay in the private `hiboos-hb` layer as optional providers.
 
 ## License
 

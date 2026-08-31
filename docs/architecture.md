@@ -3,7 +3,7 @@
 ## Design goals
 
 1. **Pluggable providers** — Agent, Issue, and Notify backends are swappable.
-2. **Schema-first** — Task/Workflow/Settings/Skill schemas live in `schemas/` and can be shared with Python hb-cli without sharing code.
+2. **Schema-first** — Task/Workflow/Settings/Skill schemas live in `schemas/` for language-agnostic interchange.
 3. **Local-first** — SQLite + localhost API; no cloud dependency for the OSS core.
 4. **Portable skills** — Skill packs are harness-owned descriptors; agents only receive mount (prompt + dirs).
 

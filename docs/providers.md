@@ -79,7 +79,7 @@ Gate cards include up to 3 choice buttons. Each button opens a **local** URL:
 
 `GET http://127.0.0.1:19877/api/tasks/<id>/resume?reply=<choice>`
 
-Keep `oh web` running so the browser can hit localhost. This avoids a public callback relay (same idea as JingME deep-link).
+Keep `oh web` running so the browser can hit localhost. This avoids needing a public callback relay.
 
 ### DingTalk setup
 
@@ -141,4 +141,4 @@ oh notify test --provider dingtalk
 2. Call `register*()` at server/CLI startup (see `packages/server/src/index.ts`).
 3. Set default in `Settings.providers` (`packages/core/src/types.ts`).
 
-Internal-only providers (JingME, Xingyun) should live in a **private** repo (e.g. `@hiboos/provider-notify-jingme`) and depend on the public interfaces only.
+Organization-specific providers can live in a separate private repo and depend on the public interfaces only.

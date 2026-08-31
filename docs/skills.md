@@ -1,6 +1,6 @@
 # Skills
 
-Portable **instruction packs** for coding agents. Inspired by hb-cli `skill_pack` (prompt inject + `--add-dir`) and deepseek-harness `SKILL.md` (frontmatter + layered discovery).
+Portable **instruction packs** for coding agents. Inspired by common harness patterns: prompt inject + `--add-dir` mount, and `SKILL.md` frontmatter with layered discovery.
 
 ## Model
 
@@ -18,12 +18,11 @@ Workflow nodes and tasks still store a **skill id string**. The runner resolves 
 
 **Built-in (CLI-managed)** — `templates/skills/`: `triage`, `fix`, `test`
 
-**User seeds (from hb-cli, removable)** — `templates/skill-seeds/`: `bug-fix`, `bug-fix-report`, `code-review`, `coding-impl`, `code-merge`, `api-selftest`, `function-test`
+**User seeds (optional, removable)** — `templates/skill-seeds/`: `bug-fix`, `bug-fix-report`, `code-review`, `coding-impl`, `code-merge`, `api-selftest`, `function-test`
 
-JD-internal tools are **not** shipped. Re-import seeds:
+Re-import or refresh seeds from the repo:
 
 ```bash
-pnpm skills:import   # needs sibling ../quality-shipyard/.joycode/skills
 pnpm build && pnpm cli skills sync
 ```
 
@@ -35,14 +34,14 @@ pnpm build && pnpm cli skills sync
 | **用户自建 / 种子** | `templates/skill-seeds` 首次拷贝，或手放到 `~/.agent-desk/skills/` | 不随 CLI 强制更新 | `oh skills uninstall` |
 | **项目** | `<repo>/.agent-desk/skills` | 跟仓库 | 否 |
 
-开源包：公共内置三件套随 CLI 更新；hb-cli 编码包仅作**一次种子**装成用户技能，可卸载。
+开源包：公共内置三件套随 CLI 更新；`skill-seeds` 仅作**一次种子**装成用户技能，可卸载。
 
-## Install & update (like hb-cli)
+## Install & update
 
 On **`oh web` / server start**, agent-desk runs `ensureSkillsReady`:
 
 1. Sync **built-in** (`triage` / `fix` / `test`) with versioned managed installs
-2. **Demote** any former managed skills no longer in the built-in manifest (hb-cli packs → user)
+2. **Demote** any former managed skills no longer in the built-in manifest (seed packs → user)
 3. **Seed** missing packs from `templates/skill-seeds` as user skills (no managed meta; never overwrite)
 
 Manual:
