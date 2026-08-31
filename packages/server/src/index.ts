@@ -420,7 +420,7 @@ export async function createServer(opts: ServerOptions = {}) {
         skill: req.body.skill,
         codingAgent: req.body.codingAgent,
       },
-      settings,
+      db.getSettings(),
     );
     db.upsertTask(task);
     enqueueStartTask(runnerOpts, task.id);

@@ -39,9 +39,15 @@ export interface CreateTaskInput {
 
 export interface RunnerOptions {
   db: AgentDeskDb;
+  /** @deprecated Snapshot only; use resolveSettings(opts) for live values. */
   settings: Settings;
   /** ~/.agent-desk — used for GitHub auto-clone workspaces. */
   dataDir?: string;
+}
+
+/** Always read current settings from SQLite (not the runnerOpts snapshot). */
+export function resolveSettings(opts: RunnerOptions): Settings {
+  return opts.db.getSettings();
 }
 
 const running = new Map<string, AbortController>();
@@ -125,7 +131,7 @@ async function markTaskFailed(
   });
   const task = updated ?? prev;
   if (task) {
-    await maybeNotifyTaskUpdate(task, opts.settings);
+    await maybeNotifyTaskUpdate(task, resolveSettings(opts));
     await emitTaskComplete(task);
   }
   if (!task) throw new Error(`Task not found after fail: ${taskId}`);
@@ -180,7 +186,7 @@ async function ensureTaskWorkspace(
   task: Task,
 ): Promise<Task> {
   if (!opts.dataDir || !task.issueCode?.trim()) return task;
-  if (opts.settings.providers.issue !== "github") return task;
+  if (resolveSettings(opts).providers.issue !== "github") return task;
   const ws = await ensureIssueWorkspace(opts.dataDir);
   if (task.projectDir === ws.projectDir) return task;
   const updated = opts.db.updateTask(task.id, { projectDir: ws.projectDir });
@@ -218,7 +224,8 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     task = await ensureTaskWorkspace(opts, task);
     const taskSessionId = task.sessionId;
 
-    const backend = getAgentBackend(task.codingAgent || opts.settings.codingAgent);
+    const settings = resolveSettings(opts);
+    const backend = getAgentBackend(task.codingAgent || settings.codingAgent);
     await backend.requireReady();
 
     const controller = new AbortController();
@@ -298,10 +305,10 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       });
       if (updated) {
         if (status === "awaiting") {
-          const sent = await maybeNotifyGate(updated, opts.settings);
+          const sent = await maybeNotifyGate(updated, settings);
           if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
         } else {
-          await maybeNotifyTaskUpdate(updated, opts.settings);
+          await maybeNotifyTaskUpdate(updated, settings);
         }
         await maybeReleaseTaskWorkspace(opts, updated, status);
         await emitTaskComplete(updated);

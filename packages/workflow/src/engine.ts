@@ -320,7 +320,7 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
         skill: wfNode.skill,
         codingAgent: parent?.codingAgent,
       },
-      opts.settings,
+      opts.db.getSettings(),
     );
     const childTask: Task = {
       ...child,
@@ -383,7 +383,7 @@ export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunIn
     parentTask = opts.db.getTask(input.parentTaskId);
     if (!parentTask) throw new Error(`Parent task not found: ${input.parentTaskId}`);
   } else {
-    parentTask = createWorkflowTask(opts.db, opts.settings, wf, {
+    parentTask = createWorkflowTask(opts.db, opts.db.getSettings(), wf, {
       title: input.title,
       prompt: input.inputPrompt,
       projectDir: input.projectDir,
