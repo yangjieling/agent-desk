@@ -7,6 +7,7 @@ Register via `registerAgentBackend()` in `@agent-desk/provider-agent`.
 | ID | Package | Notes |
 |----|---------|-------|
 | `claude` | `@agent-desk/provider-agent-claude` | Requires Claude Code CLI |
+| `codex` | `@agent-desk/provider-agent-codex` | Requires Codex CLI (`codex exec`) |
 
 ## Issue providers
 

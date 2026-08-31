@@ -2821,7 +2821,10 @@ async function initSettingsUI() {
     { id: "manual", displayName: "Manual (local JSON)" },
     { id: "github", displayName: "GitHub Issues" },
   ]);
-  const agentOpts = [{ id: "claude", displayName: "Claude Code" }];
+  const agentOpts = await loadProviderOptions("/api/agent-providers", [
+    { id: "claude", displayName: "Claude Code" },
+    { id: "codex", displayName: "Codex" },
+  ]);
 
   const saveSelect = async (key, nextVal) => {
     let patch;

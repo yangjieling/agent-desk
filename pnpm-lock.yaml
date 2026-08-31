@@ -29,6 +29,9 @@ importers:
       '@agent-desk/provider-agent-claude':
         specifier: workspace:*
         version: link:../provider-agent-claude
+      '@agent-desk/provider-agent-codex':
+        specifier: workspace:*
+        version: link:../provider-agent-codex
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue
@@ -84,6 +87,12 @@ importers:
   packages/provider-agent: {}
 
   packages/provider-agent-claude:
+    dependencies:
+      '@agent-desk/provider-agent':
+        specifier: workspace:*
+        version: link:../provider-agent
+
+  packages/provider-agent-codex:
     dependencies:
       '@agent-desk/provider-agent':
         specifier: workspace:*
@@ -161,9 +170,15 @@ importers:
       '@agent-desk/db':
         specifier: workspace:*
         version: link:../db
+      '@agent-desk/provider-agent':
+        specifier: workspace:*
+        version: link:../provider-agent
       '@agent-desk/provider-agent-claude':
         specifier: workspace:*
         version: link:../provider-agent-claude
+      '@agent-desk/provider-agent-codex':
+        specifier: workspace:*
+        version: link:../provider-agent-codex
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue

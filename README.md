@@ -11,7 +11,7 @@ JSON Schemas in `schemas/` define portable task, workflow, and settings shapes.
 - Human gate parsing (`## hb-choices`, abort replies like `先不修`)
 - **Web UI**: overview dashboard, task list, gates, workflow templates & runs, skills
 - Pluggable providers:
-  - **Agent**: Claude Code (`provider-agent-claude`)
+  - **Agent**: Claude Code (`provider-agent-claude`) / Codex (`provider-agent-codex`)
   - **Issue**: manual (`provider-issue-manual`) or **GitHub Issues** (`provider-issue-github`)
   - **Notify**: webhook / **Feishu** / **DingTalk**
 - **Skills**: portable `SKILL.md` packs (discover + prompt/`--add-dir` mount); bundled coding skills sync to `~/.agent-desk/skills` on web start — see [docs/skills.md](docs/skills.md)
@@ -98,9 +98,22 @@ claude -p "say hi"
 
 If the CLI is missing or not authenticated, tasks remain at `created` or fail; fix the CLI, then use **Run** in the Web UI or `POST /api/tasks/:id/start`.
 
-### Codex (planned)
+### Codex
 
-**OpenAI Codex** CLI is not wired up yet. The agent provider interface (`@agent-desk/provider-agent`) is meant for more backends; a future `provider-agent-codex` would mirror Claude (local `codex` binary, `OPENAI_API_KEY` and/or CLI login). `Settings.providers.agent` will gain a `"codex"` option when that package lands.
+| Item | Notes |
+|------|-------|
+| Backend | `provider-agent-codex` (`Settings.codingAgent`: `"codex"`) |
+| Binary | `codex` (override with `AD_CODEX_BIN`) |
+| agent-desk | Checks `codex --version`, then spawns `codex exec --json ...` |
+
+**Before creating tasks**, verify Codex on that host:
+
+```bash
+codex --version
+codex exec --json --dangerously-bypass-approvals-and-sandbox -C . "say hi"
+```
+
+**Credentials** (outside agent-desk): run `codex login` once, or set `OPENAI_API_KEY` / config in `~/.codex/config.toml`. Optional `AD_CODEX_MODEL` pins `-m` for harness runs (otherwise Codex uses its config default).
 
 ## Workflow modes
 
@@ -126,8 +139,10 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | Variable | Description |
 |----------|-------------|
 | `AD_CLAUDE_BIN` | Claude CLI binary (default `claude`) |
+| `AD_CODEX_BIN` | Codex CLI binary (default `codex`) |
+| `AD_CODEX_MODEL` | Optional model for Codex (`codex exec -m`) |
 
-Claude credentials (`ANTHROPIC_API_KEY` or `claude login`) are read by the CLI, not agent-desk — see [Coding agents](#coding-agents).
+Claude credentials (`ANTHROPIC_API_KEY` or `claude login`) are read by the CLI, not agent-desk — see [Coding agents](#coding-agents). Codex auth is handled by the Codex CLI (`codex login`, `OPENAI_API_KEY`, or `~/.codex/config.toml`).
 
 ### Notify — webhook
 
@@ -195,6 +210,7 @@ packages/
   cli/                   # oh CLI (`oh web`, `oh tasks`, …)
   provider-agent/        # Agent backend interface
   provider-agent-claude/ # Claude Code backend
+  provider-agent-codex/  # Codex CLI backend
   provider-issue/        # Issue provider interface
   provider-issue-manual/ # In-memory manual issues
   provider-issue-github/ # GitHub Issues

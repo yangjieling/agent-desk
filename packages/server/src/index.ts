@@ -5,6 +5,8 @@ import path from "node:path";
 import { clipPrompt, clipTitle } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
+import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
+import { listAgentBackends } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
@@ -99,6 +101,7 @@ export interface ServerOptions {
 
 function registerProviders(): void {
   registerClaudeBackend();
+  registerCodexBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
   registerWebhookNotifyProvider();
@@ -275,6 +278,10 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.get("/api/issue-providers", async () =>
     listIssueProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
+  );
+
+  app.get("/api/agent-providers", async () =>
+    listAgentBackends().map((p) => ({ id: p.id, displayName: p.displayName })),
   );
 
   app.get("/api/notify-providers", async () =>

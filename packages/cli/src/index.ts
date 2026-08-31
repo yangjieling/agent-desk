@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { clipPrompt, clipTitle } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
+import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
@@ -27,6 +28,7 @@ import {
 
 function registerProviders(): void {
   registerClaudeBackend();
+  registerCodexBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
   registerWebhookNotifyProvider();
