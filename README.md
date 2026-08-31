@@ -1,3 +1,9 @@
+<p align="center">
+  <a href="https://github.com/yangjieling/agent-desk">
+    <img src="assets/banner.svg" alt="agent-desk" width="520">
+  </a>
+</p>
+
 # agent-desk
 
 **Coding agents that pause for approval.**
@@ -7,6 +13,8 @@ from a Web UI or CLI, orchestrate multi-step workflows, stop on human gates, and
 when a decision is needed — without shipping a cloud control plane.
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+**English | [简体中文](README.zh.md)**
 
 [Architecture](#architecture) · [Quick start](#get-started) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md)
 
