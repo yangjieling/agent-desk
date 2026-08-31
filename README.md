@@ -2,7 +2,116 @@
 
 Open-source **Agent task harness**: workflows, human gates, and pluggable providers.
 
-JSON Schemas in `schemas/` define portable task, workflow, and settings shapes.
+Run coding agents (Claude Code, Codex) from a local Web UI or CLI, pause on human gates, and notify via webhook / Feishu / DingTalk. JSON Schemas in `schemas/` define portable task, workflow, and settings shapes.
+
+## Architecture
+
+### System overview
+
+```mermaid
+flowchart LR
+  subgraph clients [Clients]
+    Web[Web UI]
+    CLI[oh CLI]
+  end
+
+  subgraph harness [agent-desk]
+    API[server / Fastify API]
+    WF[workflow engine]
+    RUN[runner]
+    DB[(SQLite)]
+    SK[skills]
+  end
+
+  subgraph external [Local / external]
+    AGENT[Agent CLI\nclaude / codex]
+    ISSUE[Issue source\nmanual / GitHub]
+    NOTIFY[Notify\nwebhook / Feishu / DingTalk]
+  end
+
+  Web --> API
+  CLI --> API
+  API --> WF
+  API --> RUN
+  API --> DB
+  WF --> RUN
+  RUN --> SK
+  RUN --> AGENT
+  RUN --> NOTIFY
+  API --> ISSUE
+```
+
+**Data directory** (default `~/.agent-desk`): `agent-desk.db`, user workflows, synced skills, optional GitHub auto-clone workspaces.
+
+### End-to-end flow (example)
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant W as Web UI
+  participant R as Runner
+  participant A as Agent CLI
+  participant N as Notify
+
+  U->>W: Create task / AI fix from issue
+  W->>R: POST /api/tasks or workflow run
+  R->>A: spawn claude -p / codex exec
+  A-->>R: stream output
+  R->>W: status running + logs
+  A-->>R: gate hb-choices in output
+  R->>W: status awaiting
+  R->>N: optional gate card
+  U->>W: Reply on gate / notify link
+  W->>R: POST resume
+  R->>A: resume session
+  A-->>R: done
+  R->>W: status done
+```
+
+### Task lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> created
+  created --> running: start
+  running --> awaiting: agent asks gate
+  running --> done: success
+  running --> failed: error / exit != 0
+  running --> stopped: user stop / abort reply
+  awaiting --> running: resume(reply)
+  awaiting --> stopped: abort reply
+  done --> [*]
+  failed --> [*]
+  stopped --> running: resume(继续)
+```
+
+### Pluggable providers
+
+| Kind | Interface | Built-in backends |
+|------|-----------|-------------------|
+| **Agent** | `@agent-desk/provider-agent` | `claude`, `codex` |
+| **Issue** | `@agent-desk/provider-issue` | `manual`, `github` |
+| **Notify** | `@agent-desk/provider-notify` | `webhook`, `feishu`, `dingtalk` |
+
+Register new backends at server/CLI startup; see [docs/providers.md](docs/providers.md).
+
+### Package graph
+
+```mermaid
+flowchart TB
+  cli --> server
+  server --> runner
+  server --> workflow
+  server --> ui
+  workflow --> runner
+  runner --> provider-agent
+  runner --> provider-notify
+  runner --> skills
+  provider-agent-claude --> provider-agent
+  provider-agent-codex --> provider-agent
+```
+
+More detail: [docs/architecture.md](docs/architecture.md).
 
 ## Features (v0.2)
 
@@ -11,12 +120,11 @@ JSON Schemas in `schemas/` define portable task, workflow, and settings shapes.
 - Human gate parsing (`## hb-choices`, abort replies like `先不修`)
 - **Web UI**: overview dashboard, task list, gates, workflow templates & runs, skills
 - Pluggable providers:
-  - **Agent**: Claude Code (`provider-agent-claude`) / Codex (`provider-agent-codex`)
-  - **Issue**: manual (`provider-issue-manual`) or **GitHub Issues** (`provider-issue-github`)
+  - **Agent**: Claude Code / Codex
+  - **Issue**: manual or **GitHub Issues**
   - **Notify**: webhook / **Feishu** / **DingTalk**
-- **Skills**: portable `SKILL.md` packs (discover + prompt/`--add-dir` mount); bundled coding skills sync to `~/.agent-desk/skills` on web start — see [docs/skills.md](docs/skills.md)
-- SQLite persistence (`~/.agent-desk/agent-desk.db`)
-- Local HTTP API (Fastify) + CLI
+- **Skills**: portable `SKILL.md` packs (discover + prompt / `--add-dir` mount) — [docs/skills.md](docs/skills.md)
+- SQLite persistence + local HTTP API + `oh` CLI
 
 ## Quick start
 
@@ -25,10 +133,10 @@ cd agent-desk
 pnpm install
 pnpm build
 
-# Start web server + UI in background (default, does not block terminal)
+# Start web server + UI in background (default)
 pnpm cli web
 
-# Foreground mode (blocks terminal, like before)
+# Foreground mode
 pnpm cli web --foreground
 
 # Stop background server
@@ -46,85 +154,73 @@ pnpm cli tasks create \
   -p "Say hello and open gate「Demo」with hb-choices." \
   --skill triage
 
-# List discovered skills
 pnpm cli skills list
-
-# Install/update bundled skills into ~/.agent-desk/skills
 pnpm cli skills sync
-
-# List issues (GitHub when configured)
 pnpm cli issues list
-pnpm cli issues show '#12'
-
-# List tasks
 pnpm cli tasks list
 ```
+
+Open **http://127.0.0.1:19877** for the Web UI.
 
 **CLI troubleshooting**
 
 - Run commands from the **repo root** (`agent-desk/`), not `packages/cli/`.
 - After clone or dependency changes: `pnpm install && pnpm build`.
-- `pnpm --filter @agent-desk/cli exec oh` does **not** work — `pnpm exec` only resolves bins from dependencies, not the package’s own `bin`. Use:
-  - `pnpm cli <subcommand>` (recommended)
-  - `oh <subcommand>` after `npm link` in `packages/cli`
-- `pnpm --filter @agent-desk/cli run oh -- <subcommand>`
-  - `pnpm --filter @agent-desk/cli run tasks:list`
-
-Open the browser at `http://127.0.0.1:19877` for the Web UI.
+- Prefer `pnpm cli <subcommand>` or `oh <subcommand>` after `npm link` in `packages/cli`.
+- `pnpm --filter @agent-desk/cli exec oh` does **not** work for the `oh` bin.
 
 ## Coding agents
 
-agent-desk runs **local CLI tools** for coding tasks. It does not store model API keys in SQLite (unlike a direct HTTP API such as DeepSeek). Authentication is handled by each CLI on the machine that runs `oh web` / the runner.
+agent-desk spawns **local CLI tools** on the machine that runs `oh web`. It does not store model API keys in SQLite; authentication is handled by each CLI.
 
-### Claude Code (current)
+Set the default backend in Web **Settings → 默认编码 Agent** (`Settings.codingAgent`: `claude` | `codex`).
+
+### Claude Code
 
 | Item | Notes |
 |------|-------|
-| Backend | `provider-agent-claude` (`Settings.providers.agent`: `"claude"`) |
-| Binary | `claude` (override with `AD_CLAUDE_BIN`) |
-| agent-desk | Checks `claude --version`, then spawns `claude -p ...` |
-
-**Before creating tasks**, verify Claude Code on that host:
+| Backend | `provider-agent-claude` |
+| Binary | `claude` (`AD_CLAUDE_BIN`) |
+| Spawn | `claude -p --output-format stream-json ...` |
 
 ```bash
 claude --version
 claude -p "say hi"
 ```
 
-**Credentials** (outside agent-desk — pick one):
-
-1. **API key** (token-style): set `ANTHROPIC_API_KEY` in the environment where the server/runner runs.
-2. **Account login**: run `claude login` once (Anthropic account / subscription).
-
-If the CLI is missing or not authenticated, tasks remain at `created` or fail; fix the CLI, then use **Run** in the Web UI or `POST /api/tasks/:id/start`.
+Credentials (pick one): `ANTHROPIC_API_KEY` or `claude login`.
 
 ### Codex
 
 | Item | Notes |
 |------|-------|
-| Backend | `provider-agent-codex` (`Settings.codingAgent`: `"codex"`) |
-| Binary | `codex` (override with `AD_CODEX_BIN`) |
-| agent-desk | Checks `codex --version`, then spawns `codex exec --json ...` |
-
-**Before creating tasks**, verify Codex on that host:
+| Backend | `provider-agent-codex` |
+| Binary | `codex` (`AD_CODEX_BIN`) |
+| Spawn | `codex exec --json ...` |
 
 ```bash
 codex --version
 codex exec --json --dangerously-bypass-approvals-and-sandbox -C . "say hi"
 ```
 
-**Credentials** (outside agent-desk): run `codex login` once, or set `OPENAI_API_KEY` / config in `~/.codex/config.toml`. Optional `AD_CODEX_MODEL` pins `-m` for harness runs (otherwise Codex uses its config default).
+Credentials: `codex login`, `OPENAI_API_KEY`, or `~/.codex/config.toml`. Optional `AD_CODEX_MODEL` for `-m`.
+
+If the CLI is missing or not authenticated, tasks stay at `created` or fail — use **Run** in the UI or `POST /api/tasks/:id/start` after fixing the CLI.
 
 ## Workflow modes
 
 | Mode | Behavior |
 |------|----------|
 | **shared** | One agent session across all steps; orchestrator injects step prompts |
-| **independent** | Each step spawns a separate task in parallel |
+| **independent** | Each step spawns a separate task (parallel) |
 
-Templates live in `templates/workflows/*.yaml`. User workflows can be saved under `~/.agent-desk/workflows/`.
+Templates: `templates/workflows/*.yaml`. User workflows: `~/.agent-desk/workflows/`.
 
-## Environment
+**缺陷 AI 修复**: Settings → **缺陷 AI 修复流程** — workflow template, or **单任务（技能模式）** for a single skill task.
+
+## Configuration
+
+Most options are in Web **Settings** (persisted to `~/.agent-desk/agent-desk.db`). Non-empty `AD_*` env vars override stored values where noted.
 
 ### Server
 
@@ -141,8 +237,6 @@ Templates live in `templates/workflows/*.yaml`. User workflows can be saved unde
 | `AD_CLAUDE_BIN` | Claude CLI binary (default `claude`) |
 | `AD_CODEX_BIN` | Codex CLI binary (default `codex`) |
 | `AD_CODEX_MODEL` | Optional model for Codex (`codex exec -m`) |
-
-Claude credentials (`ANTHROPIC_API_KEY` or `claude login`) are read by the CLI, not agent-desk — see [Coding agents](#coding-agents). Codex auth is handled by the Codex CLI (`codex login`, `OPENAI_API_KEY`, or `~/.codex/config.toml`).
 
 ### Notify — webhook
 
@@ -193,9 +287,15 @@ Claude credentials (`ANTHROPIC_API_KEY` or `claude login`) are read by the CLI, 
 | `AD_BUNDLED_SKILL_DIR` | Override bundled `templates/skills` |
 | `AD_SKILL_PROMPT_MAX_CHARS` | Cap for injected SKILL.md body (default `100000`) |
 
-DingTalk 也可在 Web **设置 → 钉钉** 写入 `~/.agent-desk`（`Settings.dingtalk`）；非空环境变量仍优先覆盖。改 AppKey/模板后需重启 `oh web` 重连 Stream。
+DingTalk 也可在 Web **设置 → 钉钉** 配置；改 AppKey/模板后需重启 `oh web` 重连 Stream.
 
-Set `providers.issue` to `"github"` and/or `providers.notify` to `"feishu"` / `"dingtalk"` via the settings UI or PUT `/api/settings`.
+## Documentation
+
+| Doc | Contents |
+|-----|----------|
+| [docs/architecture.md](docs/architecture.md) | Design goals, gate protocol, state machine |
+| [docs/providers.md](docs/providers.md) | Agent / Issue / Notify setup |
+| [docs/skills.md](docs/skills.md) | Skill discovery, sync, mount |
 
 ## Monorepo layout
 
@@ -216,8 +316,8 @@ packages/
   provider-issue-github/ # GitHub Issues
   provider-notify/       # Notify provider interface
   provider-notify-webhook/
-  provider-notify-feishu/ # Feishu / Lark cards
-  provider-notify-dingtalk/ # DingTalk ActionCard
+  provider-notify-feishu/
+  provider-notify-dingtalk/
   skills/                # Skill discovery + mount helpers
 schemas/                 # JSON Schema (language-agnostic)
 templates/workflows/     # Example workflow YAML
