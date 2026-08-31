@@ -39,7 +39,7 @@ export class ClaudeBackend implements AgentBackend {
     if (sessionId) {
       args.push("--resume", sessionId);
     }
-    args.push("--output-format", "stream-json", "--dangerously-skip-permissions");
+    args.push("--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions");
     for (const dir of params.extraSkillDirs ?? []) {
       const d = (dir || "").trim();
       if (d) args.push("--add-dir", d);
