@@ -1,10 +1,7 @@
 <p align="center">
   <a href="https://github.com/yangjieling/agent-desk">
-    <img src="assets/logo.png" width="88" alt="" style="vertical-align:middle">
-    <span style="font-size:36px;font-weight:700;color:#202124;vertical-align:middle;margin-left:12px">agent-desk</span>
+    <img src="assets/banner.png" width="560" alt="agent-desk">
   </a>
-  <br>
-  <sub>local agent harness · gates · workflows</sub>
 </p>
 
 # agent-desk

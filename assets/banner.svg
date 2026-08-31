@@ -1,8 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <g fill="none" stroke="#111111" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M78 38A26 26 0 1 0 78 90"/>
-    <path d="M78 38V90"/>
-    <path d="M78 64H108"/>
-    <path d="M108 38V90"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 156">
+  <defs>
+    <symbol id="oh-mark" viewBox="0 0 128 128">
+      <g fill="none" stroke="#141414" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M80 38A27 27 0 1 1 80 90"/>
+        <path d="M80 62H102"/>
+        <path d="M102 40V88"/>
+      </g>
+    </symbol>
+  </defs>
+  <use href="#oh-mark" x="18" y="18" width="96" height="96"/>
+  <text x="132" y="78" fill="#202124" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="40" font-weight="650" letter-spacing="-0.02em">agent-desk</text>
+  <text x="132" y="112" fill="#6b7280" font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif" font-size="18" font-weight="500" letter-spacing="0.01em">local agent harness · gates · workflows</text>
 </svg>
