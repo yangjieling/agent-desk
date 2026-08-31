@@ -322,10 +322,17 @@
             <div class="setting-dropdown" id="setNotifyProvider" data-value=""></div>
           </div>
 
-          <div class="notify-channel-panels" id="notifyChannelPanels">
-            <div class="notify-channel-panel" data-notify-panel="dingtalk" hidden>
-              <h3 class="settings-subtitle">钉钉配置</h3>
-              <p class="settings-section-desc">保存在 ~/.agent-desk；环境变量 AD_DINGTALK_* 非空时优先。改 AppKey / 模板后需重启 Web 才能重连 Stream。</p>
+          <div class="setting-subconfig-wrap" id="notifyChannelPanels">
+            <div class="setting-subconfig" data-notify-panel="dingtalk" hidden>
+              <div class="setting-subconfig-card is-expanded">
+                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+                  <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="setting-subconfig-title">钉钉配置</span>
+                </button>
+                <div class="setting-subconfig-body">
+                  <p class="setting-subconfig-desc">保存在 ~/.agent-desk；环境变量 AD_DINGTALK_* 非空时优先。改 AppKey / 模板后需重启 Web 才能重连 Stream。</p>
               <div class="setting-row is-stack" data-key="dingtalk.appKey" data-type="text">
                 <div class="setting-meta">
                   <p class="st">AppKey (Client ID)</p>
@@ -388,26 +395,94 @@
                 </div>
                 <input class="setting-select" type="text" placeholder="agent-desk">
               </div>
+                </div>
+              </div>
             </div>
 
-            <div class="notify-channel-panel" data-notify-panel="feishu" hidden>
-              <h3 class="settings-subtitle">飞书 / Lark</h3>
-              <p class="settings-section-desc">当前请用环境变量配置：AD_FEISHU_APP_ID、AD_FEISHU_APP_SECRET、AD_FEISHU_RECEIVE_ID 等。设置页表单后续可补。</p>
+            <div class="setting-subconfig" data-notify-panel="feishu" hidden>
+              <div class="setting-subconfig-card is-expanded">
+                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+                  <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="setting-subconfig-title">飞书 / Lark</span>
+                </button>
+                <div class="setting-subconfig-body">
+                  <p class="setting-subconfig-desc">当前请用环境变量配置：AD_FEISHU_APP_ID、AD_FEISHU_APP_SECRET、AD_FEISHU_RECEIVE_ID 等。设置页表单后续可补。</p>
+                </div>
+              </div>
             </div>
 
-            <div class="notify-channel-panel" data-notify-panel="webhook" hidden>
-              <h3 class="settings-subtitle">Webhook</h3>
-              <p class="settings-section-desc">通用 HTTP Webhook。详细地址等请按 docs/providers.md 用环境变量配置；设置页表单后续可补。</p>
+            <div class="setting-subconfig" data-notify-panel="webhook" hidden>
+              <div class="setting-subconfig-card is-expanded">
+                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+                  <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="setting-subconfig-title">Webhook</span>
+                </button>
+                <div class="setting-subconfig-body">
+                  <p class="setting-subconfig-desc">通用 HTTP Webhook。详细地址等请按 docs/providers.md 用环境变量配置；设置页表单后续可补。</p>
+                </div>
+              </div>
             </div>
           </div>
 
           <div class="setting-row" data-key="providers.issue" data-type="select">
             <div class="setting-meta">
               <p class="st">缺陷来源</p>
-              <p class="sd">任务关联的 Issue Provider（如 GitHub Issues）</p>
+              <p class="sd">任务关联的 Issue Provider（如 GitHub Issues）；切换后显示对应配置</p>
             </div>
             <div class="setting-dropdown" id="setIssueProvider" data-value=""></div>
           </div>
+
+          <div class="setting-subconfig-wrap" id="issueChannelPanels">
+            <div class="setting-subconfig" data-issue-panel="github" hidden>
+              <div class="setting-subconfig-card is-expanded">
+                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+                  <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="setting-subconfig-title">GitHub 配置</span>
+                </button>
+                <div class="setting-subconfig-body">
+                  <p class="setting-subconfig-desc">保存在 ~/.agent-desk；环境变量 AD_GITHUB_* 非空时优先。</p>
+              <div class="setting-row is-stack" data-key="github.repo" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">仓库</p>
+                  <p class="sd">owner/repo，例如 yangjieling/springcloud</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="owner/repo">
+              </div>
+              <div class="setting-row is-stack" data-key="github.token" data-type="secret">
+                <div class="setting-meta">
+                  <p class="st">Personal Access Token</p>
+                  <p class="sd">Fine-grained 或 Classic PAT；已保存时显示掩码，留空不修改</p>
+                </div>
+                <div class="setting-secret-wrap">
+                  <input class="setting-select" type="password" autocomplete="off" placeholder="ghp_… 或 github_pat_…">
+                  <button type="button" class="setting-secret-toggle" aria-label="显示密钥" title="显示/隐藏"></button>
+                </div>
+              </div>
+              <div class="setting-row is-stack" data-key="github.projectDir" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">本地仓库路径（可选）</p>
+                  <p class="sd">AI 修复时优先使用该目录；留空则自动发现或 clone</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="/path/to/checkout">
+              </div>
+              <div class="setting-row is-stack" data-key="github.apiBase" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">API Base（可选）</p>
+                  <p class="sd">GitHub Enterprise 时填写，默认 https://api.github.com</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="https://api.github.com">
+              </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div class="setting-row" data-key="webBaseUrl" data-type="text">
             <div class="setting-meta">
               <p class="st">Web Base URL</p>
@@ -448,6 +523,7 @@
     onclick="event.stopPropagation()">
     <div class="raw-drawer-head">
       <span class="raw-drawer-title" id="rawDrawerTitle">原始日志</span>
+      <span class="raw-drawer-hint" title="拖动左侧边缘可调整宽度">↔ 可拖宽</span>
       <button type="button" class="log-icon-btn raw-drawer-close" title="关闭" aria-label="关闭"
         onclick="closeRawDrawer()">
         <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">

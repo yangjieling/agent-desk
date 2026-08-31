@@ -37,6 +37,8 @@ const ISSUE_CACHE = new Map();
 let LOG_ID = null;
 let LOG_TITLE = "";
 let LOG_TIMER = null;
+/** When true, raw log drawer sticks to bottom on new output. */
+let LOG_RAW_PIN_BOTTOM = true;
 let LOG_CHOICES_KEY = "";
 let LOG_VIEW_MODE = "timeline"; // timeline | raw
 let LOG_RENDER_SIG = "";
@@ -355,6 +357,12 @@ function pushTimelineItem(items, type, text, extra) {
   items.push({ type, text: body, ...(extra || {}) });
 }
 
+const LOG_LINE_TS_RE = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\] /;
+
+function stripStoredLogPrefix(line) {
+  return String(line || "").replace(LOG_LINE_TS_RE, "");
+}
+
 function parseLogTimeline(raw) {
   const text = String(raw || "");
   const items = [];
@@ -388,9 +396,15 @@ function parseLogTimeline(raw) {
       plainBuf.push(line);
       continue;
     }
-    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const bare = stripStoredLogPrefix(trimmed);
+    if (bare.startsWith("$ ")) {
+      flushPlain();
+      pushTimelineItem(items, "system", bare);
+      continue;
+    }
+    if (bare.startsWith("{") && bare.endsWith("}")) {
       try {
-        const evt = JSON.parse(trimmed);
+        const evt = JSON.parse(bare);
         flushPlain();
         const type = String(evt.type || "");
         if (type === "assistant") {
@@ -527,6 +541,91 @@ function scrollLogToBottom(force) {
   if (force || nearBottom) scroll.scrollTop = scroll.scrollHeight;
 }
 
+function isRawLogNearBottom(body) {
+  return body.scrollTop + body.clientHeight >= body.scrollHeight - 48;
+}
+
+function scrollRawLogToBottom(force) {
+  const body = document.getElementById("logBody");
+  if (!body) return;
+  if (force) LOG_RAW_PIN_BOTTOM = true;
+  if (force || LOG_RAW_PIN_BOTTOM || isRawLogNearBottom(body)) {
+    body.scrollTop = body.scrollHeight;
+    LOG_RAW_PIN_BOTTOM = true;
+  }
+}
+
+function updateRawLogBody(text) {
+  const body = document.getElementById("logBody");
+  if (!body) return;
+  const next = text || "(暂无输出)";
+  const prevTop = body.scrollTop;
+  if (body.textContent !== next) body.textContent = next;
+  if (LOG_RAW_PIN_BOTTOM) body.scrollTop = body.scrollHeight;
+  else body.scrollTop = prevTop;
+}
+
+function bindRawLogScroll() {
+  const body = document.getElementById("logBody");
+  if (!body || body.dataset.scrollBound) return;
+  body.dataset.scrollBound = "1";
+  body.addEventListener(
+    "scroll",
+    () => {
+      if (LOG_VIEW_MODE !== "raw") return;
+      LOG_RAW_PIN_BOTTOM = isRawLogNearBottom(body);
+    },
+    { passive: true },
+  );
+}
+
+const RAW_DRAWER_WIDTH_KEY = "agent-desk.rawDrawerWidth";
+
+function bindRawDrawerResize() {
+  const drawer = document.getElementById("rawDrawer");
+  if (!drawer || drawer.dataset.resizeBound) return;
+  drawer.dataset.resizeBound = "1";
+  try {
+    const saved = localStorage.getItem(RAW_DRAWER_WIDTH_KEY);
+    if (saved) drawer.style.width = saved;
+  } catch {
+    /* ignore */
+  }
+
+  const handle = document.createElement("div");
+  handle.className = "raw-drawer-resize-handle";
+  handle.title = "拖动调整宽度";
+  handle.setAttribute("aria-hidden", "true");
+  drawer.prepend(handle);
+
+  handle.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    handle.classList.add("dragging");
+    const startX = e.clientX;
+    const startW = drawer.getBoundingClientRect().width;
+    const onMove = (ev) => {
+      const next = Math.min(
+        window.innerWidth * 0.96,
+        Math.max(320, startW + (startX - ev.clientX)),
+      );
+      drawer.style.width = `${Math.round(next)}px`;
+    };
+    const onUp = () => {
+      handle.classList.remove("dragging");
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      try {
+        localStorage.setItem(RAW_DRAWER_WIDTH_KEY, drawer.style.width);
+      } catch {
+        /* ignore */
+      }
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
 function renderLogGateCard(gate, awaiting) {
   const card = document.getElementById("logGateCard");
   if (!card) return;
@@ -576,15 +675,13 @@ function applyLogViewMode() {
     toggle.classList.toggle("active", isRaw);
     toggle.innerHTML = logViewToggleSvg(isRaw);
   }
-  if (isRaw) {
-    const body = document.getElementById("logBody");
-    if (body) body.scrollTop = body.scrollHeight;
-  }
 }
 
 function openRawDrawer() {
   LOG_VIEW_MODE = "raw";
+  LOG_RAW_PIN_BOTTOM = true;
   applyLogViewMode();
+  scrollRawLogToBottom(true);
 }
 
 function closeRawDrawer() {
@@ -656,6 +753,12 @@ async function loadTasks(showToast) {
   if (showToast) toast(`已刷新 ${uiRootTasks().length} 条任务`);
 }
 
+function isLogTaskActive(task) {
+  if (!task) return false;
+  const st = task.status || "";
+  return st === "running" || st === "awaiting";
+}
+
 async function pollTasksQuiet() {
   const view = document.getElementById("view-tasks-list");
   if (!view || view.style.display === "none") return;
@@ -684,7 +787,10 @@ function startTaskPolling() {
   TASK_POLL_SIG = taskListSignature(TASKS);
   const tick = async () => {
     await pollTasksQuiet();
-    if (LOG_ID) await pollLog();
+    if (LOG_ID) {
+      const logTask = TASKS.find((t) => t.id === LOG_ID);
+      if (isLogTaskActive(logTask)) await pollLog();
+    }
     const listView = document.getElementById("view-tasks-list");
     if (!listView || listView.style.display === "none") return;
     const ms = hasActiveTasks(TASKS) || LOG_ID ? 3000 : 10000;
@@ -1113,15 +1219,11 @@ async function pollLog() {
     applyLogViewMode();
 
     const body = document.getElementById("logBody");
-    if (body) {
-      const nearBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 48;
-      body.textContent = raw || "(暂无输出)";
-      if (LOG_VIEW_MODE === "raw" && nearBottom) body.scrollTop = body.scrollHeight;
-    }
+    if (body) updateRawLogBody(raw);
     if (sig !== LOG_RENDER_SIG) {
       LOG_RENDER_SIG = sig;
       renderLogTimeline(timeline);
-      scrollLogToBottom(false);
+      if (LOG_VIEW_MODE !== "raw") scrollLogToBottom(false);
     }
 
     const stopBtn = document.getElementById("logStopBtn");
@@ -1216,6 +1318,7 @@ function showLog(id) {
     LOG_RENDER_SIG = "";
     LOG_PENDING_USER = "";
     LOG_VIEW_MODE = "timeline";
+    LOG_RAW_PIN_BOTTOM = true;
     clearLogWorkflowSteps();
     const input = document.getElementById("replyInput");
     if (input) input.value = "";
@@ -2540,6 +2643,42 @@ function settingsPatchForKey(key, value) {
   return root;
 }
 
+function setNestedSettingState(state, key, value) {
+  const parts = key.split(".");
+  if (parts.length !== 2) return;
+  state[parts[0]] = { ...(state[parts[0]] || {}), [parts[1]]: value };
+}
+
+function setSubconfigExpanded(card, expanded) {
+  if (!card) return;
+  card.classList.toggle("is-expanded", expanded);
+  const head = card.querySelector(".setting-subconfig-head");
+  if (head) head.setAttribute("aria-expanded", expanded ? "true" : "false");
+}
+
+function bindSubconfigToggles(root) {
+  if (!root) return;
+  root.querySelectorAll(".setting-subconfig-card").forEach((card) => {
+    const head = card.querySelector(".setting-subconfig-head");
+    if (!head || head.dataset.subconfigBound) return;
+    head.dataset.subconfigBound = "1";
+    head.addEventListener("click", () => {
+      setSubconfigExpanded(card, !card.classList.contains("is-expanded"));
+    });
+  });
+}
+
+function syncSubconfigPanels(attrName, providerId, fallbackId) {
+  const id = (providerId || "").trim() || fallbackId;
+  document.querySelectorAll(`[${attrName}]`).forEach((panel) => {
+    const match = panel.getAttribute(attrName) === id;
+    panel.hidden = !match;
+    if (match) {
+      setSubconfigExpanded(panel.querySelector(".setting-subconfig-card"), true);
+    }
+  });
+}
+
 function settingsLabel(row, key) {
   return (row.querySelector(".st") && row.querySelector(".st").textContent) || key;
 }
@@ -2694,16 +2833,22 @@ async function initSettingsUI() {
   };
 
   const syncNotifyChannelPanels = (providerId) => {
-    const id = (providerId || "").trim() || "webhook";
-    document.querySelectorAll("[data-notify-panel]").forEach((panel) => {
-      const match = panel.getAttribute("data-notify-panel") === id;
-      panel.hidden = !match;
-    });
+    syncSubconfigPanels("data-notify-panel", providerId, "webhook");
   };
+
+  const syncIssueChannelPanels = (providerId) => {
+    syncSubconfigPanels("data-issue-panel", providerId, "manual");
+  };
+
+  bindSubconfigToggles(card);
 
   const initialNotify =
     (state.providers && state.providers.notify) || "webhook";
   syncNotifyChannelPanels(initialNotify);
+
+  const initialIssue =
+    (state.providers && state.providers.issue) || "manual";
+  syncIssueChannelPanels(initialIssue);
 
   mountSettingDropdown(
     document.getElementById("setNotifyProvider"),
@@ -2718,9 +2863,10 @@ async function initSettingsUI() {
   mountSettingDropdown(
     document.getElementById("setIssueProvider"),
     issueOpts,
-    (state.providers && state.providers.issue) || "manual",
+    initialIssue,
     async (nextVal) => {
       await saveSelect("providers.issue", nextVal);
+      syncIssueChannelPanels(nextVal);
       toast("已更新：缺陷来源");
     },
   );
@@ -2815,11 +2961,7 @@ async function initSettingsUI() {
                 const realStr = real == null ? "" : String(real);
                 if (realStr && realStr !== SETTINGS_SECRET_MASK) {
                   input.value = realStr;
-                  // Keep in-memory state for this field so edits compare correctly.
-                  const parts = key.split(".");
-                  if (parts.length === 2 && parts[0] === "dingtalk") {
-                    state.dingtalk = { ...(state.dingtalk || {}), [parts[1]]: realStr };
-                  }
+                  setNestedSettingState(state, key, realStr);
                 }
               }
               input.type = "text";
@@ -2874,10 +3016,7 @@ async function initSettingsUI() {
           if (isSecret && savedStr === SETTINGS_SECRET_MASK) {
             // PUT returns redacted; keep typed plaintext while revealed.
             if (input.dataset.revealed === "1") {
-              state.dingtalk = {
-                ...(state.dingtalk || {}),
-                [key.split(".")[1]]: nextVal,
-              };
+              setNestedSettingState(state, key, nextVal);
               input.value = nextVal;
             } else {
               input.value = SETTINGS_SECRET_MASK;
@@ -3253,6 +3392,33 @@ async function startTaskFromIssue(code) {
     .join("")
     .slice(0, PROMPT_MAX);
 
+  const projectDir =
+    (issue.projectDir || "").trim() ||
+    (await resolveIssueProjectDir()) ||
+    (document.getElementById("t-dir")?.value || "").trim() ||
+    (loadRecentDirs()[0] || "");
+
+  async function resolveIssueProjectDir() {
+    try {
+      const settings = await api("/api/settings");
+      if ((settings.providers?.issue || "manual") !== "github") return "";
+      const ws = await api("/api/github/resolve-workspace", { method: "POST" });
+      if (ws?.projectDir) {
+        toast(
+          ws.source === "cloned"
+            ? `已克隆仓库到工作区：${shortPath(ws.projectDir)}`
+            : ws.source === "discovered" || ws.source === "env"
+              ? `已使用本地仓库：${shortPath(ws.projectDir)}`
+              : `已使用工作区：${shortPath(ws.projectDir)}`,
+        );
+        return String(ws.projectDir);
+      }
+    } catch (e) {
+      console.warn("resolve workspace failed", e);
+    }
+    return "";
+  }
+
   let settings = {};
   try {
     settings = await api("/api/settings");
@@ -3261,11 +3427,6 @@ async function startTaskFromIssue(code) {
   }
   const wfId = String(settings.defaultFixWorkflowId || "sys-fix-pipeline").trim();
   const usePipeline = wfId && wfId !== "none";
-
-  const projectDir =
-    (issue.projectDir || "").trim() ||
-    (document.getElementById("t-dir")?.value || "").trim() ||
-    (loadRecentDirs()[0] || "");
 
   const fillSkillComposer = () => {
     switchView("tasks-new");
@@ -3463,6 +3624,8 @@ document.addEventListener("visibilitychange", () => {
 loadHealth();
 initSettingsUI();
 bindLogModalClose();
+bindRawLogScroll();
+bindRawDrawerResize();
 
 (function initDeepLink() {
   const logId = URL_PARAMS.get("log") || URL_PARAMS.get("task");
