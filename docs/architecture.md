@@ -30,6 +30,7 @@ flowchart TB
   db --> core
   provider-agent-claude --> provider-agent
   provider-agent-codex --> provider-agent
+  provider-agent-cursor --> provider-agent
   provider-issue-manual --> provider-issue
   provider-notify-webhook --> provider-notify
 ```

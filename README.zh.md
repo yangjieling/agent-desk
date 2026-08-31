@@ -119,11 +119,13 @@ agent-desk 不内置模型，只驱动你本地安装的 CLI。
 | --- | --- | --- | --- |
 | Claude Code | `claude` | `Settings.codingAgent`: `claude` | `AD_CLAUDE_BIN` |
 | OpenAI Codex | `codex` | `Settings.codingAgent`: `codex` | `AD_CODEX_BIN`, `AD_CODEX_MODEL` |
+| Cursor Agent | `agent` | `Settings.codingAgent`: `cursor` | `AD_CURSOR_BIN`, `AD_CURSOR_MODEL`, `CURSOR_API_KEY` |
 
 ```bash
 # 创建任务前先验证
 claude --version && claude -p "say hi"
 codex --version && codex exec --json --dangerously-bypass-approvals-and-sandbox -C . "say hi"
+agent --version && agent -p --trust --output-format text "say hi"
 ```
 
 凭据在各 CLI 中管理（`ANTHROPIC_API_KEY`、`claude login`、`OPENAI_API_KEY`、`~/.codex/config.toml`）——不在 agent-desk 的 SQLite 里。
@@ -254,6 +256,8 @@ Web **设置** 持久化到 `~/.agent-desk/agent-desk.db`。非空的 `AD_*` 环
 | `AD_CLAUDE_BIN` | Claude CLI 可执行文件（默认 `claude`） |
 | `AD_CODEX_BIN` | Codex CLI 可执行文件（默认 `codex`） |
 | `AD_CODEX_MODEL` | Codex 可选模型（`-m`） |
+| `AD_CURSOR_BIN` | Cursor Agent CLI 可执行文件（默认 `agent`） |
+| `AD_CURSOR_MODEL` | Cursor 可选模型（`--model`） |
 
 ### 通知 — Webhook
 

@@ -6,6 +6,7 @@ import { clipPrompt, clipTitle } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
+import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
 import { listAgentBackends } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
@@ -102,6 +103,7 @@ export interface ServerOptions {
 function registerProviders(): void {
   registerClaudeBackend();
   registerCodexBackend();
+  registerCursorBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
   registerWebhookNotifyProvider();

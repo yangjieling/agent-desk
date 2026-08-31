@@ -2824,6 +2824,7 @@ async function initSettingsUI() {
   const agentOpts = await loadProviderOptions("/api/agent-providers", [
     { id: "claude", displayName: "Claude Code" },
     { id: "codex", displayName: "Codex" },
+    { id: "cursor", displayName: "Cursor Agent" },
   ]);
 
   const saveSelect = async (key, nextVal) => {

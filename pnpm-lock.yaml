@@ -32,6 +32,9 @@ importers:
       '@agent-desk/provider-agent-codex':
         specifier: workspace:*
         version: link:../provider-agent-codex
+      '@agent-desk/provider-agent-cursor':
+        specifier: workspace:*
+        version: link:../provider-agent-cursor
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue
@@ -93,6 +96,12 @@ importers:
         version: link:../provider-agent
 
   packages/provider-agent-codex:
+    dependencies:
+      '@agent-desk/provider-agent':
+        specifier: workspace:*
+        version: link:../provider-agent
+
+  packages/provider-agent-cursor:
     dependencies:
       '@agent-desk/provider-agent':
         specifier: workspace:*
@@ -179,6 +188,9 @@ importers:
       '@agent-desk/provider-agent-codex':
         specifier: workspace:*
         version: link:../provider-agent-codex
+      '@agent-desk/provider-agent-cursor':
+        specifier: workspace:*
+        version: link:../provider-agent-cursor
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue

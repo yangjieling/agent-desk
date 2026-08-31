@@ -122,11 +122,13 @@ agent-desk does not ship a model. It drives the CLIs you install locally.
 | --- | --- | --- | --- |
 | Claude Code | `claude` | `Settings.codingAgent`: `claude` | `AD_CLAUDE_BIN` |
 | OpenAI Codex | `codex` | `Settings.codingAgent`: `codex` | `AD_CODEX_BIN`, `AD_CODEX_MODEL` |
+| Cursor Agent | `agent` | `Settings.codingAgent`: `cursor` | `AD_CURSOR_BIN`, `AD_CURSOR_MODEL`, `CURSOR_API_KEY` |
 
 ```bash
 # Verify before creating tasks
 claude --version && claude -p "say hi"
 codex --version && codex exec --json --dangerously-bypass-approvals-and-sandbox -C . "say hi"
+agent --version && agent -p --trust --output-format text "say hi"
 ```
 
 Credentials live in each CLI (`ANTHROPIC_API_KEY`, `claude login`, `OPENAI_API_KEY`, `~/.codex/config.toml`) — not in agent-desk SQLite.
@@ -257,6 +259,8 @@ Web **Settings** persist to `~/.agent-desk/agent-desk.db`. Non-empty `AD_*` env 
 | `AD_CLAUDE_BIN` | Claude CLI binary (default `claude`) |
 | `AD_CODEX_BIN` | Codex CLI binary (default `codex`) |
 | `AD_CODEX_MODEL` | Optional model for Codex (`-m`) |
+| `AD_CURSOR_BIN` | Cursor Agent CLI binary (default `agent`) |
+| `AD_CURSOR_MODEL` | Optional model for Cursor (`--model`) |
 
 ### Notify — webhook
 
