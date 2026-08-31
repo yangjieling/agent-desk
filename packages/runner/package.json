@@ -14,6 +14,7 @@
     "@agent-desk/core": "workspace:*",
     "@agent-desk/db": "workspace:*",
     "@agent-desk/provider-agent": "workspace:*",
+    "@agent-desk/provider-issue-github": "workspace:*",
     "@agent-desk/provider-notify": "workspace:*",
     "@agent-desk/skills": "workspace:*"
   },

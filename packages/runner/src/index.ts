@@ -16,8 +16,17 @@ import {
 } from "@agent-desk/core";
 import type { AgentDeskDb } from "@agent-desk/db";
 import { getAgentBackend } from "@agent-desk/provider-agent";
+import {
+  ensureIssueWorkspace,
+  maybeReleaseAutoWorkspace,
+} from "@agent-desk/provider-issue-github";
 import { getNotifyProvider } from "@agent-desk/provider-notify";
 import { mountSkill } from "@agent-desk/skills";
+import {
+  createLogLinePrefixer,
+  formatCommandLogLine,
+  formatLogTimestamp,
+} from "./log-format.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -31,6 +40,8 @@ export interface CreateTaskInput {
 export interface RunnerOptions {
   db: AgentDeskDb;
   settings: Settings;
+  /** ~/.agent-desk — used for GitHub auto-clone workspaces. */
+  dataDir?: string;
 }
 
 const running = new Map<string, AbortController>();
@@ -103,8 +114,10 @@ async function markTaskFailed(
 ): Promise<Task> {
   const prev = opts.db.getTask(taskId);
   const msg = errMessage(err);
-  const stamp = `\n\n[start error] ${msg}`;
-  const result = prev?.result?.trim() ? `${prev.result.trim()}${stamp}` : `[start error] ${msg}`;
+  const stamp = `\n\n${formatLogTimestamp()} [start error] ${msg}`;
+  const result = prev?.result?.trim()
+    ? `${prev.result.trim()}${stamp}`
+    : `${formatLogTimestamp()} [start error] ${msg}`;
   const updated = opts.db.updateTask(taskId, {
     status: "failed",
     result,
@@ -151,6 +164,29 @@ async function maybeNotifyGate(task: Task, settings: Settings): Promise<boolean>
   );
 }
 
+async function maybeReleaseTaskWorkspace(
+  opts: RunnerOptions,
+  task: Task,
+  status: Task["status"],
+): Promise<void> {
+  if (!opts.dataDir || !task.projectDir) return;
+  if (!["done", "failed", "stopped"].includes(status)) return;
+  const active = opts.db.countActiveTasksForProjectDir(task.projectDir, task.id);
+  await maybeReleaseAutoWorkspace(opts.dataDir, task.projectDir, active);
+}
+
+async function ensureTaskWorkspace(
+  opts: RunnerOptions,
+  task: Task,
+): Promise<Task> {
+  if (!opts.dataDir || !task.issueCode?.trim()) return task;
+  if (opts.settings.providers.issue !== "github") return task;
+  const ws = await ensureIssueWorkspace(opts.dataDir);
+  if (task.projectDir === ws.projectDir) return task;
+  const updated = opts.db.updateTask(task.id, { projectDir: ws.projectDir });
+  return updated ?? task;
+}
+
 async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<void> {
   if (!settings.notifyEnabled) return;
   if (task.status !== "done" && task.status !== "failed") return;
@@ -174,11 +210,14 @@ async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<vo
  * fire-and-forget callers cannot crash the web process.
  */
 export async function startTask(opts: RunnerOptions, taskId: string): Promise<Task> {
-  const task = opts.db.getTask(taskId);
+  let task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
   if (running.has(taskId)) return task;
 
   try {
+    task = await ensureTaskWorkspace(opts, task);
+    const taskSessionId = task.sessionId;
+
     const backend = getAgentBackend(task.codingAgent || opts.settings.codingAgent);
     await backend.requireReady();
 
@@ -212,12 +251,14 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     });
 
     let output = task.result ? `${task.result}\n` : "";
+    output += formatCommandLogLine(args);
+    const linePrefixer = createLogLinePrefixer();
     const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
     let settled = false;
 
     const onData = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
-      output += text;
+      output += linePrefixer.append(text);
       for (const line of text.split("\n")) {
         const evt = backend.parseEventLine(line);
         if (evt) events.push(evt);
@@ -240,7 +281,9 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       if (settled) return;
       settled = true;
       running.delete(taskId);
-      const sessionId = backend.extractSessionId(events) ?? task.sessionId;
+      const tail = linePrefixer.flush();
+      if (tail) output += tail;
+      const sessionId = backend.extractSessionId(events) ?? taskSessionId;
       let status: Task["status"] = code === 0 ? "done" : "failed";
       if (controller.signal.aborted) status = "stopped";
       if (looksLikeUserAbort(output)) status = "stopped";
@@ -260,6 +303,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         } else {
           await maybeNotifyTaskUpdate(updated, opts.settings);
         }
+        await maybeReleaseTaskWorkspace(opts, updated, status);
         await emitTaskComplete(updated);
       }
     });
@@ -301,7 +345,10 @@ export async function resumeTask(
       status: "stopped",
       result: `${task.result}\n\n[user abort: ${reply}]`,
     });
-    if (updated) await emitTaskComplete(updated);
+    if (updated) {
+      await maybeReleaseTaskWorkspace(opts, updated, "stopped");
+      await emitTaskComplete(updated);
+    }
     return updated!;
   }
 
