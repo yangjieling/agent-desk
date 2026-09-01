@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { registerAgentBackend } from "@agent-desk/provider-agent";
+import { registerAgentBackend, listModelsForAgent, resolveAgentModel } from "@agent-desk/provider-agent";
 import type {
   AgentBackend,
   AgentEvent,
@@ -12,8 +12,8 @@ function bin(): string {
   return process.env.AD_CURSOR_BIN || "agent";
 }
 
-function modelFlag(): string[] {
-  const model = (process.env.AD_CURSOR_MODEL || "").trim();
+function modelFlag(params: AgentExecParams): string[] {
+  const model = resolveAgentModel(params.model, process.env.AD_CURSOR_MODEL);
   return model ? ["--model", model] : [];
 }
 
@@ -81,6 +81,14 @@ export class CursorBackend implements AgentBackend {
     return true;
   }
 
+  modelSelectionSupported(): boolean {
+    return true;
+  }
+
+  async listModels() {
+    return listModelsForAgent(this.id, bin());
+  }
+
   async requireReady(): Promise<void> {
     const r = spawnSync(bin(), ["--version"], { encoding: "utf8" });
     if (r.error || r.status !== 0) {
@@ -110,7 +118,7 @@ export class CursorBackend implements AgentBackend {
       "--stream-partial-output",
       "--workspace",
       params.cwd,
-      ...modelFlag(),
+      ...modelFlag(params),
     ];
     if (sessionId) {
       args.push("--resume", sessionId);

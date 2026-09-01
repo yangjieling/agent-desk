@@ -1906,11 +1906,24 @@ async function initTaskNewPage() {
   syncWorkspaceLabel();
   fillSkillOptions();
   try {
-    const s = await api("/api/settings");
+    const [s, agents] = await Promise.all([
+      api("/api/settings"),
+      loadDiscoveredAgentProviders(),
+    ]);
     const agentEl = document.getElementById("t-run-agent");
     if (agentEl) {
-      const name = (s.codingAgent || "claude").trim();
-      agentEl.textContent = name.charAt(0).toUpperCase() + name.slice(1);
+      const agentId = (s.codingAgent || "").trim();
+      const match = agents.find((a) => a.id === agentId);
+      if (match) {
+        agentEl.textContent = agentProviderLabel(match);
+        agentEl.title = match.path ? `CLI: ${match.path}` : "";
+      } else if (agents.length) {
+        agentEl.textContent = agentProviderLabel(agents[0]);
+        agentEl.title = agents[0].path ? `CLI: ${agents[0].path}` : "";
+      } else {
+        agentEl.textContent = "未检测到 CLI";
+        agentEl.title = "请先在设置中安装并配置编码 Agent";
+      }
     }
   } catch {
     /* ignore */
@@ -2800,6 +2813,44 @@ async function loadProviderOptions(endpoint, fallback) {
   return fallback;
 }
 
+async function loadDiscoveredAgentProviders() {
+  try {
+    const rows = await api("/api/agent-providers");
+    if (!Array.isArray(rows)) return [];
+    return rows.map((row) => ({
+      id: row.id,
+      displayName: row.version
+        ? `${row.displayName || row.id} (${row.version})`
+        : row.displayName || row.id,
+      path: row.path,
+      version: row.version,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function agentProviderLabel(row) {
+  return row.displayName || row.id;
+}
+
+async function loadAgentModelOptions(agentId) {
+  const base = [{ id: "", displayName: "默认（由 CLI 决定）" }];
+  try {
+    const data = await api(`/api/agent-models?agent=${encodeURIComponent(agentId || "claude")}`);
+    if (!data || data.supported === false) return base;
+    const rows = Array.isArray(data.models) ? data.models : [];
+    return base.concat(
+      rows.map((m) => ({
+        id: m.id,
+        displayName: m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id,
+      })),
+    );
+  } catch {
+    return base;
+  }
+}
+
 async function initSettingsUI() {
   const card = document.getElementById("settingsCard");
   if (!card) return;
@@ -2821,11 +2872,6 @@ async function initSettingsUI() {
     { id: "manual", displayName: "Manual (local JSON)" },
     { id: "github", displayName: "GitHub Issues" },
   ]);
-  const agentOpts = await loadProviderOptions("/api/agent-providers", [
-    { id: "claude", displayName: "Claude Code" },
-    { id: "codex", displayName: "Codex" },
-    { id: "cursor", displayName: "Cursor Agent" },
-  ]);
 
   const saveSelect = async (key, nextVal) => {
     let patch;
@@ -2835,6 +2881,31 @@ async function initSettingsUI() {
     const next = await saveSettingsPatch(patch);
     state = next;
   };
+
+  const agentOpts = await loadDiscoveredAgentProviders();
+  const agentRow = document.querySelector('.setting-row[data-key="codingAgent"]');
+  const agentDropdown = document.getElementById("setAgent");
+  if (!agentOpts.length && agentDropdown) {
+    agentDropdown.innerHTML =
+      '<button type="button" class="setting-dropdown-btn" disabled>' +
+      '<span class="setting-dropdown-label">未检测到 Agent CLI</span></button>';
+    if (agentRow) {
+      const hint = agentRow.querySelector(".sd");
+      if (hint) {
+        hint.textContent =
+          "请在本机安装 claude / codex / agent，或设置 AD_CLAUDE_BIN 等环境变量后刷新";
+      }
+    }
+  }
+
+  let selectedAgent = state.codingAgent || "";
+  if (!agentOpts.some((o) => o.id === selectedAgent)) {
+    selectedAgent = agentOpts[0]?.id || "";
+    if (selectedAgent && selectedAgent !== state.codingAgent) {
+      await saveSelect("codingAgent", selectedAgent);
+      state.codingAgent = selectedAgent;
+    }
+  }
 
   const syncNotifyChannelPanels = (providerId) => {
     syncSubconfigPanels("data-notify-panel", providerId, "webhook");
@@ -2874,13 +2945,42 @@ async function initSettingsUI() {
       toast("已更新：缺陷来源");
     },
   );
+  if (agentOpts.length) {
+    mountSettingDropdown(
+      agentDropdown,
+      agentOpts,
+      selectedAgent || agentOpts[0].id,
+      async (nextVal) => {
+        await saveSelect("codingAgent", nextVal);
+        toast("已更新：默认编码 Agent");
+        const modelOpts = await loadAgentModelOptions(nextVal);
+        mountSettingDropdown(
+          document.getElementById("setModel"),
+          modelOpts,
+          "",
+          async (modelVal) => {
+            await saveSelect("defaultModel", modelVal);
+            toast("已更新：默认模型");
+          },
+        );
+        await saveSelect("defaultModel", "");
+      },
+    );
+  }
+
+  const initialAgent = selectedAgent || agentOpts[0]?.id || "claude";
+  let modelOpts = await loadAgentModelOptions(initialAgent);
+  const initialModel = state.defaultModel || "";
+  if (initialModel && !modelOpts.some((o) => o.id === initialModel)) {
+    modelOpts = [{ id: initialModel, displayName: initialModel }, ...modelOpts];
+  }
   mountSettingDropdown(
-    document.getElementById("setAgent"),
-    agentOpts,
-    state.codingAgent || "claude",
+    document.getElementById("setModel"),
+    modelOpts,
+    initialModel,
     async (nextVal) => {
-      await saveSelect("codingAgent", nextVal);
-      toast("已更新：默认编码 Agent");
+      await saveSelect("defaultModel", nextVal);
+      toast("已更新：默认模型");
     },
   );
 

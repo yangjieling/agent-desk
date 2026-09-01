@@ -7,6 +7,11 @@
     "notifyEnabled": { "type": "boolean", "default": true },
     "autoConfirmGates": { "type": "boolean", "default": false },
     "codingAgent": { "type": "string", "default": "claude" },
+    "defaultModel": {
+      "type": "string",
+      "default": "",
+      "description": "Default LLM model for new tasks; empty = follow CLI default"
+    },
     "idleTimeoutSec": { "type": "integer", "default": 3600 },
     "awaitingIdleTimeoutSec": { "type": "integer", "default": 86400 },
     "webBaseUrl": { "type": "string", "default": "http://127.0.0.1:19877" },

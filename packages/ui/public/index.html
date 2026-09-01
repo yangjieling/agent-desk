@@ -508,9 +508,16 @@
           <div class="setting-row" data-key="codingAgent" data-type="select">
             <div class="setting-meta">
               <p class="st">默认编码 Agent</p>
-              <p class="sd">新建任务默认使用的 CLI</p>
+              <p class="sd">自动探测本机已安装的 CLI（claude / codex / agent）</p>
             </div>
             <div class="setting-dropdown" id="setAgent" data-value="claude"></div>
+          </div>
+          <div class="setting-row" data-key="defaultModel" data-type="select">
+            <div class="setting-meta">
+              <p class="st">默认模型</p>
+              <p class="sd">新建任务使用的 LLM；留空则跟随 CLI 默认配置</p>
+            </div>
+            <div class="setting-dropdown" id="setModel" data-value=""></div>
           </div>
         </div>
       </div>

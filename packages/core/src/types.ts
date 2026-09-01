@@ -73,6 +73,8 @@ export interface Settings {
   notifyEnabled: boolean;
   autoConfirmGates: boolean;
   codingAgent: string;
+  /** Default LLM model for new tasks; empty = follow CLI default. */
+  defaultModel: string;
   idleTimeoutSec: number;
   awaitingIdleTimeoutSec: number;
   webBaseUrl: string;
@@ -144,6 +146,7 @@ export const DEFAULT_SETTINGS: Settings = {
   notifyEnabled: true,
   autoConfirmGates: false,
   codingAgent: "claude",
+  defaultModel: "",
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,
   webBaseUrl: "http://127.0.0.1:19877",

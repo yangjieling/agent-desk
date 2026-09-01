@@ -7,7 +7,7 @@ import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
-import { listAgentBackends } from "@agent-desk/provider-agent";
+import { getAgentBackend, listInstalledAgentProviders } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
@@ -282,9 +282,17 @@ export async function createServer(opts: ServerOptions = {}) {
     listIssueProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
   );
 
-  app.get("/api/agent-providers", async () =>
-    listAgentBackends().map((p) => ({ id: p.id, displayName: p.displayName })),
-  );
+  app.get("/api/agent-providers", async () => listInstalledAgentProviders());
+
+  app.get<{ Querystring: { agent?: string } }>("/api/agent-models", async (req, reply) => {
+    const agentId = (req.query.agent || db.getSettings().codingAgent || "claude").trim();
+    try {
+      const backend = getAgentBackend(agentId);
+      return await backend.listModels();
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
 
   app.get("/api/notify-providers", async () =>
     listNotifyProviders().map((p) => ({ id: p.id, displayName: p.displayName })),

@@ -243,6 +243,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       cwd,
       promptFile,
       extraSkillDirs: skillMount.extraSkillDirs,
+      model: settings.defaultModel,
     };
     const args = task.sessionId
       ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })

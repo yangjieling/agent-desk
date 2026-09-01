@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { registerAgentBackend } from "@agent-desk/provider-agent";
+import { registerAgentBackend, listModelsForAgent, resolveAgentModel } from "@agent-desk/provider-agent";
 import type {
   AgentBackend,
   AgentEvent,
@@ -12,8 +12,8 @@ function bin(): string {
   return process.env.AD_CODEX_BIN || "codex";
 }
 
-function modelFlag(): string[] {
-  const model = (process.env.AD_CODEX_MODEL || "").trim();
+function modelFlag(params: AgentExecParams): string[] {
+  const model = resolveAgentModel(params.model, process.env.AD_CODEX_MODEL);
   return model ? ["-m", model] : [];
 }
 
@@ -35,6 +35,14 @@ export class CodexBackend implements AgentBackend {
 
   supportsResume(): boolean {
     return true;
+  }
+
+  modelSelectionSupported(): boolean {
+    return true;
+  }
+
+  async listModels() {
+    return listModelsForAgent(this.id, bin());
   }
 
   async requireReady(): Promise<void> {
@@ -64,7 +72,7 @@ export class CodexBackend implements AgentBackend {
       "--color",
       "never",
       "--dangerously-bypass-approvals-and-sandbox",
-      ...modelFlag(),
+      ...modelFlag(params),
       "-C",
       params.cwd,
     );

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { registerAgentBackend } from "@agent-desk/provider-agent";
+import { registerAgentBackend, listModelsForAgent, resolveAgentModel } from "@agent-desk/provider-agent";
 import type {
   AgentBackend,
   AgentEvent,
@@ -17,6 +17,14 @@ export class ClaudeBackend implements AgentBackend {
 
   supportsResume(): boolean {
     return true;
+  }
+
+  modelSelectionSupported(): boolean {
+    return true;
+  }
+
+  async listModels() {
+    return listModelsForAgent(this.id, bin());
   }
 
   async requireReady(): Promise<void> {
@@ -39,6 +47,8 @@ export class ClaudeBackend implements AgentBackend {
     if (sessionId) {
       args.push("--resume", sessionId);
     }
+    const model = resolveAgentModel(params.model, process.env.AD_CLAUDE_MODEL);
+    if (model) args.push("--model", model);
     args.push("--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions");
     for (const dir of params.extraSkillDirs ?? []) {
       const d = (dir || "").trim();

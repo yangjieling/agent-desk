@@ -6,6 +6,8 @@ export interface AgentExecParams {
   /** Skill bundle dirs for CLIs that support --add-dir (or equivalent). */
   extraSkillDirs?: string[];
   env?: Record<string, string>;
+  /** LLM model override; empty = follow CLI default / env fallback. */
+  model?: string;
 }
 
 export interface AgentResumeParams extends AgentExecParams {
@@ -39,12 +41,16 @@ export interface AgentBackend {
   readonly id: AgentId;
   readonly displayName: string;
   supportsResume(): boolean;
+  modelSelectionSupported(): boolean;
+  listModels(): Promise<import("./models.js").AgentModelCatalog>;
   requireReady(): Promise<void>;
   buildExecCommand(params: AgentExecParams): string[];
   buildResumeCommand(params: AgentResumeParams): string[];
   parseEventLine(line: string): AgentEvent | null;
   extractSessionId(events: AgentEvent[]): string | null;
 }
+
+import { probeInstalledAgentProviders } from "./probe.js";
 
 const registry = new Map<AgentId, AgentBackend>();
 
@@ -61,3 +67,13 @@ export function getAgentBackend(id: AgentId): AgentBackend {
 export function listAgentBackends(): AgentBackend[] {
   return [...registry.values()];
 }
+
+export function listInstalledAgentProviders(options?: { fresh?: boolean }) {
+  return probeInstalledAgentProviders(
+    listAgentBackends().map((b) => ({ id: b.id, displayName: b.displayName })),
+    options,
+  );
+}
+
+export * from "./models.js";
+export * from "./probe.js";
