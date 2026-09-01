@@ -420,6 +420,14 @@
   .log-item.system .li-role { color: #5f6368; }
   .log-item.gate .li-role { color: #2f6feb; }
   .log-item .li-body { font-size: 13px; color: #202124; line-height: 1.55; white-space: pre-wrap; word-break: break-word; }
+  .log-item.assistant.is-streaming .li-body::after {
+    content: "▍"; margin-left: 1px; color: #2f6feb;
+    animation: log-cursor-blink 1s step-end infinite;
+  }
+  @keyframes log-cursor-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
   .log-item.tool { background: #fffaf0; border-color: #f3e2c0; }
   .log-item.tool details { margin: 0; }
   .log-item.tool summary { cursor: pointer; font-size: 13px; color: #7a5a18; list-style: none; }

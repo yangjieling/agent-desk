@@ -38,6 +38,9 @@ let LOG_ID = null;
 let LOG_REPLY_MODEL_KEY = "";
 let LOG_TITLE = "";
 let LOG_TIMER = null;
+let LOG_POLL_MS = 0;
+const LOG_POLL_RUNNING_MS = 800;
+const LOG_POLL_AWAITING_MS = 2000;
 /** When true, raw log drawer sticks to bottom on new output. */
 let LOG_RAW_PIN_BOTTOM = true;
 let LOG_CHOICES_KEY = "";
@@ -355,14 +358,52 @@ function extractToolsFromContent(content) {
 }
 
 function pushTimelineItem(items, type, text, extra) {
-  const body = String(text || "").trim();
-  if (!body && type !== "tool") return;
+  const body = String(text || "");
+  if (!body.trim() && type !== "tool") return;
+  const delta = !!(extra && extra.delta);
+  const noMerge = !!(extra && extra.noMerge);
   const last = items[items.length - 1];
-  if (last && last.type === type && type === "assistant" && body) {
-    last.text = `${last.text}\n${body}`.trim();
+  if (last && last.type === type && type === "assistant" && body && !noMerge) {
+    if (delta) last.text = String(last.text || "") + body;
+    else last.text = `${last.text}\n${body}`.trim();
     return;
   }
-  items.push({ type, text: body, ...(extra || {}) });
+  items.push({ type, text: delta ? body : body.trim(), ...(extra || {}) });
+}
+
+const CODEX_PLAIN_NOISE_RE = /^Reading additional input from stdin/i;
+
+function parseCodexStreamEvent(evt) {
+  const type = String(evt.type || "");
+  if (type === "thread.started" || type === "turn.started" || type === "turn.completed") {
+    return null;
+  }
+  if (type !== "item.completed" && type !== "item.started") return null;
+
+  const item = typeof evt.item === "object" && evt.item ? evt.item : null;
+  if (!item) return null;
+  const itemType = String(item.type || "");
+
+  if (itemType === "agent_message" || itemType === "agentMessage") {
+    const text = String(item.text || "").trim();
+    if (!text || type !== "item.completed") return null;
+    return { kind: "assistant", text };
+  }
+
+  if (itemType === "command_execution" || itemType === "commandExecution") {
+    if (type !== "item.completed") return null;
+    const command = String(item.command || "").trim();
+    if (!command) return null;
+    const output = String(item.aggregated_output ?? item.aggregatedOutput ?? "").trim();
+    return { kind: "tool", command, output };
+  }
+
+  if (itemType === "error") {
+    const text = String(item.message || "").trim();
+    return text ? { kind: "system", text } : null;
+  }
+
+  return null;
 }
 
 const LOG_LINE_TS_RE = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\] /;
@@ -395,6 +436,7 @@ function parseLogTimeline(raw) {
       pushTimelineItem(items, "gate", chunk);
       return;
     }
+    if (CODEX_PLAIN_NOISE_RE.test(chunk)) return;
     pushTimelineItem(items, "assistant", chunk);
   };
 
@@ -419,10 +461,21 @@ function parseLogTimeline(raw) {
           const content = evt.message && evt.message.content;
           const textPart = extractTextFromContent(content);
           const tools = extractToolsFromContent(content);
-          if (textPart) pushTimelineItem(items, "assistant", textPart);
+          const isPartial = "model_call_id" in evt;
+          if (textPart) pushTimelineItem(items, "assistant", textPart, isPartial ? { delta: true } : undefined);
           for (const t of tools) {
             pushTimelineItem(items, "tool", t.name, { toolName: t.name, detail: prettyJson(t.input) });
           }
+        } else if (
+          type === "item.delta" ||
+          type === "item/agentMessage/delta" ||
+          type === "item.agent_message.delta"
+        ) {
+          let deltaText = evt.text;
+          if (!deltaText && typeof evt.delta === "object" && evt.delta) {
+            deltaText = evt.delta.text ?? evt.delta.content;
+          }
+          if (deltaText) pushTimelineItem(items, "assistant", String(deltaText), { delta: true });
         } else if (type === "user") {
           const content = evt.message && evt.message.content;
           const textPart = extractTextFromContent(content);
@@ -455,6 +508,18 @@ function parseLogTimeline(raw) {
           }
           const msg = evt.message || evt.error || evt.subtype || type;
           pushTimelineItem(items, "system", typeof msg === "string" ? msg : prettyJson(msg));
+        } else {
+          const codex = parseCodexStreamEvent(evt);
+          if (codex?.kind === "assistant") {
+            pushTimelineItem(items, "assistant", codex.text, { noMerge: true });
+          } else if (codex?.kind === "tool") {
+            pushTimelineItem(items, "tool", codex.command, {
+              toolName: "命令",
+              detail: codex.output || codex.command,
+            });
+          } else if (codex?.kind === "system") {
+            pushTimelineItem(items, "system", codex.text);
+          }
         }
         // ignore turn_end / stream noise
         continue;
@@ -519,8 +584,10 @@ function renderLogTimeline(items) {
     return;
   }
   box.innerHTML = list
-    .map((it) => {
+    .map((it, i) => {
       const type = it.type || "assistant";
+      const streaming =
+        LOG_TASK_STATUS === "running" && i === list.length - 1 && type === "assistant";
       if (type === "tool") {
         const name = esc(it.toolName || it.text || "tool");
         const detail = esc(it.detail || "");
@@ -541,7 +608,7 @@ function renderLogTimeline(items) {
               .replace(/##\s*hb-choices[\s\S]*$/i, "")
               .trim() || it.text
           : it.text;
-      return `<div class="log-item ${esc(type)}">
+      return `<div class="log-item ${esc(type)}${streaming ? " is-streaming" : ""}">
         <div class="li-head"><span class="li-role">${role}</span></div>
         <div class="li-body">${esc(bodyText || "")}</div>
       </div>`;
@@ -591,8 +658,10 @@ function isExecCommandTimelineItem(it) {
 }
 
 const NOISE_SYSTEM_LABELS = new Set(["init", "turn_end"]);
+const NOISE_ASSISTANT_RE = /^Reading additional input from stdin/i;
 
 function isNoiseSystemTimelineItem(it) {
+  if (it.type === "assistant" && NOISE_ASSISTANT_RE.test(String(it.text || "").trim())) return true;
   if (it.type !== "system") return false;
   const text = String(it.text || "").trim();
   if (isExecCommandTimelineItem(it)) return true;
@@ -1227,10 +1296,35 @@ function renderReplyChoices(choices) {
   });
 }
 
-function updateLogThinking(running) {
+function timelineRenderSig(timeline) {
+  if (!timeline.length) return "0";
+  const last = timeline[timeline.length - 1];
+  return `${timeline.length}|${last.type}:${String(last.text || "").length}`;
+}
+
+function updateLogPollTimer(running, awaiting) {
+  const nextMs = running ? LOG_POLL_RUNNING_MS : awaiting ? LOG_POLL_AWAITING_MS : 0;
+  if (!nextMs) {
+    if (LOG_TIMER) {
+      clearInterval(LOG_TIMER);
+      LOG_TIMER = null;
+    }
+    LOG_POLL_MS = 0;
+    return;
+  }
+  if (LOG_TIMER && LOG_POLL_MS === nextMs) return;
+  if (LOG_TIMER) clearInterval(LOG_TIMER);
+  LOG_POLL_MS = nextMs;
+  LOG_TIMER = setInterval(pollLog, nextMs);
+}
+
+function updateLogThinking(running, timeline) {
   const el = document.getElementById("logThinking");
   if (!el) return;
-  el.hidden = !running;
+  const hasContent = (timeline || []).some((it) =>
+    ["assistant", "user", "tool"].includes(it.type),
+  );
+  el.hidden = !running || hasContent;
   if (running) scrollLogToBottom(true);
 }
 
@@ -1303,17 +1397,18 @@ async function pollLog() {
     const gate = awaiting ? parseGate(raw) : null;
 
     LOG_TASK_STATUS = d.status;
-    updateLogThinking(running);
 
     if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
       LOG_PENDING_USER = "";
     }
 
     const timeline = timelineForDisplay(raw, awaiting, d.prompt);
+    updateLogThinking(running, timeline);
+
     const sig = [
       d.status,
       raw.length,
-      timeline.length,
+      timelineRenderSig(timeline),
       LOG_VIEW_MODE,
       LOG_PENDING_USER,
       gate ? gate.heading : "",
@@ -1338,9 +1433,9 @@ async function pollLog() {
       LOG_RENDER_SIG = sig;
       renderLogTimeline(timeline);
       if (LOG_VIEW_MODE !== "raw") {
-        const pinBottom = LOG_SCROLL_TO_BOTTOM;
+        const pinBottom = LOG_SCROLL_TO_BOTTOM || running;
         scrollLogToBottom(pinBottom);
-        if (pinBottom) LOG_SCROLL_TO_BOTTOM = false;
+        if (pinBottom && !running) LOG_SCROLL_TO_BOTTOM = false;
       }
     }
 
@@ -1393,12 +1488,7 @@ async function pollLog() {
       setTimeout(() => sendReply(autoReply), 200);
     }
 
-    if (running || awaiting) {
-      if (!LOG_TIMER) LOG_TIMER = setInterval(pollLog, 2000);
-    } else if (LOG_TIMER) {
-      clearInterval(LOG_TIMER);
-      LOG_TIMER = null;
-    }
+    updateLogPollTimer(running, awaiting);
   } catch (e) {
     const body = document.getElementById("logBody");
     const timeline = document.getElementById("logTimeline");
@@ -1520,7 +1610,7 @@ function closeLog() {
   LOG_PENDING_USER = "";
   LOG_TASK_STATUS = "";
   LOG_VIEW_MODE = "timeline";
-  updateLogThinking(false);
+  updateLogThinking(false, []);
   clearLogWorkflowSteps();
   setSessionPanelVisible(false);
   applyLogViewMode();
@@ -1528,6 +1618,7 @@ function closeLog() {
     clearInterval(LOG_TIMER);
     LOG_TIMER = null;
   }
+  LOG_POLL_MS = 0;
   if (CURRENT_VIEW === "tasks-list") renderTasks();
 }
 
