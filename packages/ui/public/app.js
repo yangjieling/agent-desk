@@ -1602,8 +1602,12 @@ async function pollLog() {
   try {
     cancelStreamRender();
     const d = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}`);
-    LOG_RENDER_SIG = "";
-    resetLogBuffer(d.result || "");
+    const nextResult = d.result || "";
+    const alreadySynced = nextResult === LOG_RESULT;
+    if (!alreadySynced) {
+      LOG_RENDER_SIG = "";
+      resetLogBuffer(nextResult);
+    }
     await renderLogTask(d);
   } catch (e) {
     const body = document.getElementById("logBody");
