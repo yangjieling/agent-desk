@@ -4,11 +4,18 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import {
+  appendDangerousCommandApproval,
   clipPrompt,
   clipTitle,
+  dangerousCommandId,
+  extractPendingDangerousCommand,
+  formatDangerousCommandGate,
   isAbortReply,
+  isDangerousCommandApproval,
   agentPromptBodyForRun,
+  matchDangerousCommand,
   newTaskId,
+  parseApprovedDangerousCommandIds,
   parseGate,
   resolveTaskStatusAfterRun,
   type Settings,
@@ -268,15 +275,65 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     const linePrefixer = createLogLinePrefixer();
     const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
     let settled = false;
+    const approvedCommandIds = parseApprovedDangerousCommandIds(task.prompt);
+
+    const finishDangerousCommandGate = async (
+      match: import("@agent-desk/core").DangerousCommandMatch,
+    ) => {
+      if (settled) return;
+      settled = true;
+      running.delete(taskId);
+      const tail = linePrefixer.flush();
+      if (tail) output += tail;
+      output += `\n\n${formatDangerousCommandGate(match)}\n`;
+      const sessionId = backend.extractSessionId(events) ?? taskSessionId;
+      try {
+        controller.abort("dangerous_command_gate");
+      } catch {
+        /* ignore */
+      }
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* ignore */
+      }
+      const updated = opts.db.updateTask(taskId, {
+        status: "awaiting",
+        sessionId,
+        result: output,
+        lastActivityAt: Date.now(),
+      });
+      if (updated) {
+        const sent = await maybeNotifyGate(updated, settings);
+        if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+        await emitTaskComplete(updated);
+      }
+    };
 
     const onData = (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       output += linePrefixer.append(text);
       for (const line of text.split("\n")) {
         const evt = backend.parseEventLine(line);
-        if (evt) events.push(evt);
+        if (evt) {
+          events.push(evt);
+          if (
+            !settled &&
+            evt.type === "command" &&
+            evt.command &&
+            matchDangerousCommand(evt.command)
+          ) {
+            const cmdId = dangerousCommandId(evt.command);
+            if (!approvedCommandIds.has(cmdId)) {
+              void finishDangerousCommandGate(matchDangerousCommand(evt.command)!);
+              break;
+            }
+          }
+        }
       }
-      opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
+      if (!settled) {
+        opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
+      }
     };
 
     child.stdout?.on("data", onData);
@@ -365,9 +422,17 @@ export async function resumeTask(
     ? "Continue from where we left off."
     : reply;
 
+  let nextPrompt = clipPrompt(`${task.prompt}\n\n---\nUser reply:\n${prompt}`);
+  if (isDangerousCommandApproval(prompt)) {
+    const pending = extractPendingDangerousCommand(task.result);
+    if (pending) {
+      nextPrompt = appendDangerousCommandApproval(nextPrompt, pending.command);
+    }
+  }
+
   const patch: Partial<Task> = {
     status: "created",
-    prompt: clipPrompt(`${task.prompt}\n\n---\nUser reply:\n${prompt}`),
+    prompt: nextPrompt,
     result: `${task.result || ""}\n\n## user\n${prompt}\n`,
   };
   if (resumeOpts && "model" in resumeOpts) {

@@ -606,6 +606,7 @@ function renderLogTimeline(items) {
           ? String(it.text || "")
               .replace(/##\s*oh-choices[\s\S]*$/i, "")
               .replace(/##\s*hb-choices[\s\S]*$/i, "")
+              .replace(/##\s*dangerous-cmd-pending[\s\S]*?(?=##|$)/i, "")
               .trim() || it.text
           : it.text;
       return `<div class="log-item ${esc(type)}${streaming ? " is-streaming" : ""}">
@@ -3793,7 +3794,7 @@ async function loadBugs(opts = {}) {
   const qEl = document.getElementById("bug-q");
   const stateEl = document.getElementById("bug-state");
   BUG_FILTER_KW = ((qEl && qEl.value) || "").trim().toLowerCase();
-  const state = ((stateEl && stateEl.value) || "open").trim();
+  const state = ((stateEl && stateEl.value) || "all").trim();
   box.innerHTML = '<div class="bug-loading">加载中…</div>';
   try {
     const [rows, tasks] = await Promise.all([

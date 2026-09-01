@@ -78,9 +78,9 @@
           <input id="bug-q" placeholder="搜索编号 / 标题 / 标签" onkeydown="if(event.key==='Enter')loadBugs({resetPage:true})">
         </div>
         <select id="bug-state" onchange="loadBugs({resetPage:true})">
+          <option value="all" selected>全部</option>
           <option value="open">开放</option>
           <option value="closed">已关闭</option>
-          <option value="all">全部</option>
         </select>
         <button class="btn-refresh" type="button" onclick="loadBugs({resetPage:true})">查询</button>
       </div>

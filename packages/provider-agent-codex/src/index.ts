@@ -132,7 +132,11 @@ export class CodexBackend implements AgentBackend {
         }
         if (itemType === "command_execution" || itemType === "commandExecution") {
           const command = jsonField(item, ["command"]);
-          if (command) return { type: "command", command, raw: evt };
+          if (!command) return null;
+          if (type === "item.started") {
+            return { type: "command", command, raw: evt };
+          }
+          return null;
         }
       }
 

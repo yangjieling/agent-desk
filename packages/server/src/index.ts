@@ -371,9 +371,9 @@ export async function createServer(opts: ServerOptions = {}) {
             : undefined,
       });
     }
-    const stateRaw = (req.query.state || "open").trim();
+    const stateRaw = (req.query.state || "all").trim();
     const state =
-      stateRaw === "closed" || stateRaw === "all" ? stateRaw : "open";
+      stateRaw === "closed" || stateRaw === "open" ? stateRaw : "all";
     const labelRaw = req.query.label;
     const labels = Array.isArray(labelRaw)
       ? labelRaw
