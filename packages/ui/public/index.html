@@ -173,8 +173,8 @@
             <div class="modal-reply" id="replyBox">
               <div class="reply-choices" id="replyChoices"></div>
               <div class="reply-row">
-                <input id="replyInput" placeholder="继续本次会话，输入后回车发送…"
-                  onkeydown="onReplyKeyDown(event)" />
+                <textarea id="replyInput" rows="1" placeholder="继续本次会话，Enter 发送，Shift+Enter 换行…"
+                  onkeydown="onReplyKeyDown(event)" oninput="fitReplyInputHeight(this)"></textarea>
                 <div class="reply-model-wrap" id="reply-model-wrap">
                   <div class="setting-dropdown reply-model-dd" id="reply-model" data-value="" title="回复模型"></div>
                 </div>

@@ -1407,6 +1407,14 @@ function updateLogActivityFooter(running, timeline) {
   scrollLogToBottom(true);
 }
 
+function fitReplyInputHeight(input) {
+  const el = input || document.getElementById("replyInput");
+  if (!el) return;
+  el.style.height = "auto";
+  const max = 120;
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, 36), max)}px`;
+}
+
 function updateReplyComposerState(running, canChat) {
   const rb = document.getElementById("replyBox");
   const input = document.getElementById("replyInput");
@@ -1415,7 +1423,8 @@ function updateReplyComposerState(running, canChat) {
   if (rb) rb.classList.toggle("show", show);
   if (input) {
     input.disabled = running;
-    input.placeholder = "继续本次会话，输入后回车发送…";
+    input.placeholder = "继续本次会话，Enter 发送，Shift+Enter 换行…";
+    if (!running && show) fitReplyInputHeight(input);
   }
   if (sendBtn) sendBtn.disabled = running;
   document.querySelectorAll(".reply-chip, .lg-choice").forEach((btn) => {
@@ -1462,7 +1471,10 @@ async function sendReply(preset) {
   const reply = (preset || input.value || "").trim();
   if (!reply) return;
 
-  if (!preset) input.value = "";
+  if (!preset) {
+    input.value = "";
+    fitReplyInputHeight(input);
+  }
   await dispatchReply(reply, getReplyModel());
 }
 
@@ -1666,7 +1678,10 @@ function showLog(id) {
     LOG_RAW_PIN_BOTTOM = true;
     clearLogWorkflowSteps();
     const input = document.getElementById("replyInput");
-    if (input) input.value = "";
+    if (input) {
+      input.value = "";
+      fitReplyInputHeight(input);
+    }
     const meta = document.getElementById("logMeta");
     if (meta) meta.innerHTML = "";
     const gate = document.getElementById("logGateCard");

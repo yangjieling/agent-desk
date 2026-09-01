@@ -544,7 +544,7 @@
                 line-height: 1.4; max-width: 100%; }
   .reply-chip:hover { border-color: #2f6feb; color: #1a73e8; background: #e7f0ff; }
   .reply-chip:disabled { opacity: .5; cursor: not-allowed; }
-  .reply-row { display: flex; gap: 8px; align-items: center; }
+  .reply-row { display: flex; gap: 8px; align-items: flex-end; }
   .reply-model-wrap { flex-shrink: 1; min-width: 0; max-width: min(200px, 36vw); }
   .reply-model-dd { position: relative; min-width: 0; width: 100%; }
   .reply-model-dd .setting-dropdown-btn {
@@ -559,9 +559,11 @@
   .reply-model-dd .setting-dropdown-menu {
     top: auto; bottom: calc(100% + 6px); left: auto; right: 0; min-width: 240px; max-width: min(320px, 92vw);
   }
-  .reply-row input { flex: 1; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 8px;
-                     background: #fff; color: #202124; font-size: 13px; height: 36px; box-sizing: border-box; }
-  .reply-row input:focus { outline: none; border-color: #2f6feb; box-shadow: 0 0 0 3px rgba(47,111,235,.12); }
+  .reply-row textarea { flex: 1; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 8px;
+                     background: #fff; color: #202124; font-size: 13px; line-height: 1.45;
+                     min-height: 36px; max-height: 120px; resize: none; overflow-y: auto;
+                     box-sizing: border-box; font-family: inherit; }
+  .reply-row textarea:focus { outline: none; border-color: #2f6feb; box-shadow: 0 0 0 3px rgba(47,111,235,.12); }
 
   .card { background: #fff; border: 1px solid #eceef1; border-radius: 12px; padding: 14px 18px;
           margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
