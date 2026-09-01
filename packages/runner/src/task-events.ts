@@ -1,6 +1,12 @@
 import type { Task } from "@agent-desk/core";
 
-export type TaskUpdateListener = (task: Task) => void;
+export interface TaskStreamUpdate {
+  task: Task;
+  /** New bytes appended to task.result since the previous publish for this task. */
+  resultAppend?: string;
+}
+
+export type TaskUpdateListener = (update: TaskStreamUpdate) => void;
 
 const listenersByTask = new Map<string, Set<TaskUpdateListener>>();
 
@@ -17,15 +23,15 @@ export function subscribeTaskUpdates(taskId: string, listener: TaskUpdateListene
   };
 }
 
-export function publishTaskUpdate(task: Task): void {
-  const set = listenersByTask.get(task.id);
+export function publishTaskUpdate(update: TaskStreamUpdate): void {
+  const set = listenersByTask.get(update.task.id);
   if (!set?.size) return;
   for (const listener of set) {
     try {
-      listener(task);
+      listener(update);
     } catch (err) {
       console.error(
-        `[agent-desk] task update listener failed for ${task.id}:`,
+        `[agent-desk] task update listener failed for ${update.task.id}:`,
         err instanceof Error ? err.message : err,
       );
     }

@@ -37,17 +37,20 @@ const ISSUE_CACHE = new Map();
 let LOG_ID = null;
 let LOG_REPLY_MODEL_KEY = "";
 let LOG_TITLE = "";
-let LOG_TIMER = null;
-let LOG_POLL_MS = 0;
 let LOG_SSE = null;
 let LOG_SSE_TASK = "";
 let LOG_SSE_OPEN = false;
+let LOG_SSE_RETRY_TIMER = 0;
 let LOG_STREAM_RENDER_RAF = 0;
 let LOG_STREAM_PENDING = null;
 let LOG_STREAM_PATCH_LEN = 0;
-const LOG_POLL_RUNNING_MS = 800;
-const LOG_POLL_RUNNING_SSE_MS = 5000;
-const LOG_POLL_AWAITING_MS = 2000;
+let LOG_RESULT = "";
+let LOG_RESULT_LEN = 0;
+/** @type {ReturnType<typeof createIncrementalLogParser> | null} */
+let LOG_TIMELINE_PARSER = null;
+let LOG_RUN_STARTED_AT = 0;
+let LOG_LAST_STREAM_AT = 0;
+let LOG_ACTIVITY_TICKER = 0;
 /** When true, raw log drawer sticks to bottom on new output. */
 let LOG_RAW_PIN_BOTTOM = true;
 let LOG_CHOICES_KEY = "";
@@ -364,182 +367,58 @@ function extractToolsFromContent(content) {
   return tools;
 }
 
-function pushTimelineItem(items, type, text, extra) {
-  const body = String(text || "");
-  if (!body.trim() && type !== "tool") return;
-  const delta = !!(extra && extra.delta);
-  const noMerge = !!(extra && extra.noMerge);
-  const last = items[items.length - 1];
-  if (last && last.type === type && type === "assistant" && body && !noMerge) {
-    if (delta) last.text = String(last.text || "") + body;
-    else last.text = `${last.text}\n${body}`.trim();
+function logTimelineHelpers() {
+  return { extractTextFromContent, extractToolsFromContent, prettyJson };
+}
+
+function resetLogBuffer(raw) {
+  LOG_RESULT = raw || "";
+  LOG_RESULT_LEN = LOG_RESULT.length;
+  LOG_TIMELINE_PARSER = createIncrementalLogParser(logTimelineHelpers());
+  LOG_TIMELINE_PARSER.reset(LOG_RESULT);
+}
+
+function appendLogBuffer(chunk) {
+  if (!chunk) return;
+  LOG_RESULT += chunk;
+  LOG_RESULT_LEN = LOG_RESULT.length;
+  if (!LOG_TIMELINE_PARSER) {
+    resetLogBuffer(LOG_RESULT);
     return;
   }
-  items.push({ type, text: delta ? body : body.trim(), ...(extra || {}) });
+  LOG_TIMELINE_PARSER.append(chunk);
 }
 
-const CODEX_PLAIN_NOISE_RE = /^Reading additional input from stdin/i;
-
-function parseCodexStreamEvent(evt) {
-  const type = String(evt.type || "");
-  if (type === "thread.started" || type === "turn.started" || type === "turn.completed") {
-    return null;
-  }
-  if (type !== "item.completed" && type !== "item.started") return null;
-
-  const item = typeof evt.item === "object" && evt.item ? evt.item : null;
-  if (!item) return null;
-  const itemType = String(item.type || "");
-
-  if (itemType === "agent_message" || itemType === "agentMessage") {
-    const text = String(item.text || "").trim();
-    if (!text || type !== "item.completed") return null;
-    return { kind: "assistant", text };
-  }
-
-  if (itemType === "command_execution" || itemType === "commandExecution") {
-    if (type !== "item.completed") return null;
-    const command = String(item.command || "").trim();
-    if (!command) return null;
-    const output = String(item.aggregated_output ?? item.aggregatedOutput ?? "").trim();
-    return { kind: "tool", command, output };
-  }
-
-  if (itemType === "error") {
-    const text = String(item.message || "").trim();
-    return text ? { kind: "system", text } : null;
-  }
-
-  return null;
+function appendRawLogDelta(chunk) {
+  const body = document.getElementById("logBody");
+  if (!body || !chunk) return;
+  if (body.textContent === "(暂无输出)") body.textContent = "";
+  body.textContent += chunk;
+  if (LOG_RAW_PIN_BOTTOM) body.scrollTop = body.scrollHeight;
 }
 
-const LOG_LINE_TS_RE = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\] /;
-
-function stripStoredLogPrefix(line) {
-  return String(line || "").replace(LOG_LINE_TS_RE, "");
+function mergeStreamTask(task, resultAppend) {
+  if (resultAppend) {
+    appendLogBuffer(resultAppend);
+    appendRawLogDelta(resultAppend);
+  } else if (task?.result != null) {
+    const next = String(task.result);
+    if (next.length < LOG_RESULT_LEN) {
+      resetLogBuffer(next);
+      updateRawLogBody(next);
+    } else if (next.length > LOG_RESULT_LEN) {
+      const delta = next.slice(LOG_RESULT_LEN);
+      appendLogBuffer(delta);
+      appendRawLogDelta(delta);
+    } else {
+      LOG_RESULT = next;
+    }
+  }
+  return { ...task, result: LOG_RESULT || task?.result || "" };
 }
 
-function parseLogTimeline(raw) {
-  const text = String(raw || "");
-  const items = [];
-  if (!text.trim()) return items;
-
-  const lines = text.split("\n");
-  let plainBuf = [];
-  const flushPlain = () => {
-    const chunk = plainBuf.join("\n").trim();
-    plainBuf = [];
-    if (!chunk) return;
-    if (/^##\s*user\b/i.test(chunk) || /^\[user abort:/i.test(chunk)) {
-      const userText = chunk
-        .replace(/^##\s*user\s*/i, "")
-        .replace(/^\[user abort:\s*/i, "")
-        .replace(/\]\s*$/, "")
-        .trim();
-      pushTimelineItem(items, "user", userText || chunk);
-      return;
-    }
-    if (/##\s*闸门|##\s*oh-choices|##\s*hb-choices/.test(chunk)) {
-      pushTimelineItem(items, "gate", chunk);
-      return;
-    }
-    if (CODEX_PLAIN_NOISE_RE.test(chunk)) return;
-    pushTimelineItem(items, "assistant", chunk);
-  };
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      plainBuf.push(line);
-      continue;
-    }
-    const bare = stripStoredLogPrefix(trimmed);
-    if (bare.startsWith("$ ")) {
-      flushPlain();
-      pushTimelineItem(items, "system", bare);
-      continue;
-    }
-    if (bare.startsWith("{") && bare.endsWith("}")) {
-      try {
-        const evt = JSON.parse(bare);
-        flushPlain();
-        const type = String(evt.type || "");
-        if (type === "assistant") {
-          const content = evt.message && evt.message.content;
-          const textPart = extractTextFromContent(content);
-          const tools = extractToolsFromContent(content);
-          const isPartial = "model_call_id" in evt;
-          if (textPart) pushTimelineItem(items, "assistant", textPart, isPartial ? { delta: true } : undefined);
-          for (const t of tools) {
-            pushTimelineItem(items, "tool", t.name, { toolName: t.name, detail: prettyJson(t.input) });
-          }
-        } else if (
-          type === "item.delta" ||
-          type === "item/agentMessage/delta" ||
-          type === "item.agent_message.delta"
-        ) {
-          let deltaText = evt.text;
-          if (!deltaText && typeof evt.delta === "object" && evt.delta) {
-            deltaText = evt.delta.text ?? evt.delta.content;
-          }
-          if (deltaText) pushTimelineItem(items, "assistant", String(deltaText), { delta: true });
-        } else if (type === "user") {
-          const content = evt.message && evt.message.content;
-          const textPart = extractTextFromContent(content);
-          const toolResults = Array.isArray(content)
-            ? content.filter((c) => c && c.type === "tool_result")
-            : [];
-          if (toolResults.length) {
-            for (const tr of toolResults) {
-              const detail =
-                typeof tr.content === "string"
-                  ? tr.content
-                  : prettyJson(tr.content ?? tr);
-              pushTimelineItem(items, "tool", "tool_result", {
-                toolName: "结果",
-                detail: String(detail).slice(0, 4000),
-              });
-            }
-          } else if (textPart) {
-            pushTimelineItem(items, "user", textPart);
-          }
-        } else if (type === "result") {
-          const summary = evt.result != null ? String(evt.result) : "";
-          if (summary && summary !== "null") {
-            pushTimelineItem(items, "system", summary.slice(0, 2000));
-          }
-        } else if (type === "system" || type === "error") {
-          const subtype = String(evt.subtype || "");
-          if (type === "system" && (subtype === "init" || subtype === "turn_end")) {
-            continue;
-          }
-          const msg = evt.message || evt.error || evt.subtype || type;
-          pushTimelineItem(items, "system", typeof msg === "string" ? msg : prettyJson(msg));
-        } else {
-          const codex = parseCodexStreamEvent(evt);
-          if (codex?.kind === "assistant") {
-            pushTimelineItem(items, "assistant", codex.text, { noMerge: true });
-          } else if (codex?.kind === "tool") {
-            pushTimelineItem(items, "tool", codex.command, {
-              toolName: "命令",
-              detail: codex.output || codex.command,
-            });
-          } else if (codex?.kind === "system") {
-            pushTimelineItem(items, "system", codex.text);
-          }
-        }
-        // ignore turn_end / stream noise
-        continue;
-      } catch {
-        /* fall through as plain */
-      }
-    }
-    plainBuf.push(line);
-  }
-  flushPlain();
-
-  // Prefer not duplicating trailing open gate blob as assistant if we also show gate card
-  return items;
+function parseLogTimelineLocal(raw) {
+  return parseLogTimeline(raw, logTimelineHelpers());
 }
 
 function renderLogMeta(task) {
@@ -595,6 +474,13 @@ function renderLogTimeline(items) {
       const type = it.type || "assistant";
       const streaming =
         LOG_TASK_STATUS === "running" && i === list.length - 1 && type === "assistant";
+      if (type === "activity") {
+        const running = it.status === "running";
+        return `<div class="log-activity${running ? " is-running" : ""}">
+          <span class="log-activity-icon" aria-hidden="true">${running ? '<span class="log-activity-spin"></span>' : "✓"}</span>
+          <span class="log-activity-text">${esc(it.text || "")}</span>
+        </div>`;
+      }
       if (type === "tool") {
         const name = esc(it.toolName || it.text || "tool");
         const detail = esc(it.detail || "");
@@ -677,7 +563,12 @@ function isNoiseSystemTimelineItem(it) {
 }
 
 function timelineForDisplay(raw, awaiting, prompt) {
-  let items = parseLogTimeline(raw);
+  let items;
+  if (LOG_TIMELINE_PARSER && raw === LOG_RESULT) {
+    items = LOG_TIMELINE_PARSER.getItems().slice();
+  } else {
+    items = parseLogTimelineLocal(raw);
+  }
   items = mergePromptRepliesIntoTimeline(items, prompt);
   if (awaiting) {
     // Gate card owns the decision UI; drop trailing gate blobs from the stream.
@@ -946,10 +837,6 @@ function startTaskPolling() {
   TASK_POLL_SIG = taskListSignature(TASKS);
   const tick = async () => {
     await pollTasksQuiet();
-    if (LOG_ID) {
-      const logTask = TASKS.find((t) => t.id === LOG_ID);
-      if (isLogTaskActive(logTask)) await pollLog();
-    }
     const listView = document.getElementById("view-tasks-list");
     if (!listView || listView.style.display === "none") return;
     const ms = hasActiveTasks(TASKS) || LOG_ID ? 3000 : 10000;
@@ -1308,30 +1195,35 @@ function renderReplyChoices(choices) {
 
 function timelineRenderSig(timeline) {
   if (!timeline.length) return "0";
-  const last = timeline[timeline.length - 1];
-  return `${timeline.length}|${last.type}:${String(last.text || "").length}`;
+  const parts = timeline.map((it) => {
+    if (it.type === "activity") {
+      return `a:${it.id || ""}:${it.status || ""}:${String(it.text || "").length}`;
+    }
+    return `${it.type}:${String(it.text || "").length}`;
+  });
+  return `${timeline.length}|${parts.join(",")}`;
 }
 
-function updateLogPollTimer(running, awaiting) {
-  let nextMs = 0;
-  if (running) {
-    nextMs =
-      LOG_SSE && LOG_SSE_TASK === LOG_ID ? LOG_POLL_RUNNING_SSE_MS : LOG_POLL_RUNNING_MS;
-  } else if (awaiting) {
-    nextMs = LOG_POLL_AWAITING_MS;
+function startActivityTicker() {
+  stopActivityTicker();
+  LOG_ACTIVITY_TICKER = setInterval(() => {
+    if (LOG_TASK_STATUS !== "running" || !LOG_ID) return;
+    const timeline = LOG_TIMELINE_PARSER
+      ? LOG_TIMELINE_PARSER.getItems().slice()
+      : timelineForDisplay(LOG_RESULT, false, "");
+    updateLogActivityFooter(true, timeline);
+  }, 1000);
+}
+
+function stopActivityTicker() {
+  if (LOG_ACTIVITY_TICKER) {
+    clearInterval(LOG_ACTIVITY_TICKER);
+    LOG_ACTIVITY_TICKER = 0;
   }
-  if (!nextMs) {
-    if (LOG_TIMER) {
-      clearInterval(LOG_TIMER);
-      LOG_TIMER = null;
-    }
-    LOG_POLL_MS = 0;
-    return;
-  }
-  if (LOG_TIMER && LOG_POLL_MS === nextMs) return;
-  if (LOG_TIMER) clearInterval(LOG_TIMER);
-  LOG_POLL_MS = nextMs;
-  LOG_TIMER = setInterval(pollLog, nextMs);
+}
+
+function markLogStreamActivity() {
+  LOG_LAST_STREAM_AT = Date.now();
 }
 
 function updateLogLiveBadge(connected) {
@@ -1340,7 +1232,15 @@ function updateLogLiveBadge(connected) {
   if (el) el.hidden = !connected;
 }
 
+function clearLogSseRetry() {
+  if (LOG_SSE_RETRY_TIMER) {
+    clearTimeout(LOG_SSE_RETRY_TIMER);
+    LOG_SSE_RETRY_TIMER = 0;
+  }
+}
+
 function closeLogStream() {
+  clearLogSseRetry();
   if (LOG_SSE) {
     LOG_SSE.close();
     LOG_SSE = null;
@@ -1350,8 +1250,13 @@ function closeLogStream() {
   updateLogLiveBadge(false);
 }
 
-function updateLogStream(running) {
-  if (!LOG_ID || !running) {
+function isLogStreamStatus(status) {
+  return status === "running" || status === "awaiting";
+}
+
+function updateLogStream(taskOrStatus) {
+  const status = typeof taskOrStatus === "string" ? taskOrStatus : taskOrStatus?.status || "";
+  if (!LOG_ID || !isLogStreamStatus(status)) {
     closeLogStream();
     return;
   }
@@ -1359,44 +1264,59 @@ function updateLogStream(running) {
   openLogStream(LOG_ID);
 }
 
+function scheduleLogStreamRetry(id) {
+  clearLogSseRetry();
+  if (!id || LOG_ID !== id || !isLogStreamStatus(LOG_TASK_STATUS)) return;
+  LOG_SSE_RETRY_TIMER = setTimeout(() => {
+    LOG_SSE_RETRY_TIMER = 0;
+    if (LOG_ID === id && isLogStreamStatus(LOG_TASK_STATUS)) openLogStream(id);
+  }, 2000);
+}
+
 function openLogStream(id) {
   closeLogStream();
   if (!id || typeof EventSource === "undefined") return;
   LOG_SSE_TASK = id;
-  const es = new EventSource(`/api/tasks/${encodeURIComponent(id)}/stream`);
+  const offset = LOG_RESULT_LEN > 0 ? `?offset=${LOG_RESULT_LEN}` : "";
+  const es = new EventSource(`/api/tasks/${encodeURIComponent(id)}/stream${offset}`);
   LOG_SSE = es;
   es.onopen = () => {
     if (LOG_ID !== id) return;
     updateLogLiveBadge(true);
-    updateLogPollTimer(true, false);
   };
   es.onmessage = (ev) => {
     if (LOG_ID !== id) return;
     try {
       const msg = JSON.parse(ev.data);
       if (msg.type === "end") {
+        if (LOG_TIMELINE_PARSER) LOG_TIMELINE_PARSER.finalize();
         closeLogStream();
         void pollLog();
         return;
       }
-      if (msg.task) scheduleStreamRender(msg.task);
+      if (msg.type === "snapshot" || msg.type === "update") {
+        markLogStreamActivity();
+        const merged = mergeStreamTask(msg.task || {}, msg.resultAppend);
+        scheduleStreamRender(merged, { fromStream: true });
+      }
     } catch {
       /* ignore */
     }
   };
   es.onerror = () => {
     closeLogStream();
+    scheduleLogStreamRetry(id);
   };
 }
 
-function scheduleStreamRender(task) {
-  LOG_STREAM_PENDING = task;
+function scheduleStreamRender(task, opts = {}) {
+  LOG_STREAM_PENDING = { task, opts };
   if (LOG_STREAM_RENDER_RAF) return;
   LOG_STREAM_RENDER_RAF = requestAnimationFrame(() => {
     LOG_STREAM_RENDER_RAF = 0;
     const pending = LOG_STREAM_PENDING;
     LOG_STREAM_PENDING = null;
-    if (pending) void renderLogTask(pending, { fromStream: true });
+    if (pending) void renderLogTask(pending.task, pending.opts);
   });
 }
 
@@ -1419,14 +1339,36 @@ function tryPatchStreamingTimeline(timeline, running) {
   return true;
 }
 
-function updateLogThinking(running, timeline) {
+function updateLogActivityFooter(running, timeline) {
   const el = document.getElementById("logThinking");
   if (!el) return;
-  const hasContent = (timeline || []).some((it) =>
-    ["assistant", "user", "tool"].includes(it.type),
-  );
-  el.hidden = !running || hasContent;
-  if (running) scrollLogToBottom(true);
+  if (!running) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  const now = Date.now();
+  const elapsed = LOG_RUN_STARTED_AT ? Math.max(1, Math.floor((now - LOG_RUN_STARTED_AT) / 1000)) : 0;
+  const staleSec = LOG_LAST_STREAM_AT ? Math.floor((now - LOG_LAST_STREAM_AT) / 1000) : 0;
+  const activities = (timeline || []).filter((it) => it.type === "activity");
+  const runningAct = [...activities].reverse().find((a) => a.status === "running");
+  const lastAct = activities[activities.length - 1];
+  let label = "Agent 正在思考…";
+  if (runningAct) label = runningAct.text;
+  else if (lastAct) label = lastAct.text;
+  const staleHint =
+    staleSec >= 8 ? `<span class="log-thinking-stale">${staleSec}s 无新输出，可能仍在执行</span>` : "";
+  const liveHint = LOG_SSE_OPEN
+    ? '<span class="log-thinking-live">实时</span>'
+    : '<span class="log-thinking-live is-reconnect">连接中…</span>';
+  el.innerHTML = `<div class="log-thinking-inner">
+    <span class="log-thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+  <div class="log-thinking-copy">
+    <div class="log-thinking-title">${esc(label)}</div>
+    <div class="log-thinking-sub">已运行 ${elapsed}s ${liveHint}${staleHint ? ` · ${staleHint}` : ""}</div>
+  </div>
+</div>`;
+  scrollLogToBottom(true);
 }
 
 function updateReplyComposerState(running, canChat) {
@@ -1451,8 +1393,13 @@ async function dispatchReply(reply, model) {
   LOG_RENDER_SIG = "";
   try {
     const cur = TASKS.find((t) => t.id === LOG_ID);
-    renderLogTimeline(timelineForDisplay((cur && cur.result) || "", false, cur && cur.prompt));
+    const previewTimeline = timelineForDisplay((cur && cur.result) || "", false, cur && cur.prompt);
+    renderLogTimeline(previewTimeline);
     scrollLogToBottom(true);
+    LOG_RUN_STARTED_AT = Date.now();
+    LOG_LAST_STREAM_AT = Date.now();
+    updateLogActivityFooter(true, previewTimeline);
+    startActivityTicker();
   } catch {
     /* ignore */
   }
@@ -1466,6 +1413,8 @@ async function dispatchReply(reply, model) {
     await pollLog();
   } catch (e) {
     LOG_PENDING_USER = "";
+    stopActivityTicker();
+    updateLogActivityFooter(false, []);
     toast(`发送失败: ${e.message || e}`);
     await pollLog();
   }
@@ -1492,18 +1441,28 @@ async function renderLogTask(d, opts = {}) {
   if (!LOG_ID || !d) return;
   const fromStream = !!opts.fromStream;
   const raw = d.result || "";
+  if (!fromStream && raw !== LOG_RESULT) resetLogBuffer(raw);
+  const prevStatus = LOG_TASK_STATUS;
   const running = d.status === "running";
   const awaiting = d.status === "awaiting";
   const gate = awaiting ? parseGate(raw) : null;
 
   LOG_TASK_STATUS = d.status;
+  if (running && prevStatus !== "running") {
+    LOG_RUN_STARTED_AT = Date.now();
+    LOG_LAST_STREAM_AT = Date.now();
+    startActivityTicker();
+  } else if (!running) {
+    stopActivityTicker();
+  }
+  if (fromStream) markLogStreamActivity();
 
   if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
     LOG_PENDING_USER = "";
   }
 
   const timeline = timelineForDisplay(raw, awaiting, d.prompt);
-  updateLogThinking(running, timeline);
+  updateLogActivityFooter(running, timeline);
 
   const sig = [
     d.status,
@@ -1518,6 +1477,7 @@ async function renderLogTask(d, opts = {}) {
   if (fromStream && running && tryPatchStreamingTimeline(timeline, running)) {
     const body = document.getElementById("logBody");
     if (body) updateRawLogBody(raw);
+    updateLogActivityFooter(running, timeline);
     return;
   }
 
@@ -1602,14 +1562,14 @@ async function renderLogTask(d, opts = {}) {
     }
   }
 
-  updateLogStream(running);
-  updateLogPollTimer(running, awaiting);
+  updateLogStream(running || awaiting);
 }
 
 async function pollLog() {
   if (!LOG_ID) return;
   try {
     const d = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}`);
+    resetLogBuffer(d.result || "");
     await renderLogTask(d);
   } catch (e) {
     const body = document.getElementById("logBody");
@@ -1648,6 +1608,11 @@ function showLog(id) {
     LOG_PENDING_USER = "";
     LOG_REPLY_MODEL_KEY = "";
     LOG_TASK_STATUS = "";
+    LOG_RESULT = "";
+    LOG_RESULT_LEN = 0;
+    LOG_TIMELINE_PARSER = null;
+    stopActivityTicker();
+    updateLogActivityFooter(false, []);
     closeLogStream();
     LOG_SCROLL_TO_BOTTOM = true;
     LOG_VIEW_MODE = "timeline";
@@ -1733,16 +1698,15 @@ function closeLog() {
   LOG_PENDING_USER = "";
   LOG_TASK_STATUS = "";
   LOG_VIEW_MODE = "timeline";
-  updateLogThinking(false, []);
+  LOG_RESULT = "";
+  LOG_RESULT_LEN = 0;
+  LOG_TIMELINE_PARSER = null;
+  stopActivityTicker();
+  updateLogActivityFooter(false, []);
   closeLogStream();
   clearLogWorkflowSteps();
   setSessionPanelVisible(false);
   applyLogViewMode();
-  if (LOG_TIMER) {
-    clearInterval(LOG_TIMER);
-    LOG_TIMER = null;
-  }
-  LOG_POLL_MS = 0;
   if (CURRENT_VIEW === "tasks-list") renderTasks();
 }
 

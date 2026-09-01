@@ -36,7 +36,7 @@ import {
 } from "./log-format.js";
 import { publishTaskUpdate } from "./task-events.js";
 
-export { subscribeTaskUpdates } from "./task-events.js";
+export { subscribeTaskUpdates, type TaskStreamUpdate } from "./task-events.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -63,11 +63,24 @@ export function resolveSettings(opts: RunnerOptions): Settings {
 
 const running = new Map<string, AbortController>();
 const publishTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const lastPublishedResultLen = new Map<string, number>();
+
+function publishTaskSnapshot(task: Task): void {
+  const result = task.result ?? "";
+  const prev = lastPublishedResultLen.get(task.id) ?? 0;
+  const resultAppend = result.length > prev ? result.slice(prev) : undefined;
+  lastPublishedResultLen.set(task.id, result.length);
+  publishTaskUpdate({ task, resultAppend });
+}
+
+function resetPublishedResultLen(taskId: string, len = 0): void {
+  lastPublishedResultLen.set(taskId, len);
+}
 
 function notifyTaskUpdate(opts: RunnerOptions, taskOrId: string | Task, immediate = false): void {
   const emit = () => {
     const task = typeof taskOrId === "string" ? opts.db.getTask(taskOrId) : taskOrId;
-    if (task) publishTaskUpdate(task);
+    if (task) publishTaskSnapshot(task);
   };
   const taskId = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
   if (immediate) {
@@ -167,7 +180,8 @@ async function markTaskFailed(
   });
   const task = updated ?? prev;
   if (task) {
-    publishTaskUpdate(task);
+    resetPublishedResultLen(task.id, (task.result ?? "").length);
+    publishTaskUpdate({ task, resultAppend: undefined });
     await maybeNotifyTaskUpdate(task, resolveSettings(opts));
     await emitTaskComplete(task);
   }
@@ -301,6 +315,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
 
     let output = task.result ? `${task.result}\n` : "";
     output += formatCommandLogLine(args);
+    resetPublishedResultLen(taskId, output.length);
     const linePrefixer = createLogLinePrefixer();
     const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
     let settled = false;

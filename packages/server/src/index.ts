@@ -31,6 +31,7 @@ import {
   stopTask,
   subscribeTaskUpdates,
 } from "@agent-desk/runner";
+import type { TaskStreamUpdate } from "@agent-desk/runner";
 import {
   continueRun,
   deleteUserWorkflow,
@@ -69,6 +70,15 @@ function keepSecret(incoming: string | undefined, current: string): string {
   const v = (incoming ?? "").trim();
   if (!v || v === SECRET_MASK) return current;
   return v;
+}
+
+function isTaskStreamLive(task: Task): boolean {
+  return task.status === "running" || task.status === "awaiting" || isTaskRunning(task.id);
+}
+
+function taskForSseStream(task: Task, omitResult: boolean): Task {
+  if (!omitResult) return task;
+  return { ...task, result: "" };
 }
 
 function mergeDingTalkSettings(
@@ -422,10 +432,32 @@ export async function createServer(opts: ServerOptions = {}) {
     return task;
   });
 
-  app.get<{ Params: { id: string } }>("/api/tasks/:id/stream", async (req, reply) => {
+  app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(
+    "/api/tasks/:id/log",
+    async (req, reply) => {
+      const task = db.getTask(req.params.id);
+      if (!task) return reply.code(404).send({ error: "not_found" });
+      const full = task.result ?? "";
+      const offset = Math.max(0, Number.parseInt(req.query.offset ?? "0", 10) || 0);
+      const safeOffset = Math.min(offset, full.length);
+      return {
+        offset: safeOffset,
+        length: full.length,
+        chunk: full.slice(safeOffset),
+        status: task.status,
+      };
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(
+    "/api/tasks/:id/stream",
+    async (req, reply) => {
     const taskId = req.params.id;
     const task = db.getTask(taskId);
     if (!task) return reply.code(404).send({ error: "not_found" });
+    const clientOffset = Math.max(0, Number.parseInt(req.query.offset ?? "0", 10) || 0);
+    const fullResult = task.result ?? "";
+    const safeOffset = Math.min(clientOffset, fullResult.length);
 
     reply.hijack();
     reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
@@ -452,11 +484,24 @@ export async function createServer(opts: ServerOptions = {}) {
       }
     };
 
-    writeEvent({ type: "snapshot", task });
+    writeEvent({
+      type: "snapshot",
+      task: taskForSseStream(task, safeOffset > 0),
+      resultAppend: safeOffset > 0 ? fullResult.slice(safeOffset) : undefined,
+      resultLength: fullResult.length,
+      resultOffset: safeOffset,
+    });
 
-    const onUpdate = (updated: Task) => {
-      writeEvent({ type: "update", task: updated });
-      if (updated.status !== "running" && !isTaskRunning(updated.id)) {
+    const onUpdate = (update: TaskStreamUpdate) => {
+      const { task: updated, resultAppend } = update;
+      const omitResult = !!resultAppend && resultAppend.length > 0;
+      writeEvent({
+        type: "update",
+        task: taskForSseStream(updated, omitResult),
+        resultAppend: resultAppend || undefined,
+        resultLength: (updated.result ?? "").length,
+      });
+      if (!isTaskStreamLive(updated)) {
         writeEvent({ type: "end", status: updated.status });
         finish();
       }
@@ -470,7 +515,7 @@ export async function createServer(opts: ServerOptions = {}) {
 
     req.raw.on("close", finish);
 
-    if (task.status !== "running" && !isTaskRunning(taskId)) {
+    if (!isTaskStreamLive(task)) {
       writeEvent({ type: "end", status: task.status });
       finish();
     }
