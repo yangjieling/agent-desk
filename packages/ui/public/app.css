@@ -346,6 +346,19 @@
   .modal-head .mt { font-weight: 600; font-size: 15px; display: block;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .log-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .log-live-badge {
+    display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
+    font-size: 11px; color: #2f6feb; line-height: 1;
+  }
+  .log-live-badge[hidden] { display: none !important; }
+  .log-live-badge::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%; background: #2f6feb;
+    animation: log-live-pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes log-live-pulse {
+    0%, 100% { opacity: .35; transform: scale(.9); }
+    50% { opacity: 1; transform: scale(1); }
+  }
   .log-meta-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; color: #5f6368;
                    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .log-meta-chip.status-running, .log-meta-chip.status-awaiting { background: #e7f0ff; color: #2f6feb; }

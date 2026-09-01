@@ -64,11 +64,12 @@ export function resolveSettings(opts: RunnerOptions): Settings {
 const running = new Map<string, AbortController>();
 const publishTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function notifyTaskUpdate(opts: RunnerOptions, taskId: string, immediate = false): void {
+function notifyTaskUpdate(opts: RunnerOptions, taskOrId: string | Task, immediate = false): void {
   const emit = () => {
-    const task = opts.db.getTask(taskId);
+    const task = typeof taskOrId === "string" ? opts.db.getTask(taskOrId) : taskOrId;
     if (task) publishTaskUpdate(task);
   };
+  const taskId = typeof taskOrId === "string" ? taskOrId : taskOrId.id;
   if (immediate) {
     const pending = publishTimers.get(taskId);
     if (pending) clearTimeout(pending);
@@ -82,7 +83,7 @@ function notifyTaskUpdate(opts: RunnerOptions, taskId: string, immediate = false
     setTimeout(() => {
       publishTimers.delete(taskId);
       emit();
-    }, 120),
+    }, 80),
   );
 }
 
@@ -288,8 +289,8 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })
       : backend.buildExecCommand(execParams);
 
-    opts.db.updateTask(taskId, { status: "running" });
-    notifyTaskUpdate(opts, taskId, true);
+    const runningTask = opts.db.updateTask(taskId, { status: "running" });
+    notifyTaskUpdate(opts, runningTask ?? taskId, true);
 
     const child = spawn(args[0], args.slice(1), {
       cwd,
@@ -332,7 +333,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         lastActivityAt: Date.now(),
       });
       if (updated) {
-        notifyTaskUpdate(opts, taskId, true);
+        notifyTaskUpdate(opts, updated, true);
         const sent = await maybeNotifyGate(updated, settings);
         if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
         await emitTaskComplete(updated);
@@ -361,8 +362,8 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         }
       }
       if (!settled) {
-        opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
-        notifyTaskUpdate(opts, taskId);
+        const updated = opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
+        if (updated) notifyTaskUpdate(opts, updated);
       }
     };
 
@@ -392,7 +393,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         result: output,
       });
       if (updated) {
-        notifyTaskUpdate(opts, taskId, true);
+        notifyTaskUpdate(opts, updated, true);
         if (status === "awaiting") {
           const sent = await maybeNotifyGate(updated, settings);
           if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });

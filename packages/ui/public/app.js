@@ -41,6 +41,10 @@ let LOG_TIMER = null;
 let LOG_POLL_MS = 0;
 let LOG_SSE = null;
 let LOG_SSE_TASK = "";
+let LOG_SSE_OPEN = false;
+let LOG_STREAM_RENDER_RAF = 0;
+let LOG_STREAM_PENDING = null;
+let LOG_STREAM_PATCH_LEN = 0;
 const LOG_POLL_RUNNING_MS = 800;
 const LOG_POLL_RUNNING_SSE_MS = 5000;
 const LOG_POLL_AWAITING_MS = 2000;
@@ -1247,6 +1251,7 @@ async function runTask(id) {
     await api(`/api/tasks/${encodeURIComponent(id)}/start`, { method: "POST" });
     toast("已开始运行");
     await loadTasks();
+    if (LOG_ID === id || !LOG_ID) openLogStream(id);
     showLog(id);
   } catch (e) {
     toast(`运行失败: ${e.message || e}`);
@@ -1263,6 +1268,7 @@ async function continueTask(id) {
     });
     toast("已继续本次会话");
     await loadTasks();
+    if (LOG_ID === id || !LOG_ID) openLogStream(id);
     showLog(id);
   } catch (e) {
     toast(`继续失败: ${e.message || e}`);
@@ -1328,12 +1334,20 @@ function updateLogPollTimer(running, awaiting) {
   LOG_TIMER = setInterval(pollLog, nextMs);
 }
 
+function updateLogLiveBadge(connected) {
+  LOG_SSE_OPEN = !!connected;
+  const el = document.getElementById("logLiveBadge");
+  if (el) el.hidden = !connected;
+}
+
 function closeLogStream() {
   if (LOG_SSE) {
     LOG_SSE.close();
     LOG_SSE = null;
   }
   LOG_SSE_TASK = "";
+  LOG_STREAM_PATCH_LEN = 0;
+  updateLogLiveBadge(false);
 }
 
 function updateLogStream(running) {
@@ -1351,6 +1365,11 @@ function openLogStream(id) {
   LOG_SSE_TASK = id;
   const es = new EventSource(`/api/tasks/${encodeURIComponent(id)}/stream`);
   LOG_SSE = es;
+  es.onopen = () => {
+    if (LOG_ID !== id) return;
+    updateLogLiveBadge(true);
+    updateLogPollTimer(true, false);
+  };
   es.onmessage = (ev) => {
     if (LOG_ID !== id) return;
     try {
@@ -1360,7 +1379,7 @@ function openLogStream(id) {
         void pollLog();
         return;
       }
-      if (msg.task) void renderLogTask(msg.task);
+      if (msg.task) scheduleStreamRender(msg.task);
     } catch {
       /* ignore */
     }
@@ -1368,6 +1387,36 @@ function openLogStream(id) {
   es.onerror = () => {
     closeLogStream();
   };
+}
+
+function scheduleStreamRender(task) {
+  LOG_STREAM_PENDING = task;
+  if (LOG_STREAM_RENDER_RAF) return;
+  LOG_STREAM_RENDER_RAF = requestAnimationFrame(() => {
+    LOG_STREAM_RENDER_RAF = 0;
+    const pending = LOG_STREAM_PENDING;
+    LOG_STREAM_PENDING = null;
+    if (pending) void renderLogTask(pending, { fromStream: true });
+  });
+}
+
+function tryPatchStreamingTimeline(timeline, running) {
+  if (!running || LOG_VIEW_MODE === "raw" || !timeline.length) return false;
+  const box = document.getElementById("logTimeline");
+  if (!box) return false;
+  const last = timeline[timeline.length - 1];
+  if (last.type !== "assistant" || timeline.length !== LOG_STREAM_PATCH_LEN) return false;
+
+  const text = String(last.text || "");
+  const el =
+    box.querySelector(".log-item.assistant.is-streaming .li-body") ||
+    box.querySelector(".log-item.assistant:last-child .li-body");
+  if (!el) return false;
+  if (el.textContent !== text) {
+    el.textContent = text;
+    scrollLogToBottom(true);
+  }
+  return true;
 }
 
 function updateLogThinking(running, timeline) {
@@ -1439,8 +1488,9 @@ function onReplyKeyDown(e) {
   }
 }
 
-async function renderLogTask(d) {
+async function renderLogTask(d, opts = {}) {
   if (!LOG_ID || !d) return;
+  const fromStream = !!opts.fromStream;
   const raw = d.result || "";
   const running = d.status === "running";
   const awaiting = d.status === "awaiting";
@@ -1465,22 +1515,35 @@ async function renderLogTask(d) {
     (gate && gate.choices && gate.choices.length) || 0,
   ].join("|");
 
-  setLogTitleEl(d.status, d.title || LOG_TITLE);
-  if (d.title) LOG_TITLE = d.title;
-  const rawTitle = document.getElementById("rawDrawerTitle");
-  if (rawTitle) {
-    const name = String(d.title || LOG_TITLE || "").trim();
-    rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
+  if (fromStream && running && tryPatchStreamingTimeline(timeline, running)) {
+    const body = document.getElementById("logBody");
+    if (body) updateRawLogBody(raw);
+    return;
   }
-  renderLogMeta(d);
-  void ensureReplyModelDropdown(d);
-  renderLogGateCard(gate, awaiting);
-  applyLogViewMode();
+
+  if (!fromStream) {
+    setLogTitleEl(d.status, d.title || LOG_TITLE);
+    if (d.title) LOG_TITLE = d.title;
+    const rawTitle = document.getElementById("rawDrawerTitle");
+    if (rawTitle) {
+      const name = String(d.title || LOG_TITLE || "").trim();
+      rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
+    }
+    renderLogMeta(d);
+    void ensureReplyModelDropdown(d);
+    renderLogGateCard(gate, awaiting);
+    applyLogViewMode();
+  } else if (sig !== LOG_RENDER_SIG) {
+    setLogTitleEl(d.status, d.title || LOG_TITLE);
+    renderLogMeta(d);
+    renderLogGateCard(gate, awaiting);
+  }
 
   const body = document.getElementById("logBody");
   if (body) updateRawLogBody(raw);
   if (sig !== LOG_RENDER_SIG) {
     LOG_RENDER_SIG = sig;
+    LOG_STREAM_PATCH_LEN = timeline.length;
     renderLogTimeline(timeline);
     if (LOG_VIEW_MODE !== "raw") {
       const pinBottom = LOG_SCROLL_TO_BOTTOM || running;
@@ -1489,52 +1552,54 @@ async function renderLogTask(d) {
     }
   }
 
-  const stopBtn = document.getElementById("logStopBtn");
-  if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
+  if (!fromStream) {
+    const stopBtn = document.getElementById("logStopBtn");
+    if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
 
-  const contBtn = document.getElementById("logContinueBtn");
-  if (contBtn) {
-    const hasSession = !!(tField(d, "sessionId", "session_id") || "").trim();
-    const showStart =
-      !running && (d.status === "created" || (d.status === "failed" && !hasSession));
-    const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
-    contBtn.style.display = showStart || showCont ? "" : "none";
-    if (showStart) {
-      contBtn.title = "运行";
-      contBtn.setAttribute("aria-label", "运行");
-      contBtn.onclick = () => runTask(LOG_ID);
+    const contBtn = document.getElementById("logContinueBtn");
+    if (contBtn) {
+      const hasSession = !!(tField(d, "sessionId", "session_id") || "").trim();
+      const showStart =
+        !running && (d.status === "created" || (d.status === "failed" && !hasSession));
+      const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
+      contBtn.style.display = showStart || showCont ? "" : "none";
+      if (showStart) {
+        contBtn.title = "运行";
+        contBtn.setAttribute("aria-label", "运行");
+        contBtn.onclick = () => runTask(LOG_ID);
+      } else {
+        contBtn.title = "继续";
+        contBtn.setAttribute("aria-label", "继续");
+        contBtn.onclick = () => continueTask(LOG_ID);
+      }
+    }
+
+    const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
+    updateReplyComposerState(running, canChat);
+
+    if (awaiting && gate && (gate.choices || []).length) {
+      LOG_CHOICES_KEY = "";
+      renderReplyChoices([]);
     } else {
-      contBtn.title = "继续";
-      contBtn.setAttribute("aria-label", "继续");
-      contBtn.onclick = () => continueTask(LOG_ID);
+      const nextChoices = gate && gate.choices.length ? gate.choices : [];
+      const nextKey = JSON.stringify(nextChoices);
+      if (nextKey !== LOG_CHOICES_KEY) {
+        LOG_CHOICES_KEY = nextKey;
+        renderReplyChoices(nextChoices);
+      }
     }
-  }
 
-  const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
-  updateReplyComposerState(running, canChat);
+    await refreshLogWorkflowSteps(d);
 
-  if (awaiting && gate && (gate.choices || []).length) {
-    LOG_CHOICES_KEY = "";
-    renderReplyChoices([]);
-  } else {
-    const nextChoices = gate && gate.choices.length ? gate.choices : [];
-    const nextKey = JSON.stringify(nextChoices);
-    if (nextKey !== LOG_CHOICES_KEY) {
-      LOG_CHOICES_KEY = nextKey;
-      renderReplyChoices(nextChoices);
+    if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && awaiting && !running) {
+      DEEP_LINK_REPLY_SENT = true;
+      const autoReply = DEEP_LINK_REPLY;
+      DEEP_LINK_REPLY = "";
+      const u = new URL(location.href);
+      u.searchParams.delete("reply");
+      history.replaceState(null, "", u.pathname + u.search);
+      setTimeout(() => sendReply(autoReply), 200);
     }
-  }
-
-  await refreshLogWorkflowSteps(d);
-
-  if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && awaiting && !running) {
-    DEEP_LINK_REPLY_SENT = true;
-    const autoReply = DEEP_LINK_REPLY;
-    DEEP_LINK_REPLY = "";
-    const u = new URL(location.href);
-    u.searchParams.delete("reply");
-    history.replaceState(null, "", u.pathname + u.search);
-    setTimeout(() => sendReply(autoReply), 200);
   }
 
   updateLogStream(running);
