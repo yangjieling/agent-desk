@@ -64,12 +64,12 @@ Agents signal a human gate by including:
 
 Please confirm next step.
 
-## hb-choices
+## oh-choices
 - 继续修复 | continue
 - 先不修 | skip
 ```
 
-The runner parses `hb-choices`, sets status to `awaiting`, and optionally sends a webhook notification.
+The runner parses `oh-choices`, sets status to `awaiting`, and optionally sends a webhook notification.
 
 Abort replies (`skip`, `cancel`, `先不修`, …) stop the task instead of advancing.
 

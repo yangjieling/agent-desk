@@ -149,7 +149,7 @@ bash "${JOYCODE_SKILLS_DIR:-$HOME/.joycode/skills}/db-query/scripts/query.sh" \
 
 ### 5.4 无测试数据降级
 
-若暂时缺 pin/erpOrgCode：**同一闸门须含 hb-choices「先部分验证」**；静态 + Pod 端口/TCP 探测 + §9 标 `verification_level: partial` 后立即 `done`。见 SKILL.md Stage 5.1 / 5.2。
+若暂时缺 pin/erpOrgCode：**同一闸门须含 oh-choices「先部分验证」**；静态 + Pod 端口/TCP 探测 + §9 标 `verification_level: partial` 后立即 `done`。见 SKILL.md Stage 5.1 / 5.2。
 
 ## 6. 用例矩阵
 

@@ -365,10 +365,10 @@ bash "$FT/scripts/update_state.sh" --plan <test-plan.md> \
 
 **若交接块 / §5 已具备经 5.0.1 验证的可调用 JSF host，或已验证的 HTTP URL，直接执行，不开闸门。**
 
-若缺测试数据且 db-query 查不到：**同一轮闸门须同时提供「先部分验证」选项**（hb-choices），**禁止**只索要 pin/erpOrgCode 导致任务空等超时。
+若缺测试数据且 db-query 查不到：**同一轮闸门须同时提供「先部分验证」选项**（oh-choices），**禁止**只索要 pin/erpOrgCode 导致任务空等超时。
 
 ```markdown
-## hb-choices
+## oh-choices
 - 提供测试用户 pin + erpOrgCode | （自由输入）
 - 先部分验证（静态 + 端口探测 + 结案） | 先部分验证
 ```

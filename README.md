@@ -34,7 +34,7 @@ agent-desk wraps those CLIs in a small harness on your machine:
 
 - **Tasks** with a clear lifecycle (`created → running → awaiting → done`)
 - **Workflows** (shared or independent steps) driven by YAML templates
-- **Human gates** parsed from agent output (`## hb-choices`)
+- **Human gates** parsed from agent output (`## oh-choices`)
 - **Notifications** (webhook, Feishu, DingTalk) with deep links back to the gate
 - **Skills** as portable `SKILL.md` packs mounted into the agent prompt
 
@@ -56,7 +56,7 @@ shapes portable.
 
 *The agent proposes; you approve.*
 
-- **Human gates →** Agent emits `## hb-choices`; task moves to `awaiting` until you reply in the UI or via notify link.
+- **Human gates →** Agent emits `## oh-choices`; task moves to `awaiting` until you reply in the UI or via notify link.
 - **Execution log →** Timestamped stdout/stderr in the task timeline (raw JSONL available in the drawer).
 - **Notify →** Webhook, Feishu/Lark cards, DingTalk ActionCard or interactive Stream cards.
 - **Resume / stop →** Continue with a reply, abort with `先不修` / `skip`, or stop a running task from the UI.
@@ -107,7 +107,7 @@ pnpm cli workflows run sys-fix-pipeline -p "Issue: login button broken"
 
 **3. Pick a workspace.** **新建任务** → choose the project directory the agent should work in.
 
-**4. Create and run.** Enter a prompt (or open a gate demo with `hb-choices` in the prompt). Submit —
+**4. Create and run.** Enter a prompt (or open a gate demo with `oh-choices` in the prompt). Submit —
 watch logs, reply when status becomes **awaiting**.
 
 **From a GitHub issue:** configure **Settings → GitHub**, then **缺陷** → **AI 修复** (workflow or skill mode).
@@ -211,7 +211,7 @@ sequenceDiagram
   U->>W: Create task / AI fix
   W->>R: start task
   R->>A: claude -p / codex exec
-  A-->>R: output + hb-choices
+  A-->>R: output + oh-choices
   R->>W: awaiting
   R->>N: optional notify
   U->>W: reply

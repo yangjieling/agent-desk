@@ -25,7 +25,7 @@ Before finishing, present:
 
 Confirm whether to proceed with the recommended fix plan.
 
-## hb-choices
+## oh-choices
 - 继续修复 | continue
 - 先不修 | skip
 ```

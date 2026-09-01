@@ -282,10 +282,15 @@ function childStepLabel(child, idx, total) {
 }
 
 function parseGate(text) {
-  if (!text || !text.includes("hb-choices")) return null;
-  const idx = text.indexOf("## hb-choices");
-  if (idx < 0) return null;
-  const section = text.slice(idx);
+  if (!text) return null;
+  const hasChoices = text.includes("oh-choices") || text.includes("hb-choices");
+  if (!hasChoices && !text.includes("闸门")) return null;
+  const idxOh = text.indexOf("## oh-choices");
+  const idxHb = text.indexOf("## hb-choices");
+  const idx =
+    idxOh >= 0 && idxHb >= 0 ? Math.min(idxOh, idxHb) : Math.max(idxOh, idxHb);
+  if (idx < 0 && !text.includes("闸门")) return null;
+  const section = idx >= 0 ? text.slice(idx) : text;
   const headingMatch = text.match(/##\s*闸门[「"']([^」"']+)[」"']/);
   const choices = [];
   for (const line of section.split("\n")) {
@@ -384,7 +389,7 @@ function parseLogTimeline(raw) {
       pushTimelineItem(items, "user", userText || chunk);
       return;
     }
-    if (/##\s*闸门|##\s*hb-choices/.test(chunk)) {
+    if (/##\s*闸门|##\s*oh-choices|##\s*hb-choices/.test(chunk)) {
       pushTimelineItem(items, "gate", chunk);
       return;
     }
@@ -526,6 +531,7 @@ function renderLogTimeline(items) {
       const bodyText =
         type === "gate"
           ? String(it.text || "")
+              .replace(/##\s*oh-choices[\s\S]*$/i, "")
               .replace(/##\s*hb-choices[\s\S]*$/i, "")
               .trim() || it.text
           : it.text;
@@ -537,8 +543,32 @@ function renderLogTimeline(items) {
     .join("");
 }
 
-function timelineForDisplay(raw, awaiting) {
+function extractUserRepliesFromPrompt(prompt) {
+  const parts = String(prompt || "").split(/\n---\nUser reply:\n/);
+  if (parts.length <= 1) return [];
+  return parts
+    .slice(1)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function mergePromptRepliesIntoTimeline(items, prompt) {
+  const replies = extractUserRepliesFromPrompt(prompt);
+  if (!replies.length) return items;
+  const merged = items.slice();
+  const existing = new Set(
+    merged.filter((it) => it.type === "user").map((it) => String(it.text || "").trim()),
+  );
+  for (const reply of replies) {
+    const hit = [...existing].some((t) => t.includes(reply) || reply.includes(t));
+    if (!hit) merged.push({ type: "user", text: reply });
+  }
+  return merged;
+}
+
+function timelineForDisplay(raw, awaiting, prompt) {
   let items = parseLogTimeline(raw);
+  items = mergePromptRepliesIntoTimeline(items, prompt);
   if (awaiting) {
     // Gate card owns the decision UI; drop trailing gate blobs from the stream.
     while (items.length && items[items.length - 1].type === "gate") items.pop();
@@ -1168,7 +1198,7 @@ async function sendReply(preset) {
   // optimistic paint
   try {
     const cur = TASKS.find((t) => t.id === LOG_ID);
-    renderLogTimeline(timelineForDisplay((cur && cur.result) || "", false));
+    renderLogTimeline(timelineForDisplay((cur && cur.result) || "", false, cur && cur.prompt));
     scrollLogToBottom(true);
   } catch {
     /* ignore */
@@ -1208,7 +1238,7 @@ async function pollLog() {
       LOG_PENDING_USER = "";
     }
 
-    const timeline = timelineForDisplay(raw, awaiting);
+    const timeline = timelineForDisplay(raw, awaiting, d.prompt);
     const sig = [
       d.status,
       raw.length,

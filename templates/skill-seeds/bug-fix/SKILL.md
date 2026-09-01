@@ -42,7 +42,7 @@ description: "用户报告代码缺陷、线上问题、行为与预期不符，
 
 **闸门京 ME 提醒（强制）**：每次开闸门时，对话展示确认内容的同时，用 `jm-notify` 给当前操作用户发个人消息（当前节点 / 要做什么 / 可选操作），用户可能不在对话页。发给自己的提醒无需再确认是否发送；失败不阻塞等待。文案见 `@references/gate-notify-template.md`。细则见 `@constraints.md` §1.1、§1.1.1、§4.3、§六。
 
-**开闸门执行顺序**：① 对话展示闸门正文 → ② 若可用固定选项则输出 `## hb-choices`（见 `@constraints.md` §1.1.0）→ ③ 调用 `jm-notify` 发提醒 → ④ 等待用户在对话中回复 → ⑤ 用户确认后再推进。
+**开闸门执行顺序**：① 对话展示闸门正文 → ② 若可用固定选项则输出 `## oh-choices`（见 `@constraints.md` §1.1.0）→ ③ 调用 `jm-notify` 发提醒 → ④ 等待用户在对话中回复 → ⑤ 用户确认后再推进。
 
 ---
 
@@ -201,7 +201,7 @@ description: "用户报告代码缺陷、线上问题、行为与预期不符，
 | 13 | 代码推送 | F/A | @stages/git-push.md | 已 commit | push 成功或合法跳过 | 推送摘要 | 进入时 → **推送确认**（可跳过；确认后先 pull 再 push，冲突 abort） |
 | 14 | 行云部署 | F/A | @stages/xingyun-deploy.md | 已 push | 部署完成或合法跳过 | 部署摘要 | 进入时 → **行云部署**（可跳过） |
 | 15 | 治理沉淀 | N | @stages/governance.md | 验证结果、部署摘要（如有） | 沉淀完成 | 治理规则 | —（行云部署完成或跳过后执行；跳过推送时亦进入；若 workflow 后续节点为 `function-test`，需保留部署交接上下文） |
-| 16 | 统计收集与上报 | N | @stages/statistics-collection.md | 全流程数据 | 上报完成 | 统计报告 | 上报前 → **服务评价**（好 / 还可以 / 差，须 hb-choices） |
+| 16 | 统计收集与上报 | N | @stages/statistics-collection.md | 全流程数据 | 上报完成 | 统计报告 | 上报前 → **服务评价**（好 / 还可以 / 差，须 oh-choices） |
 
 **闸门推进规则**：
 - 表中标注的闸门步骤：stage 产出完成后，由 SKILL.md **开闸门 + 发京 ME**，用户确认后再进入下一匹配步骤

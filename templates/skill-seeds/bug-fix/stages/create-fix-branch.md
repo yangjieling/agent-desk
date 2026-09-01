@@ -68,7 +68,7 @@ python3 ../aegis-fix-branch/scripts/ensure_checkout_branch.py \
 3. **不切换主工作区，直接用 worktree 隔离修复**（主仓分支与未提交改动保持不动）
 4. **取消** → 停止，不改代码
 
-## hb-choices
+## oh-choices
 - stash 后切分支并建 worktree | stash_worktree
 - stash 后切分支并在当前区直接改 | stash_direct
 - 不切主仓，用 worktree 隔离 | worktree_only
@@ -123,7 +123,7 @@ python3 ../aegis-fix-branch/scripts/ensure_checkout_branch.py \
 2. **切到功能分支后在当前工作区直接改** → 须先 `ensure_checkout_branch`（脏区须用户已选 stash）
 3. **取消** → 停止流程，不改代码
 
-## hb-choices
+## oh-choices
 - 确认建 worktree（不切主仓） | confirm_worktree
 - 切到目标分支后直接改 | checkout_direct
 - 取消 | cancel

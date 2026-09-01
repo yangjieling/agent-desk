@@ -7,10 +7,9 @@ import {
   clipPrompt,
   clipTitle,
   isAbortReply,
-  looksLikeQuestion,
-  looksLikeUserAbort,
   newTaskId,
   parseGate,
+  resolveTaskStatusAfterRun,
   type Settings,
   type Task,
 } from "@agent-desk/core";
@@ -294,12 +293,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       const tail = linePrefixer.flush();
       if (tail) output += tail;
       const sessionId = backend.extractSessionId(events) ?? taskSessionId;
-      let status: Task["status"] = code === 0 ? "done" : "failed";
-      if (controller.signal.aborted) status = "stopped";
-      if (looksLikeUserAbort(output)) status = "stopped";
-      if (looksLikeQuestion(output) && status !== "stopped" && status !== "failed") {
-        status = "awaiting";
-      }
+      const status = resolveTaskStatusAfterRun(output, code ?? 1, controller.signal.aborted);
 
       const updated = opts.db.updateTask(taskId, {
         status,
@@ -370,6 +364,7 @@ export async function resumeTask(
   const patch: Partial<Task> = {
     status: "created",
     prompt: clipPrompt(`${task.prompt}\n\n---\nUser reply:\n${prompt}`),
+    result: `${task.result || ""}\n\n## user\n${prompt}\n`,
   };
   if (resumeOpts && "model" in resumeOpts) {
     patch.model = resumeOpts.model ?? "";

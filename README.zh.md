@@ -32,7 +32,7 @@ agent-desk 在本机用一个小型 harness 把这些 CLI 包起来：
 
 - **任务** 有清晰生命周期（`created → running → awaiting → done`）
 - **工作流**（共享或独立步骤）由 YAML 模板驱动
-- **人工卡点** 从 Agent 输出解析（`## hb-choices`）
+- **人工卡点** 从 Agent 输出解析（`## oh-choices`）
 - **通知**（Webhook、飞书、钉钉）带深链回到卡点
 - **技能** 以可移植的 `SKILL.md` 包挂载进 Agent 提示词
 
@@ -53,7 +53,7 @@ agent-desk 在本机用一个小型 harness 把这些 CLI 包起来：
 
 *Agent 提议，你来批准。*
 
-- **人工卡点 →** Agent 输出 `## hb-choices`；任务进入 `awaiting`，直到你在 UI 或通过通知链接回复。
+- **人工卡点 →** Agent 输出 `## oh-choices`；任务进入 `awaiting`，直到你在 UI 或通过通知链接回复。
 - **执行日志 →** 任务时间轴中的带时间戳 stdout/stderr（抽屉中可查看原始 JSONL）。
 - **通知 →** Webhook、飞书/Lark 卡片、钉钉 ActionCard 或互动 Stream 卡片。
 - **继续 / 停止 →** 用回复继续、用 `先不修` / `skip` 中止，或在 UI 停止运行中的任务。
@@ -104,7 +104,7 @@ pnpm cli workflows run sys-fix-pipeline -p "Issue: login button broken"
 
 **3. 选择工作区。** **新建任务** → 选择 Agent 应工作的项目目录。
 
-**4. 创建并运行。** 输入提示词（或在提示词中加入 `hb-choices` 演示卡点）。提交后
+**4. 创建并运行。** 输入提示词（或在提示词中加入 `oh-choices` 演示卡点）。提交后
 观察日志，状态变为 **awaiting** 时回复即可。
 
 **从 GitHub Issue：** 配置 **设置 → GitHub**，然后 **缺陷** → **AI 修复**（工作流或技能模式）。
@@ -208,7 +208,7 @@ sequenceDiagram
   U->>W: Create task / AI fix
   W->>R: start task
   R->>A: claude -p / codex exec
-  A-->>R: output + hb-choices
+  A-->>R: output + oh-choices
   R->>W: awaiting
   R->>N: optional notify
   U->>W: reply

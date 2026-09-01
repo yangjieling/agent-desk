@@ -1,8 +1,10 @@
-import type { GateChoice, ParsedGate } from "./types.js";
+import type { GateChoice, ParsedGate, TaskStatus } from "./types.js";
 
 const GATE_HEADING_RE = /(?:##\s*|【)闸门[「"']([^」"']+)[」"']/g;
 const CLOSED_GATE_STATUS_RE = /已(确认|通过|收口|记录)/;
-const HB_CHOICES_MARKER = "## hb-choices";
+const OH_CHOICES_MARKER = "## oh-choices";
+const LEGACY_HB_CHOICES_MARKER = "## hb-choices";
+const CHOICES_MARKERS = [OH_CHOICES_MARKER, LEGACY_HB_CHOICES_MARKER];
 
 const NOT_QUESTION_HINTS = [
   "等待编排器",
@@ -12,6 +14,15 @@ const NOT_QUESTION_HINTS = [
   "不进入后续步骤",
 ];
 
+const TASK_DONE_HINTS = [
+  "任务结束",
+  "本步完成",
+  "已收口",
+  "流程就此终止",
+  "不进入后续步骤",
+  "集成验证已通过",
+];
+
 const USER_ABORT_HINTS = [
   "已按「先不修」",
   "收到「先不修」",
@@ -19,6 +30,8 @@ const USER_ABORT_HINTS = [
   "流程就此终止",
   "流程不再推进",
 ];
+
+const LOG_LINE_TS_RE = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\] /;
 
 export function isAbortReply(reply: string, abortValues = ["skip", "cancel", "先不修", "暂不修"]): boolean {
   const text = reply.trim();
@@ -43,28 +56,155 @@ export function extractGateName(text: string): string {
   return "";
 }
 
+function choicesMarkerIndex(body: string): number {
+  let idx = -1;
+  for (const marker of CHOICES_MARKERS) {
+    const at = body.indexOf(marker);
+    if (at >= 0 && (idx < 0 || at < idx)) idx = at;
+  }
+  return idx;
+}
+
+function hasChoicesMarker(body: string): boolean {
+  return choicesMarkerIndex(body) >= 0;
+}
+
 export function containsOpenGate(text: string): boolean {
   const body = text.trim();
   if (!body) return false;
   const headings = [...body.matchAll(GATE_HEADING_RE)].map((m) => m[0]);
-  if (headings.length === 0) return body.includes(HB_CHOICES_MARKER);
+  if (headings.length === 0) return hasChoicesMarker(body);
   const hasOpen = headings.some((h) => !CLOSED_GATE_STATUS_RE.test(h));
-  return hasOpen || body.includes(HB_CHOICES_MARKER);
+  return hasOpen || hasChoicesMarker(body);
+}
+
+function stripJsonLogLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => {
+      const bare = line.replace(LOG_LINE_TS_RE, "").trim();
+      return !(bare.startsWith("{") && bare.endsWith("}"));
+    })
+    .join("\n");
+}
+
+/** Last agent invocation block (after the final `$ claude` command line). */
+export function extractLastRunSegment(output: string): string {
+  const marker = "$ claude";
+  let last = -1;
+  let pos = output.indexOf(marker);
+  while (pos >= 0) {
+    last = pos;
+    pos = output.indexOf(marker, pos + marker.length);
+  }
+  return last >= 0 ? output.slice(last) : output;
+}
+
+export interface StreamJsonResult {
+  subtype: string;
+  isError: boolean;
+  result: string;
+}
+
+export function parseLastStreamJsonResult(segment: string): StreamJsonResult | null {
+  const lines = segment.split("\n");
+  let last: StreamJsonResult | null = null;
+  for (const line of lines) {
+    const bare = line.replace(LOG_LINE_TS_RE, "").trim();
+    if (!bare.startsWith("{") || !bare.endsWith("}")) continue;
+    try {
+      const evt = JSON.parse(bare) as {
+        type?: string;
+        subtype?: string;
+        is_error?: boolean;
+        result?: unknown;
+      };
+      if (evt.type !== "result") continue;
+      last = {
+        subtype: String(evt.subtype || ""),
+        isError: evt.is_error === true,
+        result: evt.result == null ? "" : String(evt.result),
+      };
+    } catch {
+      /* ignore malformed json line */
+    }
+  }
+  return last;
+}
+
+function resultHasAskUserQuestionDenial(segment: string): boolean {
+  const lines = segment.split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const bare = lines[i].replace(LOG_LINE_TS_RE, "").trim();
+    if (!bare.startsWith("{")) continue;
+    try {
+      const evt = JSON.parse(bare) as {
+        type?: string;
+        permission_denials?: Array<{ tool_name?: string }>;
+      };
+      if (evt.type !== "result") continue;
+      return (evt.permission_denials || []).some((d) => d.tool_name === "AskUserQuestion");
+    } catch {
+      /* ignore malformed json line */
+    }
+  }
+  return false;
+}
+
+function hasDeniedAskUserQuestion(segment: string, fullOutput?: string): boolean {
+  const scope = fullOutput || segment;
+  if (!scope.includes("AskUserQuestion")) return false;
+  const askIdx = scope.lastIndexOf("AskUserQuestion");
+  const userIdx = scope.lastIndexOf("## user");
+  if (userIdx > askIdx) return false;
+  if (resultHasAskUserQuestionDenial(segment)) return true;
+  return segment.includes("Answer questions?");
 }
 
 export function looksLikeQuestion(text: string): boolean {
-  if (!text.trim()) return false;
-  if (looksLikeUserAbort(text)) return false;
-  if (containsOpenGate(text)) return true;
-  if (NOT_QUESTION_HINTS.some((h) => text.includes(h))) return false;
-  return /[?？]|请确认|是否|请选择|等待您|等待你/.test(text);
+  const segment = extractLastRunSegment(text);
+  if (!segment.trim()) return false;
+  if (looksLikeUserAbort(segment)) return false;
+  if (containsOpenGate(segment)) return true;
+
+  const lastResult = parseLastStreamJsonResult(segment);
+  if (lastResult?.subtype === "success" && !lastResult.isError) {
+    if (TASK_DONE_HINTS.some((h) => lastResult.result.includes(h))) return false;
+    if (hasDeniedAskUserQuestion(segment, text)) return true;
+    return false;
+  }
+
+  if (hasDeniedAskUserQuestion(segment, text)) return true;
+
+  const plain = stripJsonLogLines(segment);
+  if (NOT_QUESTION_HINTS.some((h) => plain.includes(h))) return false;
+  return /请确认|是否|请选择|等待您|等待你/.test(plain);
 }
 
-export function parseHbChoices(text: string): GateChoice[] {
+export function resolveTaskStatusAfterRun(
+  output: string,
+  exitCode: number,
+  aborted: boolean,
+): TaskStatus {
+  if (aborted) return "stopped";
+  if (looksLikeUserAbort(output)) return "stopped";
+  if (exitCode !== 0) return "failed";
+
+  const segment = extractLastRunSegment(output);
+  if (containsOpenGate(segment)) return "awaiting";
+  if (looksLikeQuestion(output)) return "awaiting";
+  return "done";
+}
+
+export function parseOhChoices(text: string): GateChoice[] {
   const body = text.trim();
-  const idx = body.indexOf(HB_CHOICES_MARKER);
+  const idx = choicesMarkerIndex(body);
   if (idx < 0) return [];
-  const section = body.slice(idx + HB_CHOICES_MARKER.length);
+  const marker =
+    body.slice(idx, idx + OH_CHOICES_MARKER.length) === OH_CHOICES_MARKER
+      ? OH_CHOICES_MARKER
+      : LEGACY_HB_CHOICES_MARKER;
+  const section = body.slice(idx + marker.length);
   const choices: GateChoice[] = [];
   for (const line of section.split("\n")) {
     const trimmed = line.trim();
@@ -81,6 +221,9 @@ export function parseHbChoices(text: string): GateChoice[] {
   return choices;
 }
 
+/** @deprecated Use parseOhChoices */
+export const parseHbChoices = parseOhChoices;
+
 export function parseGate(text: string): ParsedGate | null {
   if (!containsOpenGate(text)) return null;
   const name = extractGateName(text);
@@ -88,8 +231,17 @@ export function parseGate(text: string): ParsedGate | null {
   return {
     name,
     heading,
-    choices: parseHbChoices(text),
+    choices: parseOhChoices(text),
   };
+}
+
+export function extractUserRepliesFromPrompt(prompt: string): string[] {
+  const parts = String(prompt || "").split(/\n---\nUser reply:\n/);
+  if (parts.length <= 1) return [];
+  return parts
+    .slice(1)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 export function clipTitle(title: string, fallback = "", maxLen = 80): string {

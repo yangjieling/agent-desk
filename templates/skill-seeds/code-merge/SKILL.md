@@ -57,7 +57,7 @@ git remote -v
 
 请确认是否继续合并。本步不部署、不上线。
 
-## hb-choices
+## oh-choices
 - 确认合并到 <main> | 确认合并
 - 只创建 PR 不合入 | 只开PR
 - 取消 | 取消

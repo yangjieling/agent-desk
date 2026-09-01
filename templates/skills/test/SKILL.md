@@ -24,7 +24,7 @@ If the workflow needs a final human check:
 
 Confirm verification is sufficient to close.
 
-## hb-choices
+## oh-choices
 - 完成 | continue
 - 先不修 | skip
 ```

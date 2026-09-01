@@ -24,7 +24,7 @@ Before finishing:
 
 Confirm the implementation is acceptable.
 
-## hb-choices
+## oh-choices
 - 继续验证 | continue
 - 先不修 | skip
 ```

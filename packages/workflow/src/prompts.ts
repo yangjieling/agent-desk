@@ -31,11 +31,11 @@ export function buildSharedFirstPrompt(
   parts.push(`【本步任务】\n${body}`);
   if (node.requireGate) {
     parts.push(
-      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## hb-choices（至少含「确认继续」与「先不修」），等待用户确认后再结束本步。",
+      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## oh-choices（至少含「确认继续」与「先不修」），等待用户确认后再结束本步。",
     );
   } else {
     parts.push(
-      "若需用户确认，请输出 ## 闸门「名称」 与 ## hb-choices 列表；用户选「先不修/skip」将终止整个流程。",
+      "若需用户确认，请输出 ## 闸门「名称」 与 ## oh-choices 列表；用户选「先不修/skip」将终止整个流程。",
     );
   }
   return parts.join("\n\n");
@@ -59,7 +59,7 @@ export function buildSharedContinuePrompt(
   ];
   if (node.requireGate) {
     parts.push(
-      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## hb-choices（至少含「确认继续」与「先不修」）。",
+      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## oh-choices（至少含「确认继续」与「先不修」）。",
     );
   }
   return parts.join("\n\n");
@@ -72,7 +72,7 @@ export function buildIndependentPrompt(node: WorkflowNode, inputPrompt: string):
   parts.push(`【本步任务】\n${body}`);
   if (node.requireGate) {
     parts.push(
-      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## hb-choices，等待用户确认。",
+      "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## oh-choices，等待用户确认。",
     );
   }
   return parts.join("\n\n");
