@@ -28,6 +28,7 @@ export interface Task {
   title: string;
   prompt: string;
   codingAgent: string;
+  model: string;
   sessionId: string;
   result: string;
   gateNotifyHash: string;

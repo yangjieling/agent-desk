@@ -1911,8 +1911,8 @@ async function initTaskNewPage() {
       loadDiscoveredAgentProviders(),
     ]);
     const agentEl = document.getElementById("t-run-agent");
+    const agentId = (s.codingAgent || agents[0]?.id || "").trim();
     if (agentEl) {
-      const agentId = (s.codingAgent || "").trim();
       const match = agents.find((a) => a.id === agentId);
       if (match) {
         agentEl.textContent = agentProviderLabel(match);
@@ -1925,6 +1925,14 @@ async function initTaskNewPage() {
         agentEl.title = "请先在设置中安装并配置编码 Agent";
       }
     }
+    const modelOpts = await loadAgentModelOptions(agentId);
+    const initialModel = s.defaultModel || "";
+    mountModelDropdown(
+      document.getElementById("t-model"),
+      modelOpts,
+      initialModel,
+      () => {},
+    );
   } catch {
     /* ignore */
   }
@@ -2006,6 +2014,7 @@ async function createTask() {
           prompt,
           projectDir,
           skill,
+          model: (document.getElementById("t-model")?.dataset.value || "").trim(),
           ...(issueCode ? { issueCode } : {}),
         }),
       });
@@ -2729,11 +2738,21 @@ function bindSettingDropdownOutsideClose() {
   });
 }
 
-function mountSettingDropdown(root, options, current, onChange) {
+function mountSettingDropdown(root, options, current, onChange, config = {}) {
   if (!root) return;
   const opts = Array.isArray(options) ? options : [];
-  const value = current || (opts[0] && opts[0].id) || "";
-  const currentOpt = opts.find((o) => o.id === value) || opts[0] || { id: value, displayName: value };
+  const preserveEmpty = config.preserveEmpty === true;
+  const emptyLabel = config.emptyLabel || "";
+  const value = preserveEmpty
+    ? (current == null ? "" : String(current))
+    : current || (opts[0] && opts[0].id) || "";
+  const currentOpt =
+    opts.find((o) => o.id === value) ||
+    (preserveEmpty && value === ""
+      ? { id: "", displayName: emptyLabel }
+      : null) ||
+    opts[0] ||
+    { id: value, displayName: value };
   root.dataset.value = value;
   root.innerHTML =
     `<button type="button" class="setting-dropdown-btn" aria-haspopup="listbox" aria-expanded="false">` +
@@ -2803,6 +2822,64 @@ function mountSettingDropdown(root, options, current, onChange) {
   });
 }
 
+function formatModelOptionLabel(m) {
+  const base = m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id || m.label;
+  return m.default ? `${base}（默认）` : base;
+}
+
+function mountModelDropdown(root, opts, current, onChange, config = {}) {
+  if (!root) return;
+  const emptyLabel = config.emptyLabel || "默认";
+  const list = Array.isArray(opts) ? [...opts] : [];
+  const value = current == null ? "" : String(current);
+  if (value && !list.some((o) => o.id === value)) {
+    list.unshift({ id: value, displayName: value });
+  }
+  mountSettingDropdown(root, list, value, onChange, { preserveEmpty: true, emptyLabel });
+
+  const menu = root.querySelector(".setting-dropdown-menu");
+  if (!menu) return;
+
+  const customBtn = document.createElement("button");
+  customBtn.type = "button";
+  customBtn.className = "setting-dropdown-item setting-dropdown-custom";
+  customBtn.setAttribute("role", "option");
+  customBtn.innerHTML = `<span>自定义模型…</span>`;
+  customBtn.onclick = async (e) => {
+    e.stopPropagation();
+    closeAllSettingDropdowns();
+    const typed = window.prompt("输入模型 ID", value || "");
+    if (typed == null) return;
+    const nextVal = typed.trim();
+    if (nextVal === value) return;
+    const label = root.querySelector(".setting-dropdown-label");
+    root.dataset.value = nextVal;
+    if (label) label.textContent = nextVal || emptyLabel;
+    if (typeof onChange === "function") await onChange(nextVal, value);
+  };
+  menu.appendChild(customBtn);
+
+  if (value) {
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "setting-dropdown-item setting-dropdown-custom";
+    clearBtn.innerHTML = `<span>清除（使用 CLI 默认）</span>`;
+    clearBtn.onclick = async (e) => {
+      e.stopPropagation();
+      closeAllSettingDropdowns();
+      const label = root.querySelector(".setting-dropdown-label");
+      root.dataset.value = "";
+      if (label) label.textContent = emptyLabel;
+      menu.querySelectorAll(".setting-dropdown-item").forEach((el) => {
+        el.classList.remove("is-active");
+        el.setAttribute("aria-selected", "false");
+      });
+      if (typeof onChange === "function") await onChange("", value);
+    };
+    menu.appendChild(clearBtn);
+  }
+}
+
 async function loadProviderOptions(endpoint, fallback) {
   try {
     const rows = await api(endpoint);
@@ -2835,19 +2912,18 @@ function agentProviderLabel(row) {
 }
 
 async function loadAgentModelOptions(agentId) {
-  const base = [{ id: "", displayName: "默认（由 CLI 决定）" }];
   try {
     const data = await api(`/api/agent-models?agent=${encodeURIComponent(agentId || "claude")}`);
-    if (!data || data.supported === false) return base;
+    if (!data || data.supported === false) return [];
     const rows = Array.isArray(data.models) ? data.models : [];
-    return base.concat(
-      rows.map((m) => ({
-        id: m.id,
-        displayName: m.label && m.label !== m.id ? `${m.label} (${m.id})` : m.id,
-      })),
-    );
+    return rows.map((m) => ({
+      id: m.id,
+      label: m.label,
+      default: !!m.default,
+      displayName: formatModelOptionLabel(m),
+    }));
   } catch {
-    return base;
+    return [];
   }
 }
 
@@ -2951,19 +3027,26 @@ async function initSettingsUI() {
       agentOpts,
       selectedAgent || agentOpts[0].id,
       async (nextVal) => {
+        const prevModel = state.defaultModel || "";
         await saveSelect("codingAgent", nextVal);
         toast("已更新：默认编码 Agent");
         const modelOpts = await loadAgentModelOptions(nextVal);
-        mountSettingDropdown(
+        const modelIds = modelOpts.map((o) => o.id);
+        let nextModel = prevModel;
+        if (prevModel && !modelIds.includes(prevModel)) {
+          nextModel = "";
+          await saveSelect("defaultModel", "");
+          toast("已清空与当前 Agent 不兼容的默认模型");
+        }
+        mountModelDropdown(
           document.getElementById("setModel"),
           modelOpts,
-          "",
+          nextModel,
           async (modelVal) => {
             await saveSelect("defaultModel", modelVal);
             toast("已更新：默认模型");
           },
         );
-        await saveSelect("defaultModel", "");
       },
     );
   }
@@ -2971,10 +3054,7 @@ async function initSettingsUI() {
   const initialAgent = selectedAgent || agentOpts[0]?.id || "claude";
   let modelOpts = await loadAgentModelOptions(initialAgent);
   const initialModel = state.defaultModel || "";
-  if (initialModel && !modelOpts.some((o) => o.id === initialModel)) {
-    modelOpts = [{ id: initialModel, displayName: initialModel }, ...modelOpts];
-  }
-  mountSettingDropdown(
+  mountModelDropdown(
     document.getElementById("setModel"),
     modelOpts,
     initialModel,

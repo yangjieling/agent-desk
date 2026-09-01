@@ -7,7 +7,7 @@ import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
-import { getAgentBackend, listInstalledAgentProviders } from "@agent-desk/provider-agent";
+import { getAgentBackend, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
@@ -274,6 +274,19 @@ export async function createServer(opts: ServerOptions = {}) {
     } else {
       next.github = cur.github;
     }
+    const agentChanged =
+      typeof body.codingAgent === "string" &&
+      body.codingAgent.trim() &&
+      body.codingAgent.trim() !== cur.codingAgent;
+    if (agentChanged) {
+      try {
+        const backend = getAgentBackend(next.codingAgent);
+        const catalog = await backend.listModels();
+        next.defaultModel = reconcileModelForAgent(next.defaultModel, catalog.models);
+      } catch {
+        next.defaultModel = "";
+      }
+    }
     db.saveSettings(next);
     return redactSettings(next);
   });
@@ -415,6 +428,7 @@ export async function createServer(opts: ServerOptions = {}) {
       issueCode?: string;
       skill?: string;
       codingAgent?: string;
+      model?: string;
     };
   }>("/api/tasks", async (req, reply) => {
     const title = clipTitle(req.body.title ?? "Untitled task");
@@ -429,6 +443,7 @@ export async function createServer(opts: ServerOptions = {}) {
         issueCode: req.body.issueCode,
         skill: req.body.skill,
         codingAgent: req.body.codingAgent,
+        model: req.body.model,
       },
       db.getSettings(),
     );

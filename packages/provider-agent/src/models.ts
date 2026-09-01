@@ -139,6 +139,20 @@ function discoverCursorModels(bin: string): AgentModelCatalog {
   return { supported: true, models };
 }
 
+/** True when a saved model id is absent from the target agent's discovered catalog. */
+export function isModelIncompatibleWithAgent(model: string, catalog: AgentModel[]): boolean {
+  const trimmed = model.trim();
+  if (!trimmed) return false;
+  return !catalog.some((m) => m.id === trimmed);
+}
+
+export function reconcileModelForAgent(
+  model: string,
+  catalog: AgentModel[],
+): string {
+  return isModelIncompatibleWithAgent(model, catalog) ? "" : model.trim();
+}
+
 export function listModelsForAgent(agentId: string, bin?: string): AgentModelCatalog {
   return cached(agentId, () => {
     switch (agentId) {

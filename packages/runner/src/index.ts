@@ -35,6 +35,7 @@ export interface CreateTaskInput {
   issueCode?: string;
   skill?: string;
   codingAgent?: string;
+  model?: string;
 }
 
 export interface RunnerOptions {
@@ -85,6 +86,7 @@ export function createTask(input: CreateTaskInput, settings: Settings): Task {
     title: clipTitle(input.title),
     prompt: clipPrompt(input.prompt),
     codingAgent: input.codingAgent ?? settings.codingAgent,
+    model: input.model ?? settings.defaultModel ?? "",
     sessionId: "",
     result: "",
     gateNotifyHash: "",
@@ -243,7 +245,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       cwd,
       promptFile,
       extraSkillDirs: skillMount.extraSkillDirs,
-      model: settings.defaultModel,
+      model: task.model || settings.defaultModel,
     };
     const args = task.sessionId
       ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })

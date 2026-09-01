@@ -48,6 +48,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     title: String(row.title ?? ""),
     prompt: String(row.prompt ?? ""),
     codingAgent: String(row.coding_agent ?? ""),
+    model: String(row.model ?? ""),
     sessionId: String(row.session_id ?? ""),
     result: String(row.result ?? ""),
     gateNotifyHash: String(row.gate_notify_hash ?? ""),
@@ -102,6 +103,14 @@ export class AgentDeskDb {
         value TEXT NOT NULL
       );
     `);
+    this.ensureTaskColumn("model", "TEXT");
+  }
+
+  private ensureTaskColumn(name: string, ddl: string): void {
+    const cols = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === name)) {
+      this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${ddl}`);
+    }
   }
 
   getSettings(): Settings {
@@ -154,12 +163,12 @@ export class AgentDeskDb {
         `INSERT INTO tasks (
           id, task_type, status, skill, workflow_id, workflow_run_id, workflow_name,
           workflow_mode, workflow_step, workflow_step_total, parent_task_id,
-          workflow_node_index, project_dir, issue_code, title, prompt, coding_agent,
+          workflow_node_index, project_dir, issue_code, title, prompt, coding_agent, model,
           session_id, result, gate_notify_hash, created_at, updated_at, last_activity_at
         ) VALUES (
           @id, @taskType, @status, @skill, @workflowId, @workflowRunId, @workflowName,
           @workflowMode, @workflowStep, @workflowStepTotal, @parentTaskId,
-          @workflowNodeIndex, @projectDir, @issueCode, @title, @prompt, @codingAgent,
+          @workflowNodeIndex, @projectDir, @issueCode, @title, @prompt, @codingAgent, @model,
           @sessionId, @result, @gateNotifyHash, @createdAt, @updatedAt, @lastActivityAt
         )
         ON CONFLICT(id) DO UPDATE SET
@@ -169,8 +178,8 @@ export class AgentDeskDb {
           workflow_step=excluded.workflow_step, workflow_step_total=excluded.workflow_step_total,
           parent_task_id=excluded.parent_task_id, workflow_node_index=excluded.workflow_node_index,
           project_dir=excluded.project_dir, issue_code=excluded.issue_code, title=excluded.title,
-          prompt=excluded.prompt, coding_agent=excluded.coding_agent, session_id=excluded.session_id,
-          result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
+          prompt=excluded.prompt, coding_agent=excluded.coding_agent, model=excluded.model,
+          session_id=excluded.session_id, result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
           updated_at=excluded.updated_at, last_activity_at=excluded.last_activity_at`,
       )
       .run({
@@ -191,6 +200,7 @@ export class AgentDeskDb {
         title: task.title,
         prompt: task.prompt,
         codingAgent: task.codingAgent,
+        model: task.model,
         sessionId: task.sessionId,
         result: task.result,
         gateNotifyHash: task.gateNotifyHash,

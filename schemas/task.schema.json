@@ -24,6 +24,7 @@
     "title": { "type": "string", "maxLength": 80 },
     "prompt": { "type": "string", "maxLength": 8000 },
     "codingAgent": { "type": "string" },
+    "model": { "type": "string", "description": "LLM model override; empty = follow settings default" },
     "sessionId": { "type": "string" },
     "result": { "type": "string" },
     "gateNotifyHash": { "type": "string" },

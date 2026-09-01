@@ -115,6 +115,7 @@ export function createWorkflowTask(
     title: clipTitle(input.title ?? workflow.name),
     prompt: clipPrompt(input.prompt ?? ""),
     codingAgent: settings.codingAgent,
+    model: settings.defaultModel ?? "",
     sessionId: "",
     result: "",
     gateNotifyHash: "",
@@ -307,6 +308,7 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
   run = persistRun(dataDir, opts.db, run);
 
   const parent = run.parentTaskId ? opts.db.getTask(run.parentTaskId) : null;
+  const settings = opts.db.getSettings();
 
   for (let i = 0; i < run.nodes.length; i++) {
     const wfNode = wf.nodes[i];
@@ -319,6 +321,7 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
         issueCode: run.issueCode,
         skill: wfNode.skill,
         codingAgent: parent?.codingAgent,
+        model: parent?.model ?? settings.defaultModel,
       },
       opts.db.getSettings(),
     );

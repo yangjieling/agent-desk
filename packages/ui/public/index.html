@@ -221,6 +221,12 @@
           <div class="topbar-item" id="t-target-workflow-wrap" style="display:none">
             <select id="t-workflow" class="topbar-select topbar-select-wide" title="流程模板"></select>
           </div>
+
+          <span class="topbar-dot" id="t-model-dot" aria-hidden="true"></span>
+
+          <div class="topbar-item" id="t-model-wrap">
+            <div class="setting-dropdown topbar-model-dd" id="t-model" data-value="" title="任务模型"></div>
+          </div>
         </div>
 
         <div class="composer-card" id="composerCard">
@@ -515,7 +521,7 @@
           <div class="setting-row" data-key="defaultModel" data-type="select">
             <div class="setting-meta">
               <p class="st">默认模型</p>
-              <p class="sd">新建任务使用的 LLM；留空则跟随 CLI 默认配置</p>
+              <p class="sd">留空则跟随 CLI 默认；列表中「（默认）」为 Codex/Cursor 推荐项</p>
             </div>
             <div class="setting-dropdown" id="setModel" data-value=""></div>
           </div>

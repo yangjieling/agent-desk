@@ -783,6 +783,12 @@
   .topbar-select-wide { max-width: 280px; }
   .topbar-select:hover { color: #111827; }
   .topbar-select:focus { outline: none; color: #2563eb; }
+  .topbar-model-dd { min-width: 140px; max-width: 220px; }
+  .topbar-model-dd .setting-dropdown-btn { padding: 2px 8px; min-height: 0; border: none; background: transparent;
+    color: #6b7280; font-size: 13px; box-shadow: none; }
+  .topbar-model-dd .setting-dropdown-btn:hover { background: transparent; color: #111827; }
+  .topbar-model-dd.open .setting-dropdown-btn { color: #2563eb; }
+  .setting-dropdown-custom { border-top: 1px solid #e8eaed; color: #1a73e8; }
   .composer-card { position: relative; background: #fff; border: 1px dashed #d1d5db; border-radius: 22px;
                    padding: 16px 18px 14px; min-height: 132px; display: flex; flex-direction: column;
                    transition: border-color .12s; box-shadow: none; overflow: hidden; }
