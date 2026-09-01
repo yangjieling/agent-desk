@@ -445,6 +445,20 @@
   .reply-chip:hover { border-color: #2f6feb; color: #1a73e8; background: #e7f0ff; }
   .reply-chip:disabled { opacity: .5; cursor: not-allowed; }
   .reply-row { display: flex; gap: 8px; align-items: center; }
+  .reply-model-wrap { flex-shrink: 1; min-width: 0; max-width: min(200px, 36vw); }
+  .reply-model-dd { position: relative; min-width: 0; width: 100%; }
+  .reply-model-dd .setting-dropdown-btn {
+    padding: 6px 10px; min-height: 34px; border: 1px solid #dadce0; border-radius: 999px;
+    background: #f9fafb; color: #4b5563; font-size: 12px; box-shadow: none;
+  }
+  .reply-model-dd .setting-dropdown-btn:hover { background: #f3f4f6; color: #111827; }
+  .reply-model-dd.open .setting-dropdown-btn {
+    border-color: #93c5fd; background: #fff; color: #2563eb;
+  }
+  .reply-model-dd .setting-dropdown-label { font-size: 12px; }
+  .reply-model-dd .setting-dropdown-menu {
+    top: auto; bottom: calc(100% + 6px); left: auto; right: 0; min-width: 240px; max-width: min(320px, 92vw);
+  }
   .reply-row input { flex: 1; padding: 8px 10px; border: 1px solid #dadce0; border-radius: 8px;
                      background: #fff; color: #202124; font-size: 13px; height: 36px; box-sizing: border-box; }
   .reply-row input:focus { outline: none; border-color: #2f6feb; box-shadow: 0 0 0 3px rgba(47,111,235,.12); }

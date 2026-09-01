@@ -168,6 +168,9 @@
               <div class="reply-row">
                 <input id="replyInput" placeholder="继续本次会话，输入后回车发送…"
                   onkeydown="onReplyKeyDown(event)" />
+                <div class="reply-model-wrap" id="reply-model-wrap">
+                  <div class="setting-dropdown reply-model-dd" id="reply-model" data-value="" title="回复模型"></div>
+                </div>
                 <button type="button" class="log-icon-btn log-icon-send" id="logSendBtn"
                   title="发送" aria-label="发送" onclick="sendReply()">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">

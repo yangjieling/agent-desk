@@ -35,6 +35,7 @@ let BUG_FILTER_KW = "";
 const ISSUE_CACHE = new Map();
 
 let LOG_ID = null;
+let LOG_REPLY_MODEL_KEY = "";
 let LOG_TITLE = "";
 let LOG_TIMER = null;
 /** When true, raw log drawer sticks to bottom on new output. */
@@ -476,6 +477,17 @@ function renderLogMeta(task) {
   }
   const issue = tField(task, "issueCode", "issue_code");
   if (issue) chips.push(`<span class="log-meta-chip bug-code">${esc(issue)}</span>`);
+  const agent = (tField(task, "codingAgent", "coding_agent") || "").trim();
+  if (agent) {
+    const agentLabel = agentLabelFor(agent) || agent;
+    chips.push(`<span class="log-meta-chip" title="任务 Agent">${esc(agentLabel)}</span>`);
+  }
+  const model = (tField(task, "model", "model") || "").trim();
+  if (model) {
+    chips.push(`<span class="log-meta-chip" title="任务模型">${esc(model)}</span>`);
+  } else if (agent) {
+    chips.push(`<span class="log-meta-chip" title="任务模型">默认模型</span>`);
+  }
   const proj = shortPath(tField(task, "projectDir", "project_dir"));
   if (proj && proj !== "-") chips.push(`<span class="log-meta-chip" title="${esc(tField(task, "projectDir", "project_dir"))}">${esc(proj)}</span>`);
   el.innerHTML = chips.join("");
@@ -1104,7 +1116,7 @@ async function continueTask(id) {
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply: "继续" }),
+      body: JSON.stringify({ reply: "继续", model: getReplyModel() }),
     });
     toast("已继续本次会话");
     await loadTasks();
@@ -1164,7 +1176,7 @@ async function sendReply(preset) {
   try {
     await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply }),
+      body: JSON.stringify({ reply, model: getReplyModel() }),
     });
     toast("已发送");
     await loadTasks();
@@ -1215,6 +1227,7 @@ async function pollLog() {
       rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
     }
     renderLogMeta(d);
+    void ensureReplyModelDropdown(d);
     renderLogGateCard(gate, awaiting);
     applyLogViewMode();
 
@@ -1317,6 +1330,7 @@ function showLog(id) {
     LOG_CHOICES_KEY = "";
     LOG_RENDER_SIG = "";
     LOG_PENDING_USER = "";
+    LOG_REPLY_MODEL_KEY = "";
     LOG_VIEW_MODE = "timeline";
     LOG_RAW_PIN_BOTTOM = true;
     clearLogWorkflowSteps();
@@ -2827,6 +2841,45 @@ function formatModelOptionLabel(m) {
   return m.default ? `${base}（默认）` : base;
 }
 
+let AGENT_PROVIDER_BY_ID = new Map();
+
+async function refreshAgentProviderCache() {
+  const rows = await loadDiscoveredAgentProviders();
+  AGENT_PROVIDER_BY_ID = new Map(rows.map((r) => [r.id, agentProviderLabel(r)]));
+}
+
+function agentLabelFor(agentId) {
+  return AGENT_PROVIDER_BY_ID.get(agentId) || "";
+}
+
+function getReplyModel() {
+  return (document.getElementById("reply-model")?.dataset.value || "").trim();
+}
+
+async function resolveTaskCodingAgent(task) {
+  const fromTask = (tField(task, "codingAgent", "coding_agent") || "").trim();
+  if (fromTask) return fromTask;
+  try {
+    const s = await api("/api/settings");
+    return (s.codingAgent || "claude").trim();
+  } catch {
+    return "claude";
+  }
+}
+
+async function ensureReplyModelDropdown(task) {
+  const root = document.getElementById("reply-model");
+  if (!root || !task?.id) return;
+  const agentId = await resolveTaskCodingAgent(task);
+  const key = `${task.id}|${agentId}`;
+  if (key === LOG_REPLY_MODEL_KEY) return;
+  LOG_REPLY_MODEL_KEY = key;
+  if (!AGENT_PROVIDER_BY_ID.size) await refreshAgentProviderCache();
+  const modelOpts = await loadAgentModelOptions(agentId);
+  const initialModel = (tField(task, "model", "model") || "").trim();
+  mountModelDropdown(root, modelOpts, initialModel, () => {});
+}
+
 function mountModelDropdown(root, opts, current, onChange, config = {}) {
   if (!root) return;
   const emptyLabel = config.emptyLabel || "默认";
@@ -3807,6 +3860,7 @@ document.addEventListener("visibilitychange", () => {
 
 loadHealth();
 initSettingsUI();
+void refreshAgentProviderCache();
 bindLogModalClose();
 bindRawLogScroll();
 bindRawDrawerResize();

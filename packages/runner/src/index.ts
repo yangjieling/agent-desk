@@ -345,6 +345,7 @@ export async function resumeTask(
   opts: RunnerOptions,
   taskId: string,
   reply: string,
+  resumeOpts?: { model?: string },
 ): Promise<Task> {
   const task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
@@ -366,10 +367,14 @@ export async function resumeTask(
     ? "Continue from where we left off."
     : reply;
 
-  opts.db.updateTask(taskId, {
+  const patch: Partial<Task> = {
     status: "created",
     prompt: clipPrompt(`${task.prompt}\n\n---\nUser reply:\n${prompt}`),
-  });
+  };
+  if (resumeOpts && "model" in resumeOpts) {
+    patch.model = resumeOpts.model ?? "";
+  }
+  opts.db.updateTask(taskId, patch);
 
   return startTask(opts, taskId);
 }

@@ -465,10 +465,15 @@ export async function createServer(opts: ServerOptions = {}) {
     return updated;
   });
 
-  async function handleResume(taskId: string, replyText: string) {
+  async function handleResume(taskId: string, replyText: string, model?: string) {
     const task = db.getTask(taskId);
     if (!task) return { ok: false as const, error: "not_found" as const };
-    const updated = await resumeTask(runnerOpts, taskId, replyText);
+    const updated = await resumeTask(
+      runnerOpts,
+      taskId,
+      replyText,
+      model !== undefined ? { model } : undefined,
+    );
     if (task.workflowRunId && updated?.status === "stopped") {
       try {
         stopRun(dataDir, runnerOpts, task.workflowRunId);
@@ -479,10 +484,12 @@ export async function createServer(opts: ServerOptions = {}) {
     return { ok: true as const, task: updated };
   }
 
-  app.post<{ Params: { id: string }; Body: { reply?: string } }>(
+  app.post<{ Params: { id: string }; Body: { reply?: string; model?: string } }>(
     "/api/tasks/:id/resume",
     async (req, reply) => {
-      const result = await handleResume(req.params.id, req.body.reply ?? "继续");
+      const model =
+        typeof req.body.model === "string" ? req.body.model.trim() : undefined;
+      const result = await handleResume(req.params.id, req.body.reply ?? "继续", model);
       if (!result.ok) return reply.code(404).send({ error: "not_found" });
       return result.task;
     },
