@@ -44,6 +44,7 @@ let LOG_CHOICES_KEY = "";
 let LOG_VIEW_MODE = "timeline"; // timeline | raw
 let LOG_RENDER_SIG = "";
 let LOG_PENDING_USER = "";
+let LOG_SCROLL_TO_BOTTOM = false;
 /** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
 let WS_PICK_PURPOSE = null;
 let LOG_WF_RUN_ID = "";
@@ -555,13 +556,27 @@ function extractUserRepliesFromPrompt(prompt) {
 function mergePromptRepliesIntoTimeline(items, prompt) {
   const replies = extractUserRepliesFromPrompt(prompt);
   if (!replies.length) return items;
+
   const merged = items.slice();
-  const existing = new Set(
-    merged.filter((it) => it.type === "user").map((it) => String(it.text || "").trim()),
-  );
-  for (const reply of replies) {
-    const hit = [...existing].some((t) => t.includes(reply) || reply.includes(t));
-    if (!hit) merged.push({ type: "user", text: reply });
+  const existingUser = merged
+    .filter((it) => it.type === "user")
+    .map((it) => String(it.text || "").trim());
+
+  const runIndices = merged
+    .map((it, i) =>
+      it.type === "system" && String(it.text || "").trim().startsWith("$ claude") ? i : -1,
+    )
+    .filter((i) => i >= 0);
+
+  let insertOffset = 0;
+  for (let ri = 0; ri < replies.length; ri++) {
+    const reply = replies[ri];
+    const hit = existingUser.some((t) => t.includes(reply) || reply.includes(t));
+    if (hit) continue;
+    const targetRun = runIndices[ri + 1];
+    const insertAt = targetRun != null ? targetRun + insertOffset : merged.length;
+    merged.splice(insertAt, 0, { type: "user", text: reply });
+    insertOffset += 1;
   }
   return merged;
 }
@@ -579,8 +594,15 @@ function timelineForDisplay(raw, awaiting, prompt) {
 function scrollLogToBottom(force) {
   const scroll = document.getElementById("logScroll");
   if (!scroll) return;
-  const nearBottom = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 48;
-  if (force || nearBottom) scroll.scrollTop = scroll.scrollHeight;
+  const apply = () => {
+    const nearBottom = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 48;
+    if (force || nearBottom) scroll.scrollTop = scroll.scrollHeight;
+  };
+  if (force) {
+    requestAnimationFrame(() => requestAnimationFrame(apply));
+  } else {
+    apply();
+  }
 }
 
 function isRawLogNearBottom(body) {
@@ -1266,7 +1288,11 @@ async function pollLog() {
     if (sig !== LOG_RENDER_SIG) {
       LOG_RENDER_SIG = sig;
       renderLogTimeline(timeline);
-      if (LOG_VIEW_MODE !== "raw") scrollLogToBottom(false);
+      if (LOG_VIEW_MODE !== "raw") {
+        const pinBottom = LOG_SCROLL_TO_BOTTOM;
+        scrollLogToBottom(pinBottom);
+        if (pinBottom) LOG_SCROLL_TO_BOTTOM = false;
+      }
     }
 
     const stopBtn = document.getElementById("logStopBtn");
@@ -1361,6 +1387,7 @@ function showLog(id) {
     LOG_RENDER_SIG = "";
     LOG_PENDING_USER = "";
     LOG_REPLY_MODEL_KEY = "";
+    LOG_SCROLL_TO_BOTTOM = true;
     LOG_VIEW_MODE = "timeline";
     LOG_RAW_PIN_BOTTOM = true;
     clearLogWorkflowSteps();
