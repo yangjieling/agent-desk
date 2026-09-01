@@ -45,6 +45,7 @@ let LOG_VIEW_MODE = "timeline"; // timeline | raw
 let LOG_RENDER_SIG = "";
 let LOG_PENDING_USER = "";
 let LOG_SCROLL_TO_BOTTOM = false;
+let LOG_TASK_STATUS = "";
 /** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
 let WS_PICK_PURPOSE = null;
 let LOG_WF_RUN_ID = "";
@@ -448,6 +449,10 @@ function parseLogTimeline(raw) {
             pushTimelineItem(items, "system", summary.slice(0, 2000));
           }
         } else if (type === "system" || type === "error") {
+          const subtype = String(evt.subtype || "");
+          if (type === "system" && (subtype === "init" || subtype === "turn_end")) {
+            continue;
+          }
           const msg = evt.message || evt.error || evt.subtype || type;
           pushTimelineItem(items, "system", typeof msg === "string" ? msg : prettyJson(msg));
         }
@@ -585,6 +590,15 @@ function isExecCommandTimelineItem(it) {
   return it.type === "system" && /^\$ \S/.test(String(it.text || "").trim());
 }
 
+const NOISE_SYSTEM_LABELS = new Set(["init", "turn_end"]);
+
+function isNoiseSystemTimelineItem(it) {
+  if (it.type !== "system") return false;
+  const text = String(it.text || "").trim();
+  if (isExecCommandTimelineItem(it)) return true;
+  return NOISE_SYSTEM_LABELS.has(text);
+}
+
 function timelineForDisplay(raw, awaiting, prompt) {
   let items = parseLogTimeline(raw);
   items = mergePromptRepliesIntoTimeline(items, prompt);
@@ -592,7 +606,7 @@ function timelineForDisplay(raw, awaiting, prompt) {
     // Gate card owns the decision UI; drop trailing gate blobs from the stream.
     while (items.length && items[items.length - 1].type === "gate") items.pop();
   }
-  return items.filter((it) => !isExecCommandTimelineItem(it));
+  return items.filter((it) => !isNoiseSystemTimelineItem(it));
 }
 
 function scrollLogToBottom(force) {
@@ -1213,15 +1227,33 @@ function renderReplyChoices(choices) {
   });
 }
 
-async function sendReply(preset) {
-  if (!LOG_ID) return;
+function updateLogThinking(running) {
+  const el = document.getElementById("logThinking");
+  if (!el) return;
+  el.hidden = !running;
+  if (running) scrollLogToBottom(true);
+}
+
+function updateReplyComposerState(running, canChat) {
+  const rb = document.getElementById("replyBox");
   const input = document.getElementById("replyInput");
-  const reply = (preset || input.value || "").trim();
-  if (!reply) return;
-  input.value = "";
+  const sendBtn = document.getElementById("logSendBtn");
+  const show = canChat && !running;
+  if (rb) rb.classList.toggle("show", show);
+  if (input) {
+    input.disabled = running;
+    input.placeholder = "继续本次会话，输入后回车发送…";
+  }
+  if (sendBtn) sendBtn.disabled = running;
+  document.querySelectorAll(".reply-chip, .lg-choice").forEach((btn) => {
+    btn.disabled = running;
+  });
+}
+
+async function dispatchReply(reply, model) {
+  if (!LOG_ID || !reply) return;
   LOG_PENDING_USER = reply;
   LOG_RENDER_SIG = "";
-  // optimistic paint
   try {
     const cur = TASKS.find((t) => t.id === LOG_ID);
     renderLogTimeline(timelineForDisplay((cur && cur.result) || "", false, cur && cur.prompt));
@@ -1232,7 +1264,7 @@ async function sendReply(preset) {
   try {
     await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply, model: getReplyModel() }),
+      body: JSON.stringify({ reply, model: model || getReplyModel() }),
     });
     toast("已发送");
     await loadTasks();
@@ -1242,6 +1274,16 @@ async function sendReply(preset) {
     toast(`发送失败: ${e.message || e}`);
     await pollLog();
   }
+}
+
+async function sendReply(preset) {
+  if (!LOG_ID || LOG_TASK_STATUS === "running") return;
+  const input = document.getElementById("replyInput");
+  const reply = (preset || input.value || "").trim();
+  if (!reply) return;
+
+  if (!preset) input.value = "";
+  await dispatchReply(reply, getReplyModel());
 }
 
 function onReplyKeyDown(e) {
@@ -1259,6 +1301,9 @@ async function pollLog() {
     const running = d.status === "running";
     const awaiting = d.status === "awaiting";
     const gate = awaiting ? parseGate(raw) : null;
+
+    LOG_TASK_STATUS = d.status;
+    updateLogThinking(running);
 
     if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
       LOG_PENDING_USER = "";
@@ -1320,9 +1365,8 @@ async function pollLog() {
       }
     }
 
-    const rb = document.getElementById("replyBox");
     const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
-    if (rb) rb.classList.toggle("show", canChat);
+    updateReplyComposerState(running, canChat);
 
     // Gate card already shows choices while awaiting; keep chips for other statuses only.
     if (awaiting && gate && (gate.choices || []).length) {
@@ -1391,6 +1435,7 @@ function showLog(id) {
     LOG_RENDER_SIG = "";
     LOG_PENDING_USER = "";
     LOG_REPLY_MODEL_KEY = "";
+    LOG_TASK_STATUS = "";
     LOG_SCROLL_TO_BOTTOM = true;
     LOG_VIEW_MODE = "timeline";
     LOG_RAW_PIN_BOTTOM = true;
@@ -1473,7 +1518,9 @@ function closeLog() {
   LOG_ID = null;
   LOG_RENDER_SIG = "";
   LOG_PENDING_USER = "";
+  LOG_TASK_STATUS = "";
   LOG_VIEW_MODE = "timeline";
+  updateLogThinking(false);
   clearLogWorkflowSteps();
   setSessionPanelVisible(false);
   applyLogViewMode();
