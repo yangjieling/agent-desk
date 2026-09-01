@@ -458,6 +458,14 @@ function renderLogMeta(task) {
   el.innerHTML = chips.join("");
 }
 
+function renderLogBodyHtml(type, bodyText) {
+  const text = String(bodyText || "");
+  if ((type === "assistant" || type === "user") && typeof renderLogMarkdown === "function") {
+    return renderLogMarkdown(text);
+  }
+  return esc(text);
+}
+
 function renderLogTimeline(items) {
   const box = document.getElementById("logTimeline");
   if (!box) return;
@@ -507,7 +515,7 @@ function renderLogTimeline(items) {
           : it.text;
       return `<div class="log-item ${esc(type)}${streaming ? " is-streaming" : ""}">
         <div class="li-head"><span class="li-role">${role}</span></div>
-        <div class="li-body">${esc(bodyText || "")}</div>
+        <div class="li-body${type === "assistant" || type === "user" ? " log-md-body" : ""}">${renderLogBodyHtml(type, bodyText)}</div>
       </div>`;
     })
     .join("");
@@ -1359,8 +1367,9 @@ function tryPatchStreamingTimeline(timeline, running) {
     box.querySelector(".log-item.assistant.is-streaming .li-body") ||
     box.querySelector(".log-item.assistant:last-child .li-body");
   if (!el) return false;
-  if (el.textContent !== text) {
-    el.textContent = text;
+  if (el.dataset.streamText !== text) {
+    el.dataset.streamText = text;
+    el.innerHTML = renderLogBodyHtml("assistant", text);
     scrollLogToBottom(true);
   }
   return true;
