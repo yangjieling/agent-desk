@@ -141,6 +141,7 @@ agent --version && agent -p --trust --output-format text "say hi"
 | 理解整体设计 | [docs/architecture.md](docs/architecture.md) |
 | 接入 GitHub Issues / 通知渠道 | [docs/providers.md](docs/providers.md) |
 | 使用或编写技能 | [docs/skills.md](docs/skills.md) |
+| 对照 Multica 的学习清单 | [docs/learn-from-multica.md](docs/learn-from-multica.md) |
 | 查看任务状态与卡点 | 下文 [架构 → 任务生命周期](#架构) |
 | 配置环境变量 | [配置](#配置) |
 | 开发 monorepo | [开发](#开发) |
