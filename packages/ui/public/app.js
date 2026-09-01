@@ -581,6 +581,10 @@ function mergePromptRepliesIntoTimeline(items, prompt) {
   return merged;
 }
 
+function isExecCommandTimelineItem(it) {
+  return it.type === "system" && /^\$ \S/.test(String(it.text || "").trim());
+}
+
 function timelineForDisplay(raw, awaiting, prompt) {
   let items = parseLogTimeline(raw);
   items = mergePromptRepliesIntoTimeline(items, prompt);
@@ -588,7 +592,7 @@ function timelineForDisplay(raw, awaiting, prompt) {
     // Gate card owns the decision UI; drop trailing gate blobs from the stream.
     while (items.length && items[items.length - 1].type === "gate") items.pop();
   }
-  return items;
+  return items.filter((it) => !isExecCommandTimelineItem(it));
 }
 
 function scrollLogToBottom(force) {

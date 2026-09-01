@@ -7,6 +7,7 @@ import {
   clipPrompt,
   clipTitle,
   isAbortReply,
+  agentPromptBodyForRun,
   newTaskId,
   parseGate,
   resolveTaskStatusAfterRun,
@@ -234,9 +235,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
 
     const cwd = task.projectDir || process.cwd();
     const skillMount = mountSkill(task.skill || "default", { cwd });
-    const promptBody = skillMount.promptPrefix
-      ? `${skillMount.promptPrefix}\n${task.prompt}`
-      : task.prompt;
+    const runPrompt = agentPromptBodyForRun(task.prompt, Boolean(task.sessionId));
+    const promptBody = task.sessionId
+      ? runPrompt
+      : skillMount.promptPrefix
+        ? `${skillMount.promptPrefix}\n${task.prompt}`
+        : task.prompt;
     const promptFile = promptPath(task.id);
     fs.writeFileSync(promptFile, promptBody, "utf8");
 

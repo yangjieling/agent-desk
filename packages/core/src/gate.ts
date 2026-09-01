@@ -244,6 +244,14 @@ export function extractUserRepliesFromPrompt(prompt: string): string[] {
     .filter(Boolean);
 }
 
+/** Body to pass to the agent CLI on resume (session already holds prior context). */
+export function agentPromptBodyForRun(prompt: string, hasSession: boolean): string {
+  if (!hasSession) return prompt;
+  const replies = extractUserRepliesFromPrompt(prompt);
+  if (!replies.length) return prompt.trim();
+  return replies[replies.length - 1];
+}
+
 export function clipTitle(title: string, fallback = "", maxLen = 80): string {
   const text = (title || "").trim() || (fallback || "").trim();
   if (text.length <= maxLen) return text;
