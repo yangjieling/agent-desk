@@ -24,6 +24,18 @@ function pick(envVal: string | undefined, stored: string | undefined): string {
   return (stored ?? "").trim();
 }
 
+function definedPatch<T extends Record<string, unknown>>(
+  patch: Partial<T> | null | undefined,
+): Partial<T> {
+  if (!patch) return {};
+  const out: Partial<T> = {};
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    const val = patch[key];
+    if (val !== undefined) out[key] = val;
+  }
+  return out;
+}
+
 function parseRepo(parts: {
   repo: string;
   owner: string;
@@ -48,7 +60,7 @@ export function resolveGitHubConfig(
   const fromDb: GitHubSettings = {
     ...DEFAULT_GITHUB_SETTINGS,
     ...(settingsSource?.()?.github || {}),
-    ...(stored || {}),
+    ...definedPatch(stored),
   };
   const repo = pick(process.env.AD_GITHUB_REPO, fromDb.repo);
   const owner = pick(process.env.AD_GITHUB_OWNER, fromDb.owner);

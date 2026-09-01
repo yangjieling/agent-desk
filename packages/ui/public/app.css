@@ -797,7 +797,21 @@
   .topbar-select-wide { max-width: 280px; }
   .topbar-select:hover { color: #111827; }
   .topbar-select:focus { outline: none; color: #2563eb; }
-  .composer-model-wrap { flex-shrink: 1; min-width: 0; max-width: min(220px, 42vw); }
+  .topbar-skill-dd { min-width: 0; max-width: 280px; }
+  .topbar-skill-dd .setting-dropdown-btn {
+    padding: 2px 20px 2px 8px; min-height: 0; border: none; background: transparent;
+    color: #6b7280; font-size: 13px; box-shadow: none; max-width: 280px;
+  }
+  .topbar-skill-dd .setting-dropdown-btn:hover { background: transparent; color: #111827; }
+  .topbar-skill-dd.open .setting-dropdown-btn { color: #2563eb; }
+  .topbar-skill-dd .setting-dropdown-label {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px;
+  }
+  .topbar-skill-dd .setting-dropdown-menu { min-width: 280px; max-width: min(480px, 96vw); }
+  .topbar-skill-dd .setting-dropdown-item span {
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left;
+  }
+  .composer-model-wrap { flex-shrink: 0; min-width: 0; max-width: min(220px, 42vw); position: relative; z-index: 2; }
   .composer-model-dd { position: relative; min-width: 0; width: 100%; }
   .composer-model-dd .setting-dropdown-btn {
     padding: 6px 10px; min-height: 34px; border: 1px solid #e5e7eb; border-radius: 999px;
@@ -809,12 +823,14 @@
   }
   .composer-model-dd .setting-dropdown-label { font-size: 12px; }
   .composer-model-dd .setting-dropdown-menu {
-    top: auto; bottom: calc(100% + 6px); left: auto; right: 0; min-width: 240px; max-width: min(320px, 92vw);
+    top: calc(100% + 6px); bottom: auto; left: auto; right: 0;
+    width: max(280px, 100%); min-width: 280px; max-width: min(360px, 92vw); z-index: 120;
   }
   .setting-dropdown-custom { border-top: 1px solid #e8eaed; color: #1a73e8; }
   .composer-card { position: relative; background: #fff; border: 1px dashed #d1d5db; border-radius: 22px;
                    padding: 16px 18px 14px; min-height: 132px; display: flex; flex-direction: column;
                    transition: border-color .12s; box-shadow: none; overflow: hidden; }
+  .composer-card:has(.composer-model-dd.open) { overflow: visible; }
   .composer-card.has-workspace { border-style: solid; border-color: #e5e7eb; }
   .composer-card:focus-within { border-style: solid; border-color: #93c5fd; box-shadow: none; }
   .composer-card.is-invalid { border-color: #f87171; }

@@ -1466,10 +1466,17 @@ function onTaskTypeChange() {
   if (t === "skill") fillSkillOptions();
 }
 
-async function fillSkillOptions() {
-  const sel = document.getElementById("t-skill");
-  if (!sel) return;
-  const prev = sel.value || "default";
+let TASK_SKILL_OPTS = [];
+
+function getTaskSkillId() {
+  const el = document.getElementById("t-skill");
+  return ((el && el.dataset.value) || "default").trim() || "default";
+}
+
+async function fillSkillOptions(selectId) {
+  const root = document.getElementById("t-skill");
+  if (!root) return;
+  const prev = getTaskSkillId();
   const cwd = getTaskDir() || undefined;
   let rows = [];
   try {
@@ -1478,16 +1485,24 @@ async function fillSkillOptions() {
   } catch {
     rows = [];
   }
-  const opts = [{ id: "default", label: "default（无技能包）" }].concat(
+  const opts = [{ id: "default", displayName: "default", listLabel: "default（无技能包）" }].concat(
     (Array.isArray(rows) ? rows : []).map((s) => ({
       id: s.id,
-      label: s.description ? `${s.id} · ${s.description}` : `${s.id} (${s.source})`,
+      displayName: s.id,
+      listLabel: s.description ? `${s.id} · ${s.description}` : `${s.id} (${s.source})`,
     })),
   );
-  sel.innerHTML = opts
-    .map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`)
-    .join("");
-  if (opts.some((o) => o.id === prev)) sel.value = prev;
+  let current = prev;
+  if (selectId) {
+    if (!opts.some((o) => o.id === selectId)) {
+      opts.push({ id: selectId, displayName: selectId, listLabel: selectId });
+    }
+    current = selectId;
+  } else if (!opts.some((o) => o.id === current)) {
+    current = "default";
+  }
+  TASK_SKILL_OPTS = opts;
+  mountSettingDropdown(root, opts, current, () => {}, { listLabelKey: "listLabel" });
 }
 
 function setTaskDir(dirPath) {
@@ -2018,8 +2033,7 @@ async function createTask() {
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
     } else {
-      const skillEl = document.getElementById("t-skill");
-      const skill = ((skillEl && skillEl.value) || "default").trim();
+      const skill = getTaskSkillId();
       const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
       const task = await api("/api/tasks", {
         method: "POST",
@@ -2618,18 +2632,7 @@ function useSkillInNewTask(id) {
     mode.value = "skill";
     onTaskTypeChange();
   }
-  fillSkillOptions().then(() => {
-    const sel = document.getElementById("t-skill");
-    if (sel) {
-      const opt = [...sel.options].find((o) => o.value === id);
-      if (!opt) {
-        const o = document.createElement("option");
-        o.value = id;
-        o.textContent = id;
-        sel.appendChild(o);
-      }
-      sel.value = id;
-    }
+  fillSkillOptions(id).then(() => {
     toast(`已选择技能：${id}`);
   });
 }
@@ -2752,6 +2755,12 @@ function bindSettingDropdownOutsideClose() {
   });
 }
 
+function dropdownOptionListText(o, config) {
+  const key = config && config.listLabelKey;
+  if (key && o[key]) return o[key];
+  return o.displayName || o.id || "";
+}
+
 function mountSettingDropdown(root, options, current, onChange, config = {}) {
   if (!root) return;
   const opts = Array.isArray(options) ? options : [];
@@ -2780,7 +2789,7 @@ function mountSettingDropdown(root, options, current, onChange, config = {}) {
         return (
           `<button type="button" class="setting-dropdown-item${active ? " is-active" : ""}" ` +
           `role="option" data-value="${esc(o.id)}" aria-selected="${active ? "true" : "false"}">` +
-          `<span>${esc(o.displayName || o.id)}</span>${dropdownCheck()}</button>`
+          `<span>${esc(dropdownOptionListText(o, config))}</span>${dropdownCheck()}</button>`
         );
       })
       .join("") +
@@ -3687,15 +3696,10 @@ async function startTaskFromIssue(code) {
       syncWorkspaceLabel();
     }
     fillSkillOptions().then(() => {
-      const sel = document.getElementById("t-skill");
-      if (!sel) return;
-      const prefer = ["fix", "bug-fix", "triage"];
-      for (const id of prefer) {
-        if ([...sel.options].some((o) => o.value === id)) {
-          sel.value = id;
-          break;
-        }
-      }
+      const pick = ["fix", "bug-fix", "triage"].find((id) =>
+        TASK_SKILL_OPTS.some((o) => o.id === id),
+      );
+      if (pick) fillSkillOptions(pick);
     });
   };
 
