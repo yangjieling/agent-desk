@@ -51,6 +51,7 @@ let LOG_TIMELINE_PARSER = null;
 let LOG_RUN_STARTED_AT = 0;
 let LOG_LAST_STREAM_AT = 0;
 let LOG_ACTIVITY_TICKER = 0;
+let LOG_STREAM_EPOCH = 0;
 /** When true, raw log drawer sticks to bottom on new output. */
 let LOG_RAW_PIN_BOTTOM = true;
 let LOG_CHOICES_KEY = "";
@@ -403,7 +404,9 @@ function mergeStreamTask(task, resultAppend) {
     appendRawLogDelta(resultAppend);
   } else if (task?.result != null) {
     const next = String(task.result);
-    if (next.length < LOG_RESULT_LEN) {
+    if (!next && LOG_RESULT_LEN > 0) {
+      // SSE payload omitted result; keep the buffered log.
+    } else if (next.length < LOG_RESULT_LEN) {
       resetLogBuffer(next);
       updateRawLogBody(next);
     } else if (next.length > LOG_RESULT_LEN) {
@@ -825,6 +828,9 @@ async function pollTasksQuiet() {
       const now = t.status || "";
       if (now === "awaiting" && was === "running") {
         toast(`「${t.title || t.id}」等待确认，可点击「处理」`);
+      }
+      if (LOG_ID === t.id && now !== was) {
+        void pollLog();
       }
     });
   } catch {
@@ -1273,6 +1279,15 @@ function scheduleLogStreamRetry(id) {
   }, 2000);
 }
 
+function cancelStreamRender() {
+  LOG_STREAM_EPOCH += 1;
+  if (LOG_STREAM_RENDER_RAF) {
+    cancelAnimationFrame(LOG_STREAM_RENDER_RAF);
+    LOG_STREAM_RENDER_RAF = 0;
+  }
+  LOG_STREAM_PENDING = null;
+}
+
 function openLogStream(id) {
   closeLogStream();
   if (!id || typeof EventSource === "undefined") return;
@@ -1290,7 +1305,10 @@ function openLogStream(id) {
       const msg = JSON.parse(ev.data);
       if (msg.type === "end") {
         if (LOG_TIMELINE_PARSER) LOG_TIMELINE_PARSER.finalize();
+        cancelStreamRender();
+        stopActivityTicker();
         closeLogStream();
+        LOG_RENDER_SIG = "";
         void pollLog();
         return;
       }
@@ -1305,18 +1323,27 @@ function openLogStream(id) {
   };
   es.onerror = () => {
     closeLogStream();
+    const cached = TASKS.find((t) => t.id === LOG_ID);
+    if (cached && !isLogTaskActive(cached)) {
+      LOG_RENDER_SIG = "";
+      void pollLog();
+      return;
+    }
     scheduleLogStreamRetry(id);
   };
 }
 
 function scheduleStreamRender(task, opts = {}) {
-  LOG_STREAM_PENDING = { task, opts };
+  const epoch = LOG_STREAM_EPOCH;
+  LOG_STREAM_PENDING = { task, opts, epoch };
   if (LOG_STREAM_RENDER_RAF) return;
   LOG_STREAM_RENDER_RAF = requestAnimationFrame(() => {
     LOG_STREAM_RENDER_RAF = 0;
     const pending = LOG_STREAM_PENDING;
     LOG_STREAM_PENDING = null;
-    if (pending) void renderLogTask(pending.task, pending.opts);
+    if (pending && pending.epoch === LOG_STREAM_EPOCH) {
+      void renderLogTask(pending.task, pending.opts);
+    }
   });
 }
 
@@ -1457,6 +1484,10 @@ async function renderLogTask(d, opts = {}) {
   }
   if (fromStream) markLogStreamActivity();
 
+  if (fromStream && !running && prevStatus === "running") {
+    LOG_RENDER_SIG = "";
+  }
+
   if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
     LOG_PENDING_USER = "";
   }
@@ -1512,7 +1543,8 @@ async function renderLogTask(d, opts = {}) {
     }
   }
 
-  if (!fromStream) {
+  const refreshChrome = !fromStream || !running;
+  if (refreshChrome) {
     const stopBtn = document.getElementById("logStopBtn");
     if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
 
@@ -1568,7 +1600,9 @@ async function renderLogTask(d, opts = {}) {
 async function pollLog() {
   if (!LOG_ID) return;
   try {
+    cancelStreamRender();
     const d = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}`);
+    LOG_RENDER_SIG = "";
     resetLogBuffer(d.result || "");
     await renderLogTask(d);
   } catch (e) {
