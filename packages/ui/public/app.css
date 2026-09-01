@@ -783,11 +783,20 @@
   .topbar-select-wide { max-width: 280px; }
   .topbar-select:hover { color: #111827; }
   .topbar-select:focus { outline: none; color: #2563eb; }
-  .topbar-model-dd { min-width: 140px; max-width: 220px; }
-  .topbar-model-dd .setting-dropdown-btn { padding: 2px 8px; min-height: 0; border: none; background: transparent;
-    color: #6b7280; font-size: 13px; box-shadow: none; }
-  .topbar-model-dd .setting-dropdown-btn:hover { background: transparent; color: #111827; }
-  .topbar-model-dd.open .setting-dropdown-btn { color: #2563eb; }
+  .composer-model-wrap { flex-shrink: 1; min-width: 0; max-width: min(220px, 42vw); }
+  .composer-model-dd { position: relative; min-width: 0; width: 100%; }
+  .composer-model-dd .setting-dropdown-btn {
+    padding: 6px 10px; min-height: 34px; border: 1px solid #e5e7eb; border-radius: 999px;
+    background: #f9fafb; color: #4b5563; font-size: 12px; box-shadow: none;
+  }
+  .composer-model-dd .setting-dropdown-btn:hover { background: #f3f4f6; color: #111827; }
+  .composer-model-dd.open .setting-dropdown-btn {
+    border-color: #93c5fd; background: #fff; color: #2563eb;
+  }
+  .composer-model-dd .setting-dropdown-label { font-size: 12px; }
+  .composer-model-dd .setting-dropdown-menu {
+    top: auto; bottom: calc(100% + 6px); left: auto; right: 0; min-width: 240px; max-width: min(320px, 92vw);
+  }
   .setting-dropdown-custom { border-top: 1px solid #e8eaed; color: #1a73e8; }
   .composer-card { position: relative; background: #fff; border: 1px dashed #d1d5db; border-radius: 22px;
                    padding: 16px 18px 14px; min-height: 132px; display: flex; flex-direction: column;

@@ -221,12 +221,6 @@
           <div class="topbar-item" id="t-target-workflow-wrap" style="display:none">
             <select id="t-workflow" class="topbar-select topbar-select-wide" title="流程模板"></select>
           </div>
-
-          <span class="topbar-dot" id="t-model-dot" aria-hidden="true"></span>
-
-          <div class="topbar-item" id="t-model-wrap">
-            <div class="setting-dropdown topbar-model-dd" id="t-model" data-value="" title="任务模型"></div>
-          </div>
         </div>
 
         <div class="composer-card" id="composerCard">
@@ -237,6 +231,9 @@
           <div class="composer-foot">
             <span class="composer-char-hint" id="t-prompt-hint"></span>
             <div class="composer-actions">
+              <div class="composer-model-wrap" id="t-model-wrap">
+                <div class="setting-dropdown composer-model-dd" id="t-model" data-value="" title="任务模型"></div>
+              </div>
               <button type="button" class="composer-submit" id="btnCreateTask" onclick="createTask()"
                 title="创建任务 (⌘/Ctrl + Enter)">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
