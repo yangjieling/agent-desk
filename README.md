@@ -127,7 +127,7 @@ agent-desk does not ship a model. It drives the CLIs you install locally.
 ```bash
 # Verify before creating tasks
 claude --version && claude -p "say hi"
-codex --version && codex exec --json --dangerously-bypass-approvals-and-sandbox -C . "say hi"
+codex --version && codex exec --json -C . "say hi"
 agent --version && agent -p --trust --output-format text "say hi"
 ```
 

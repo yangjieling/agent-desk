@@ -53,34 +53,39 @@ export class CodexBackend implements AgentBackend {
   }
 
   buildExecCommand(params: AgentExecParams): string[] {
-    return this.buildArgs(params);
-  }
-
-  buildResumeCommand(params: AgentResumeParams): string[] {
-    return this.buildArgs(params, params.sessionId);
-  }
-
-  private buildArgs(params: AgentExecParams, sessionId?: string): string[] {
     const prompt = readPrompt(params.promptFile);
-    const args = [bin(), "exec"];
-    if (sessionId) {
-      args.push("resume", sessionId);
-    }
-    args.push(
+    const args = [
+      bin(),
+      "exec",
       "--skip-git-repo-check",
       "--json",
       "--color",
       "never",
-      "--dangerously-bypass-approvals-and-sandbox",
       ...modelFlag(params),
       "-C",
       params.cwd,
-    );
+    ];
     for (const dir of params.extraSkillDirs ?? []) {
       const d = (dir || "").trim();
       if (d) args.push("--add-dir", d);
     }
     args.push(prompt);
+    return args;
+  }
+
+  buildResumeCommand(params: AgentResumeParams): string[] {
+    const prompt = readPrompt(params.promptFile);
+    // `codex exec resume` does not accept --color, -C, or --add-dir (session keeps prior context).
+    const args = [
+      bin(),
+      "exec",
+      "resume",
+      "--skip-git-repo-check",
+      "--json",
+      ...modelFlag(params),
+      params.sessionId,
+      prompt,
+    ];
     return args;
   }
 

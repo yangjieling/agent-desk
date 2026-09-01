@@ -124,7 +124,7 @@ agent-desk 不内置模型，只驱动你本地安装的 CLI。
 ```bash
 # 创建任务前先验证
 claude --version && claude -p "say hi"
-codex --version && codex exec --json --dangerously-bypass-approvals-and-sandbox -C . "say hi"
+codex --version && codex exec --json -C . "say hi"
 agent --version && agent -p --trust --output-format text "say hi"
 ```
 
