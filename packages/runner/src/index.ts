@@ -34,6 +34,9 @@ import {
   formatCommandLogLine,
   formatLogTimestamp,
 } from "./log-format.js";
+import { publishTaskUpdate } from "./task-events.js";
+
+export { subscribeTaskUpdates } from "./task-events.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -59,6 +62,29 @@ export function resolveSettings(opts: RunnerOptions): Settings {
 }
 
 const running = new Map<string, AbortController>();
+const publishTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function notifyTaskUpdate(opts: RunnerOptions, taskId: string, immediate = false): void {
+  const emit = () => {
+    const task = opts.db.getTask(taskId);
+    if (task) publishTaskUpdate(task);
+  };
+  if (immediate) {
+    const pending = publishTimers.get(taskId);
+    if (pending) clearTimeout(pending);
+    publishTimers.delete(taskId);
+    emit();
+    return;
+  }
+  if (publishTimers.has(taskId)) return;
+  publishTimers.set(
+    taskId,
+    setTimeout(() => {
+      publishTimers.delete(taskId);
+      emit();
+    }, 120),
+  );
+}
 
 type TaskCompleteHandler = (task: Task) => void | Promise<void>;
 const completeHandlers: TaskCompleteHandler[] = [];
@@ -140,6 +166,7 @@ async function markTaskFailed(
   });
   const task = updated ?? prev;
   if (task) {
+    publishTaskUpdate(task);
     await maybeNotifyTaskUpdate(task, resolveSettings(opts));
     await emitTaskComplete(task);
   }
@@ -262,6 +289,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       : backend.buildExecCommand(execParams);
 
     opts.db.updateTask(taskId, { status: "running" });
+    notifyTaskUpdate(opts, taskId, true);
 
     const child = spawn(args[0], args.slice(1), {
       cwd,
@@ -304,6 +332,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         lastActivityAt: Date.now(),
       });
       if (updated) {
+        notifyTaskUpdate(opts, taskId, true);
         const sent = await maybeNotifyGate(updated, settings);
         if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
         await emitTaskComplete(updated);
@@ -333,6 +362,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       }
       if (!settled) {
         opts.db.updateTask(taskId, { result: output, lastActivityAt: Date.now() });
+        notifyTaskUpdate(opts, taskId);
       }
     };
 
@@ -362,6 +392,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         result: output,
       });
       if (updated) {
+        notifyTaskUpdate(opts, taskId, true);
         if (status === "awaiting") {
           const sent = await maybeNotifyGate(updated, settings);
           if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });

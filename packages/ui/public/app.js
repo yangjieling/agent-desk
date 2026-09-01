@@ -39,7 +39,10 @@ let LOG_REPLY_MODEL_KEY = "";
 let LOG_TITLE = "";
 let LOG_TIMER = null;
 let LOG_POLL_MS = 0;
+let LOG_SSE = null;
+let LOG_SSE_TASK = "";
 const LOG_POLL_RUNNING_MS = 800;
+const LOG_POLL_RUNNING_SSE_MS = 5000;
 const LOG_POLL_AWAITING_MS = 2000;
 /** When true, raw log drawer sticks to bottom on new output. */
 let LOG_RAW_PIN_BOTTOM = true;
@@ -1304,7 +1307,13 @@ function timelineRenderSig(timeline) {
 }
 
 function updateLogPollTimer(running, awaiting) {
-  const nextMs = running ? LOG_POLL_RUNNING_MS : awaiting ? LOG_POLL_AWAITING_MS : 0;
+  let nextMs = 0;
+  if (running) {
+    nextMs =
+      LOG_SSE && LOG_SSE_TASK === LOG_ID ? LOG_POLL_RUNNING_SSE_MS : LOG_POLL_RUNNING_MS;
+  } else if (awaiting) {
+    nextMs = LOG_POLL_AWAITING_MS;
+  }
   if (!nextMs) {
     if (LOG_TIMER) {
       clearInterval(LOG_TIMER);
@@ -1317,6 +1326,48 @@ function updateLogPollTimer(running, awaiting) {
   if (LOG_TIMER) clearInterval(LOG_TIMER);
   LOG_POLL_MS = nextMs;
   LOG_TIMER = setInterval(pollLog, nextMs);
+}
+
+function closeLogStream() {
+  if (LOG_SSE) {
+    LOG_SSE.close();
+    LOG_SSE = null;
+  }
+  LOG_SSE_TASK = "";
+}
+
+function updateLogStream(running) {
+  if (!LOG_ID || !running) {
+    closeLogStream();
+    return;
+  }
+  if (LOG_SSE && LOG_SSE_TASK === LOG_ID) return;
+  openLogStream(LOG_ID);
+}
+
+function openLogStream(id) {
+  closeLogStream();
+  if (!id || typeof EventSource === "undefined") return;
+  LOG_SSE_TASK = id;
+  const es = new EventSource(`/api/tasks/${encodeURIComponent(id)}/stream`);
+  LOG_SSE = es;
+  es.onmessage = (ev) => {
+    if (LOG_ID !== id) return;
+    try {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "end") {
+        closeLogStream();
+        void pollLog();
+        return;
+      }
+      if (msg.task) void renderLogTask(msg.task);
+    } catch {
+      /* ignore */
+    }
+  };
+  es.onerror = () => {
+    closeLogStream();
+  };
 }
 
 function updateLogThinking(running, timeline) {
@@ -1388,108 +1439,113 @@ function onReplyKeyDown(e) {
   }
 }
 
+async function renderLogTask(d) {
+  if (!LOG_ID || !d) return;
+  const raw = d.result || "";
+  const running = d.status === "running";
+  const awaiting = d.status === "awaiting";
+  const gate = awaiting ? parseGate(raw) : null;
+
+  LOG_TASK_STATUS = d.status;
+
+  if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
+    LOG_PENDING_USER = "";
+  }
+
+  const timeline = timelineForDisplay(raw, awaiting, d.prompt);
+  updateLogThinking(running, timeline);
+
+  const sig = [
+    d.status,
+    raw.length,
+    timelineRenderSig(timeline),
+    LOG_VIEW_MODE,
+    LOG_PENDING_USER,
+    gate ? gate.heading : "",
+    (gate && gate.choices && gate.choices.length) || 0,
+  ].join("|");
+
+  setLogTitleEl(d.status, d.title || LOG_TITLE);
+  if (d.title) LOG_TITLE = d.title;
+  const rawTitle = document.getElementById("rawDrawerTitle");
+  if (rawTitle) {
+    const name = String(d.title || LOG_TITLE || "").trim();
+    rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
+  }
+  renderLogMeta(d);
+  void ensureReplyModelDropdown(d);
+  renderLogGateCard(gate, awaiting);
+  applyLogViewMode();
+
+  const body = document.getElementById("logBody");
+  if (body) updateRawLogBody(raw);
+  if (sig !== LOG_RENDER_SIG) {
+    LOG_RENDER_SIG = sig;
+    renderLogTimeline(timeline);
+    if (LOG_VIEW_MODE !== "raw") {
+      const pinBottom = LOG_SCROLL_TO_BOTTOM || running;
+      scrollLogToBottom(pinBottom);
+      if (pinBottom && !running) LOG_SCROLL_TO_BOTTOM = false;
+    }
+  }
+
+  const stopBtn = document.getElementById("logStopBtn");
+  if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
+
+  const contBtn = document.getElementById("logContinueBtn");
+  if (contBtn) {
+    const hasSession = !!(tField(d, "sessionId", "session_id") || "").trim();
+    const showStart =
+      !running && (d.status === "created" || (d.status === "failed" && !hasSession));
+    const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
+    contBtn.style.display = showStart || showCont ? "" : "none";
+    if (showStart) {
+      contBtn.title = "运行";
+      contBtn.setAttribute("aria-label", "运行");
+      contBtn.onclick = () => runTask(LOG_ID);
+    } else {
+      contBtn.title = "继续";
+      contBtn.setAttribute("aria-label", "继续");
+      contBtn.onclick = () => continueTask(LOG_ID);
+    }
+  }
+
+  const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
+  updateReplyComposerState(running, canChat);
+
+  if (awaiting && gate && (gate.choices || []).length) {
+    LOG_CHOICES_KEY = "";
+    renderReplyChoices([]);
+  } else {
+    const nextChoices = gate && gate.choices.length ? gate.choices : [];
+    const nextKey = JSON.stringify(nextChoices);
+    if (nextKey !== LOG_CHOICES_KEY) {
+      LOG_CHOICES_KEY = nextKey;
+      renderReplyChoices(nextChoices);
+    }
+  }
+
+  await refreshLogWorkflowSteps(d);
+
+  if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && awaiting && !running) {
+    DEEP_LINK_REPLY_SENT = true;
+    const autoReply = DEEP_LINK_REPLY;
+    DEEP_LINK_REPLY = "";
+    const u = new URL(location.href);
+    u.searchParams.delete("reply");
+    history.replaceState(null, "", u.pathname + u.search);
+    setTimeout(() => sendReply(autoReply), 200);
+  }
+
+  updateLogStream(running);
+  updateLogPollTimer(running, awaiting);
+}
+
 async function pollLog() {
   if (!LOG_ID) return;
   try {
     const d = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}`);
-    const raw = d.result || "";
-    const running = d.status === "running";
-    const awaiting = d.status === "awaiting";
-    const gate = awaiting ? parseGate(raw) : null;
-
-    LOG_TASK_STATUS = d.status;
-
-    if (LOG_PENDING_USER && raw.includes(LOG_PENDING_USER)) {
-      LOG_PENDING_USER = "";
-    }
-
-    const timeline = timelineForDisplay(raw, awaiting, d.prompt);
-    updateLogThinking(running, timeline);
-
-    const sig = [
-      d.status,
-      raw.length,
-      timelineRenderSig(timeline),
-      LOG_VIEW_MODE,
-      LOG_PENDING_USER,
-      gate ? gate.heading : "",
-      (gate && gate.choices && gate.choices.length) || 0,
-    ].join("|");
-
-    setLogTitleEl(d.status, d.title || LOG_TITLE);
-    if (d.title) LOG_TITLE = d.title;
-    const rawTitle = document.getElementById("rawDrawerTitle");
-    if (rawTitle) {
-      const name = String(d.title || LOG_TITLE || "").trim();
-      rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
-    }
-    renderLogMeta(d);
-    void ensureReplyModelDropdown(d);
-    renderLogGateCard(gate, awaiting);
-    applyLogViewMode();
-
-    const body = document.getElementById("logBody");
-    if (body) updateRawLogBody(raw);
-    if (sig !== LOG_RENDER_SIG) {
-      LOG_RENDER_SIG = sig;
-      renderLogTimeline(timeline);
-      if (LOG_VIEW_MODE !== "raw") {
-        const pinBottom = LOG_SCROLL_TO_BOTTOM || running;
-        scrollLogToBottom(pinBottom);
-        if (pinBottom && !running) LOG_SCROLL_TO_BOTTOM = false;
-      }
-    }
-
-    const stopBtn = document.getElementById("logStopBtn");
-    if (stopBtn) stopBtn.style.display = running || awaiting ? "" : "none";
-
-    const contBtn = document.getElementById("logContinueBtn");
-    if (contBtn) {
-      const hasSession = !!(tField(d, "sessionId", "session_id") || "").trim();
-      const showStart =
-        !running && (d.status === "created" || (d.status === "failed" && !hasSession));
-      const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
-      contBtn.style.display = showStart || showCont ? "" : "none";
-      if (showStart) {
-        contBtn.title = "运行";
-        contBtn.setAttribute("aria-label", "运行");
-        contBtn.onclick = () => runTask(LOG_ID);
-      } else {
-        contBtn.title = "继续";
-        contBtn.setAttribute("aria-label", "继续");
-        contBtn.onclick = () => continueTask(LOG_ID);
-      }
-    }
-
-    const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
-    updateReplyComposerState(running, canChat);
-
-    // Gate card already shows choices while awaiting; keep chips for other statuses only.
-    if (awaiting && gate && (gate.choices || []).length) {
-      LOG_CHOICES_KEY = "";
-      renderReplyChoices([]);
-    } else {
-      const nextChoices = gate && gate.choices.length ? gate.choices : [];
-      const nextKey = JSON.stringify(nextChoices);
-      if (nextKey !== LOG_CHOICES_KEY) {
-        LOG_CHOICES_KEY = nextKey;
-        renderReplyChoices(nextChoices);
-      }
-    }
-
-    await refreshLogWorkflowSteps(d);
-
-    if (DEEP_LINK_REPLY && !DEEP_LINK_REPLY_SENT && awaiting && !running) {
-      DEEP_LINK_REPLY_SENT = true;
-      const autoReply = DEEP_LINK_REPLY;
-      DEEP_LINK_REPLY = "";
-      const u = new URL(location.href);
-      u.searchParams.delete("reply");
-      history.replaceState(null, "", u.pathname + u.search);
-      setTimeout(() => sendReply(autoReply), 200);
-    }
-
-    updateLogPollTimer(running, awaiting);
+    await renderLogTask(d);
   } catch (e) {
     const body = document.getElementById("logBody");
     const timeline = document.getElementById("logTimeline");
@@ -1527,6 +1583,7 @@ function showLog(id) {
     LOG_PENDING_USER = "";
     LOG_REPLY_MODEL_KEY = "";
     LOG_TASK_STATUS = "";
+    closeLogStream();
     LOG_SCROLL_TO_BOTTOM = true;
     LOG_VIEW_MODE = "timeline";
     LOG_RAW_PIN_BOTTOM = true;
@@ -1612,6 +1669,7 @@ function closeLog() {
   LOG_TASK_STATUS = "";
   LOG_VIEW_MODE = "timeline";
   updateLogThinking(false, []);
+  closeLogStream();
   clearLogWorkflowSteps();
   setSessionPanelVisible(false);
   applyLogViewMode();

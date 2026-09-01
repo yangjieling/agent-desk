@@ -29,6 +29,7 @@ import {
   resumeTask,
   startTask,
   stopTask,
+  subscribeTaskUpdates,
 } from "@agent-desk/runner";
 import {
   continueRun,
@@ -48,6 +49,7 @@ import {
   type DingTalkSettings,
   type GitHubSettings,
   type Settings,
+  type Task,
 } from "@agent-desk/core";
 import { browse as fsBrowse, mkdir as fsMkdir } from "./fs-browser.js";
 
@@ -418,6 +420,60 @@ export async function createServer(opts: ServerOptions = {}) {
     const task = db.getTask(req.params.id);
     if (!task) return reply.code(404).send({ error: "not_found" });
     return task;
+  });
+
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/stream", async (req, reply) => {
+    const taskId = req.params.id;
+    const task = db.getTask(taskId);
+    if (!task) return reply.code(404).send({ error: "not_found" });
+
+    reply.hijack();
+    reply.raw.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+    reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+    reply.raw.setHeader("Connection", "keep-alive");
+    reply.raw.setHeader("X-Accel-Buffering", "no");
+    if (typeof reply.raw.flushHeaders === "function") reply.raw.flushHeaders();
+
+    let closed = false;
+    const writeEvent = (payload: object) => {
+      if (closed) return;
+      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    const finish = () => {
+      if (closed) return;
+      closed = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+      try {
+        reply.raw.end();
+      } catch {
+        /* ignore */
+      }
+    };
+
+    writeEvent({ type: "snapshot", task });
+
+    const onUpdate = (updated: Task) => {
+      writeEvent({ type: "update", task: updated });
+      if (updated.status !== "running" && !isTaskRunning(updated.id)) {
+        writeEvent({ type: "end", status: updated.status });
+        finish();
+      }
+    };
+
+    const unsubscribe = subscribeTaskUpdates(taskId, onUpdate);
+
+    const heartbeat = setInterval(() => {
+      if (!closed) reply.raw.write(": heartbeat\n\n");
+    }, 20000);
+
+    req.raw.on("close", finish);
+
+    if (task.status !== "running" && !isTaskRunning(taskId)) {
+      writeEvent({ type: "end", status: task.status });
+      finish();
+    }
   });
 
   app.post<{
