@@ -53,6 +53,7 @@ export interface CreateTaskInput {
   title: string;
   prompt: string;
   projectDir?: string;
+  workItemId?: string;
   issueCode?: string;
   skill?: string;
   agentProfileId?: string;
@@ -145,6 +146,25 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     ? resolveTaskAgent(opts, settings, input)
     : resolveAgentConfig(null, settings, input);
   const now = Date.now();
+  let workItemId = "";
+  let issueCode = input.issueCode ?? "";
+  if (opts) {
+    const workItem = opts.db.resolveOrCreateWorkItem(
+      {
+        workItemId: input.workItemId,
+        issueCode: input.issueCode,
+        title: input.title,
+        projectDir: input.projectDir,
+        agentProfileId: resolved.agentProfileId,
+      },
+      settings,
+    );
+    if (workItem) {
+      workItemId = workItem.id;
+      if (!issueCode && workItem.issueCode) issueCode = workItem.issueCode;
+      opts.db.touchWorkItem(workItem.id, { status: "in_progress" });
+    }
+  }
   return {
     id: newTaskId(),
     taskType: "skill",
@@ -159,7 +179,8 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     parentTaskId: "",
     workflowNodeIndex: null,
     projectDir: input.projectDir ?? process.cwd(),
-    issueCode: input.issueCode ?? "",
+    workItemId,
+    issueCode,
     title: clipTitle(input.title),
     prompt: clipPrompt(input.prompt),
     agentProfileId: resolved.agentProfileId,

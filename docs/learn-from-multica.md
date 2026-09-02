@@ -26,7 +26,7 @@
 
 | # | 主题 | Multica 做法 | agent-desk 现状 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Issue ≠ Task | Issue 是持续工作；Task 是一次执行；一个 Issue 可有多次运行 | 任务生命周期偏「一次跑完」 | **可做 MVP** | Schema 拆「工作项 + 执行记录」；保留现有 task API 兼容层 |
+| 1 | Issue ≠ Task | Issue 是持续工作；Task 是一次执行；一个 Issue 可有多次运行 | WorkItem（`wi_`）+ Task 执行记录；缺陷页「工作项」时间线 | **已有**（MVP） | 保留 `issueCode` 与 task API；`workItemId` 可选 |
 | 2 | Agent 是队友身份 | 名字、指令、模型、Skills、Access、绑定 Runtime | 可命名 Agent 配置（provider/model/skill/instructions）+ 任务/workflow 绑定 | **已有** | 设置页 CRUD；新建任务与流程步骤可选 Agent |
 | 3 | 控制面 / 执行面分离 | 服务端排队；本机 daemon claim 再 spawn CLI | 单机 Fastify 直跑 | **可做 MVP** | 即使仍本地优先，也可引入「队列领取 + 心跳」；远程机为长期 |
 | 4 | 多种触发入口 | 分配 / @提及 / Chat / Autopilot | 建任务 / 跑 workflow / GitHub 修缺陷 | **可做 MVP** | 先扩「分配到 Agent」与定时；Chat/@ 可后置 |
@@ -156,6 +156,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-02 | #1 Issue ≠ Task MVP：WorkItem 表、`/api/work-items`、缺陷页工作项与执行时间线 |
 | 2026-09-02 | #10 Runtime 发现：启动探测日志、`GET /api/runtimes`、设置页与智能体页展示 CLI 状态 |
 | 2026-09-02 | #6 任务队列与自动重试：bootstrap 队列、设置 UI、失败码与排队状态展示 |
 | 2026-09-02 | #5 待办 / Inbox MVP：侧栏入口、`GET /api/inbox`、闸门快捷回复 |

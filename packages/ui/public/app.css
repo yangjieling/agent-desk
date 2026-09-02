@@ -371,6 +371,8 @@
   .badge.comp-warn { background: #fff4e5; color: #b8730a; }
   .badge.comp-none { background: #f0f1f2; color: #909399; }
   .bug-empty, .bug-loading { text-align: center; color: #9aa0a6; padding: 40px 0; }
+  .bug-link-btn { border: none; background: none; padding: 0; font: inherit; color: #1a73e8; cursor: pointer; text-decoration: underline; }
+  .bug-link-btn:hover { color: #1557b0; }
   .bug-table .muted { color: #9aa0a6; }
   .btn-fix { background: #2f6feb; color: #fff; border: none; padding: 5px 12px;
              border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
@@ -1080,6 +1082,23 @@
   .runtime-card-error { margin-top: 4px; font-size: 12px; color: #b45309; line-height: 1.4; }
   .runtime-toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
   .runtime-probed-at { font-size: 12px; color: #9aa0a6; }
+
+  .work-item-modal { width: min(720px, 92vw); max-width: 720px; height: min(72vh, 640px); }
+  .work-item-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 18px; }
+  .work-item-desc { margin: 0 0 14px; font-size: 13px; color: #5f6368; line-height: 1.5; white-space: pre-wrap; }
+  .work-item-runs-title { margin: 0 0 10px; font-size: 13px; font-weight: 600; color: #1f2329; }
+  .work-item-runs { display: flex; flex-direction: column; gap: 8px; }
+  .work-item-loading, .work-item-empty { padding: 24px 8px; text-align: center; font-size: 13px; color: #9aa0a6; }
+  .work-item-run {
+    display: flex; align-items: center; gap: 12px; padding: 12px 14px;
+    border: 1px solid #e8eaed; border-radius: 10px; background: #fafbfc; cursor: pointer;
+  }
+  .work-item-run:hover { background: #f3f6fc; border-color: #c9daf8; }
+  .work-item-run-main { flex: 1; min-width: 0; }
+  .work-item-run-title { font-size: 14px; font-weight: 500; color: #1f2329;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .work-item-run-meta { margin-top: 3px; font-size: 12px; color: #9aa0a6; }
+  .work-item-run-status { flex-shrink: 0; font-size: 12px; font-weight: 500; color: #5f6368; }
 
   .agents-page-list { display: flex; flex-direction: column; gap: 0; }
   .agent-card { display: flex; align-items: center; gap: 14px; padding: 16px 10px;

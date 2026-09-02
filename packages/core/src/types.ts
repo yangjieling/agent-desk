@@ -31,6 +31,24 @@ export interface AgentProfile {
   updatedAt: number;
 }
 
+export type WorkItemStatus = "open" | "in_progress" | "done" | "cancelled";
+
+export interface WorkItem {
+  id: string;
+  title: string;
+  description: string;
+  status: WorkItemStatus;
+  projectDir: string;
+  /** Issue provider id when linked to external issue (manual, github, …). */
+  issueProvider: string;
+  /** External issue code, e.g. #42. Empty for ad-hoc local work items. */
+  issueCode: string;
+  agentProfileId: string;
+  createdAt: number;
+  updatedAt: number;
+  lastActivityAt: number;
+}
+
 export interface Task {
   id: string;
   taskType: TaskType;
@@ -45,6 +63,8 @@ export interface Task {
   parentTaskId: string;
   workflowNodeIndex: number | null;
   projectDir: string;
+  /** Local work item this execution belongs to. */
+  workItemId: string;
   issueCode: string;
   title: string;
   prompt: string;

@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/work-item.json",
+  "title": "WorkItem",
+  "type": "object",
+  "required": ["id", "title", "status", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^wi_" },
+    "title": { "type": "string", "maxLength": 200 },
+    "description": { "type": "string" },
+    "status": { "enum": ["open", "in_progress", "done", "cancelled"] },
+    "projectDir": { "type": "string" },
+    "issueProvider": { "type": "string" },
+    "issueCode": { "type": "string" },
+    "agentProfileId": { "type": "string" },
+    "createdAt": { "type": "integer" },
+    "updatedAt": { "type": "integer" },
+    "lastActivityAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

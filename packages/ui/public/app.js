@@ -77,6 +77,13 @@ const STATUS_LABEL = {
   stopped: "已停止",
 };
 
+const WORK_ITEM_STATUS_LABEL = {
+  open: "进行中",
+  in_progress: "执行中",
+  done: "已完成",
+  cancelled: "已取消",
+};
+
 const FAILURE_CODE_LABEL = {
   workspace_busy: "工作区占用",
   spawn_error: "启动失败",
@@ -4444,18 +4451,18 @@ function renderDashIssueItem(i) {
   const when = esc(fmtTime(i.updatedAt));
   const codeAttr = esc(i.code || "").replace(/'/g, "\\'");
   const related = relatedTaskForIssue(i.code);
-  const taskId = related ? esc(related.id) : "";
   const busy =
-    related && ["running", "awaiting", "created", "preparing"].includes(String(related.status || ""));
+    related && ["running", "awaiting", "created", "preparing", "queued"].includes(String(related.status || ""));
   let ops = "";
   if (busy) {
     ops =
       `<button type="button" class="btn-outline" disabled title="已有关联任务进行中">AI 修复</button>` +
-      `<button type="button" class="btn-outline" onclick="openIssueTask('${taskId}')">查看任务</button>`;
+      `<button type="button" class="btn-outline" onclick="openWorkItemByIssue('${codeAttr}')">工作项</button>`;
   } else {
     ops = `<button type="button" class="btn-outline" onclick="startTaskFromIssue('${codeAttr}')">AI 修复</button>`;
-    if (related) {
-      ops += `<button type="button" class="btn-outline" onclick="openIssueTask('${taskId}')">查看任务</button>`;
+    const execCount = executionCountForIssue(i.code);
+    if (execCount > 0) {
+      ops += `<button type="button" class="btn-outline" onclick="openWorkItemByIssue('${codeAttr}')">工作项 (${execCount})</button>`;
     }
   }
   return `<div class="dash-item">
@@ -4485,7 +4492,7 @@ function relatedTaskForIssue(code) {
   const rows = tasksForIssue(code);
   if (!rows.length) return null;
   const busy = rows.find((t) =>
-    ["running", "awaiting", "created", "preparing"].includes(String(t.status || "")),
+    ["running", "awaiting", "created", "preparing", "queued"].includes(String(t.status || "")),
   );
   if (busy) return busy;
   return rows
@@ -4494,6 +4501,120 @@ function relatedTaskForIssue(code) {
       (a, b) =>
         Number(b.lastActivityAt || b.updatedAt || 0) - Number(a.lastActivityAt || a.updatedAt || 0),
     )[0];
+}
+
+function executionCountForIssue(code) {
+  return tasksForIssue(code).length;
+}
+
+async function openWorkItemByIssue(code) {
+  const c = String(code || "").trim();
+  if (!c) return;
+  const mask = document.getElementById("workItemMask");
+  const runs = document.getElementById("workItemRuns");
+  if (mask) mask.classList.add("show");
+  if (runs) runs.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  document.getElementById("workItemTitle").textContent = "工作项";
+  document.getElementById("workItemMeta").innerHTML = "";
+  const descEl = document.getElementById("workItemDesc");
+  if (descEl) {
+    descEl.hidden = true;
+    descEl.textContent = "";
+  }
+  try {
+    const data = await api(`/api/issues/${encodeURIComponent(c)}/work-item`);
+    renderWorkItemModal(data);
+  } catch (e) {
+    if (runs) runs.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
+  }
+}
+
+async function openWorkItemById(id) {
+  const wid = String(id || "").trim();
+  if (!wid) return;
+  const mask = document.getElementById("workItemMask");
+  const runs = document.getElementById("workItemRuns");
+  if (mask) mask.classList.add("show");
+  if (runs) runs.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  try {
+    const data = await api(`/api/work-items/${encodeURIComponent(wid)}`);
+    renderWorkItemModal(data);
+  } catch (e) {
+    if (runs) runs.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
+  }
+}
+
+function renderWorkItemModal(data) {
+  const item = data?.workItem;
+  const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+  if (!item) return;
+  const titleEl = document.getElementById("workItemTitle");
+  const metaEl = document.getElementById("workItemMeta");
+  const descEl = document.getElementById("workItemDesc");
+  const runsEl = document.getElementById("workItemRuns");
+  if (titleEl) titleEl.textContent = item.title || item.issueCode || "工作项";
+  if (metaEl) {
+    const chips = [];
+    const st = item.status || "open";
+    chips.push(`<span class="log-meta-chip">${esc(WORK_ITEM_STATUS_LABEL[st] || st)}</span>`);
+    if (item.issueCode) chips.push(`<span class="log-meta-chip bug-code">${esc(item.issueCode)}</span>`);
+    const proj = shortPath(item.projectDir);
+    if (proj && proj !== "-") chips.push(`<span class="log-meta-chip">${esc(proj)}</span>`);
+    chips.push(`<span class="log-meta-chip">${tasks.length} 次执行</span>`);
+    metaEl.innerHTML = chips.join("");
+  }
+  if (descEl) {
+    const desc = String(item.description || "").trim();
+    if (desc) {
+      descEl.hidden = false;
+      descEl.textContent = desc;
+    } else {
+      descEl.hidden = true;
+      descEl.textContent = "";
+    }
+  }
+  if (!runsEl) return;
+  if (!tasks.length) {
+    runsEl.innerHTML = '<div class="work-item-empty">尚无执行记录。可从缺陷列表发起 AI 修复。</div>';
+    return;
+  }
+  runsEl.innerHTML = tasks
+    .map((t) => {
+      const st = String(t.status || "");
+      const when = fmtTime(t.lastActivityAt || t.updatedAt);
+      const wf = (t.workflowName || t.workflow_name || "").trim();
+      const meta = [STATUS_LABEL[st] || st, when, wf].filter(Boolean).join(" · ");
+      return `<div class="work-item-run" data-task="${esc(t.id)}" role="button" tabindex="0">
+        <div class="work-item-run-main">
+          <div class="work-item-run-title">${esc(t.title || t.id)}</div>
+          <div class="work-item-run-meta">${esc(meta)}</div>
+        </div>
+        <span class="work-item-run-status log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st)}</span>
+      </div>`;
+    })
+    .join("");
+  runsEl.querySelectorAll(".work-item-run").forEach((row) => {
+    const open = () => {
+      closeWorkItemModal();
+      openTaskView(row.dataset.task);
+    };
+    row.addEventListener("click", open);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        open();
+      }
+    });
+  });
+}
+
+function closeWorkItemModal() {
+  const mask = document.getElementById("workItemMask");
+  if (mask) mask.classList.remove("show");
+}
+
+function onWorkItemMaskClick(e) {
+  if (e.target.id === "workItemMask") closeWorkItemModal();
 }
 
 function openIssueTask(taskId) {
@@ -4579,22 +4700,23 @@ function renderBugs() {
       const link = url
         ? `<a class="bug-code" href="${esc(url)}" target="_blank" rel="noopener">${code}</a>`
         : `<span class="bug-code">${code}</span>`;
+      const execCount = executionCountForIssue(b.code);
       const related = relatedTaskForIssue(b.code);
-      const busy = related && ["running", "awaiting", "created", "preparing"].includes(String(related.status || ""));
+      const busy = related && ["running", "awaiting", "created", "preparing", "queued"].includes(String(related.status || ""));
       let ops = `<span class="bug-ops">`;
       if (busy) {
         ops +=
           `<button type="button" class="btn-fix" disabled title="已有关联任务进行中">AI 修复</button>` +
-          `<button type="button" class="btn-task" data-task="${esc(related.id)}">查看任务</button>`;
+          `<button type="button" class="btn-task" data-issue="${codeAttr}">工作项</button>`;
       } else {
         ops += `<button type="button" class="btn-fix" data-code="${codeAttr}">AI 修复</button>`;
-        if (related) {
-          ops += `<button type="button" class="btn-task" data-task="${esc(related.id)}">查看任务</button>`;
+        if (execCount > 0) {
+          ops += `<button type="button" class="btn-task" data-issue="${codeAttr}">工作项 (${execCount})</button>`;
         }
       }
       ops += `</span>`;
-      const relatedCell = related
-        ? `<span class="bug-code" title="${esc(related.title || related.id)}">${esc(STATUS_LABEL[related.status] || related.status)}</span>`
+      const relatedCell = execCount
+        ? `<button type="button" class="bug-link-btn" data-issue="${codeAttr}" title="查看执行记录">${execCount} 次</button>`
         : '<span class="muted">-</span>';
       return (
         `<tr>` +
@@ -4611,7 +4733,7 @@ function renderBugs() {
     .join("");
   box.innerHTML =
     '<table class="bug-table"><thead><tr>' +
-    "<th>编号</th><th>状态</th><th>严重程度</th><th>标题</th><th>关联任务</th><th>更新</th><th>操作</th>" +
+    "<th>编号</th><th>状态</th><th>严重程度</th><th>标题</th><th>执行</th><th>更新</th><th>操作</th>" +
     `</tr></thead><tbody>${rows}</tbody></table>`;
   renderBugPager(list.length, BUG_PAGE, BUG_PAGE_SIZE);
   box.querySelectorAll(".btn-fix").forEach((btn) => {
@@ -4620,8 +4742,11 @@ function renderBugs() {
       startTaskFromIssue(btn.dataset.code);
     });
   });
-  box.querySelectorAll(".btn-task[data-task]").forEach((btn) => {
-    btn.addEventListener("click", () => openIssueTask(btn.dataset.task));
+  box.querySelectorAll(".btn-task[data-issue]").forEach((btn) => {
+    btn.addEventListener("click", () => openWorkItemByIssue(btn.dataset.issue));
+  });
+  box.querySelectorAll(".bug-link-btn[data-issue]").forEach((btn) => {
+    btn.addEventListener("click", () => openWorkItemByIssue(btn.dataset.issue));
   });
 }
 

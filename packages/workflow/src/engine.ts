@@ -96,6 +96,7 @@ export function createWorkflowTask(
     prompt?: string;
     projectDir?: string;
     issueCode?: string;
+    workItemId?: string;
     agentProfileId?: string;
   },
   opts?: RunnerOptions,
@@ -108,6 +109,23 @@ export function createWorkflowTask(
         { agentProfileId: input.agentProfileId },
       );
   const now = Date.now();
+  let workItemId = "";
+  let issueCode = input.issueCode ?? "";
+  const workItem = db.resolveOrCreateWorkItem(
+    {
+      workItemId: input.workItemId,
+      issueCode: input.issueCode,
+      title: input.title ?? workflow.name,
+      projectDir: input.projectDir,
+      agentProfileId: resolved.agentProfileId,
+    },
+    settings,
+  );
+  if (workItem) {
+    workItemId = workItem.id;
+    if (!issueCode && workItem.issueCode) issueCode = workItem.issueCode;
+    db.touchWorkItem(workItem.id, { status: "in_progress" });
+  }
   const task: Task = {
     id: newTaskId(),
     taskType: "workflow",
@@ -122,7 +140,8 @@ export function createWorkflowTask(
     parentTaskId: "",
     workflowNodeIndex: null,
     projectDir: input.projectDir ?? process.cwd(),
-    issueCode: input.issueCode ?? "",
+    workItemId,
+    issueCode,
     title: clipTitle(input.title ?? workflow.name),
     prompt: clipPrompt(input.prompt ?? ""),
     agentProfileId: resolved.agentProfileId,
@@ -424,6 +443,7 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
         prompt,
         projectDir: run.projectDir,
         issueCode: run.issueCode,
+        workItemId: parent?.workItemId,
         skill: wfNode.skill,
         agentProfileId: nodeAgent.agentProfileId,
         codingAgent: nodeAgent.codingAgent,

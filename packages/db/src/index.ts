@@ -4,11 +4,16 @@ import path from "node:path";
 import Database from "better-sqlite3";
 import {
   DEFAULT_SETTINGS,
+  clipTitle,
   newAgentId,
+  newWorkItemId,
+  normalizeIssueCode,
   type AgentProfile,
   type Settings,
   type Task,
   type TaskStatus,
+  type WorkItem,
+  type WorkItemStatus,
 } from "@agent-desk/core";
 
 export interface DbPaths {
@@ -46,6 +51,7 @@ function rowToTask(row: Record<string, unknown>): Task {
         ? null
         : Number(row.workflow_node_index),
     projectDir: String(row.project_dir ?? ""),
+    workItemId: String(row.work_item_id ?? ""),
     issueCode: String(row.issue_code ?? ""),
     title: String(row.title ?? ""),
     prompt: String(row.prompt ?? ""),
@@ -77,6 +83,34 @@ function rowToAgent(row: Record<string, unknown>): AgentProfile {
     updatedAt: Number(row.updated_at),
   };
 }
+
+function rowToWorkItem(row: Record<string, unknown>): WorkItem {
+  return {
+    id: String(row.id),
+    title: String(row.title ?? ""),
+    description: String(row.description ?? ""),
+    status: (String(row.status ?? "open") || "open") as WorkItemStatus,
+    projectDir: String(row.project_dir ?? ""),
+    issueProvider: String(row.issue_provider ?? ""),
+    issueCode: String(row.issue_code ?? ""),
+    agentProfileId: String(row.agent_profile_id ?? ""),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    lastActivityAt: Number(row.last_activity_at),
+  };
+}
+
+export interface ResolveWorkItemInput {
+  workItemId?: string;
+  issueCode?: string;
+  issueProvider?: string;
+  title?: string;
+  description?: string;
+  projectDir?: string;
+  agentProfileId?: string;
+}
+
+const ACTIVE_TASK_STATUSES = new Set(["created", "queued", "running", "awaiting"]);
 
 const AGENT_PRESETS: Record<string, { name: string; defaultSkill: string }> = {
   claude: { name: "Claude", defaultSkill: "default" },
@@ -147,6 +181,26 @@ export class AgentDeskDb {
     this.ensureTaskColumn("failure_code", "TEXT DEFAULT ''");
     this.ensureTaskColumn("failure_message", "TEXT DEFAULT ''");
     this.ensureTaskColumn("next_retry_at", "INTEGER DEFAULT 0");
+    this.ensureTaskColumn("work_item_id", "TEXT");
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS work_items (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'open',
+        project_dir TEXT NOT NULL DEFAULT '',
+        issue_provider TEXT NOT NULL DEFAULT '',
+        issue_code TEXT NOT NULL DEFAULT '',
+        issue_code_norm TEXT NOT NULL DEFAULT '',
+        agent_profile_id TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        last_activity_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(issue_provider, issue_code_norm);
+      CREATE INDEX IF NOT EXISTS idx_work_items_updated ON work_items(updated_at DESC);
+    `);
+    this.backfillWorkItemsFromTasks();
     this.ensureDefaultAgents();
   }
 
@@ -292,13 +346,13 @@ export class AgentDeskDb {
         `INSERT INTO tasks (
           id, task_type, status, skill, workflow_id, workflow_run_id, workflow_name,
           workflow_mode, workflow_step, workflow_step_total, parent_task_id,
-          workflow_node_index, project_dir, issue_code, title, prompt, agent_profile_id, coding_agent, model,
+          workflow_node_index, project_dir, work_item_id, issue_code, title, prompt, agent_profile_id, coding_agent, model,
           session_id, result, gate_notify_hash, retry_count, failure_code, failure_message, next_retry_at,
           created_at, updated_at, last_activity_at
         ) VALUES (
           @id, @taskType, @status, @skill, @workflowId, @workflowRunId, @workflowName,
           @workflowMode, @workflowStep, @workflowStepTotal, @parentTaskId,
-          @workflowNodeIndex, @projectDir, @issueCode, @title, @prompt, @agentProfileId, @codingAgent, @model,
+          @workflowNodeIndex, @projectDir, @workItemId, @issueCode, @title, @prompt, @agentProfileId, @codingAgent, @model,
           @sessionId, @result, @gateNotifyHash, @retryCount, @failureCode, @failureMessage, @nextRetryAt,
           @createdAt, @updatedAt, @lastActivityAt
         )
@@ -308,7 +362,7 @@ export class AgentDeskDb {
           workflow_name=excluded.workflow_name, workflow_mode=excluded.workflow_mode,
           workflow_step=excluded.workflow_step, workflow_step_total=excluded.workflow_step_total,
           parent_task_id=excluded.parent_task_id, workflow_node_index=excluded.workflow_node_index,
-          project_dir=excluded.project_dir, issue_code=excluded.issue_code, title=excluded.title,
+          project_dir=excluded.project_dir, work_item_id=excluded.work_item_id, issue_code=excluded.issue_code, title=excluded.title,
           prompt=excluded.prompt, agent_profile_id=excluded.agent_profile_id, coding_agent=excluded.coding_agent, model=excluded.model,
           session_id=excluded.session_id, result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
           retry_count=excluded.retry_count, failure_code=excluded.failure_code,
@@ -329,6 +383,7 @@ export class AgentDeskDb {
         parentTaskId: task.parentTaskId,
         workflowNodeIndex: task.workflowNodeIndex,
         projectDir: task.projectDir,
+        workItemId: task.workItemId,
         issueCode: task.issueCode,
         title: task.title,
         prompt: task.prompt,
@@ -346,6 +401,7 @@ export class AgentDeskDb {
         updatedAt: task.updatedAt,
         lastActivityAt: task.lastActivityAt,
       });
+    if (task.workItemId) this.syncWorkItemStatus(task.workItemId);
   }
 
   updateTask(id: string, patch: Partial<Task>): Task | null {
@@ -360,12 +416,218 @@ export class AgentDeskDb {
       lastActivityAt: patch.lastActivityAt ?? now,
     };
     this.upsertTask(next);
+    if (next.workItemId) this.syncWorkItemStatus(next.workItemId);
     return next;
   }
 
   deleteTask(id: string): boolean {
     const r = this.db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
     return r.changes > 0;
+  }
+
+  listWorkItems(limit = 100): WorkItem[] {
+    const rows = this.db
+      .prepare("SELECT * FROM work_items ORDER BY last_activity_at DESC LIMIT ?")
+      .all(limit) as Record<string, unknown>[];
+    return rows.map(rowToWorkItem);
+  }
+
+  getWorkItem(id: string): WorkItem | null {
+    const row = this.db.prepare("SELECT * FROM work_items WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToWorkItem(row) : null;
+  }
+
+  findWorkItemByIssue(issueProvider: string, issueCode: string): WorkItem | null {
+    const norm = normalizeIssueCode(issueCode);
+    if (!norm) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM work_items
+         WHERE issue_provider = @issueProvider AND issue_code_norm = @norm
+         LIMIT 1`,
+      )
+      .get({ issueProvider: issueProvider || "", norm }) as Record<string, unknown> | undefined;
+    return row ? rowToWorkItem(row) : null;
+  }
+
+  listTasksForWorkItem(workItemId: string, limit = 200): Task[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE work_item_id = @workItemId
+         ORDER BY created_at DESC LIMIT @limit`,
+      )
+      .all({ workItemId, limit }) as Record<string, unknown>[];
+    return rows.map(rowToTask);
+  }
+
+  upsertWorkItem(item: WorkItem): void {
+    const norm = normalizeIssueCode(item.issueCode);
+    this.db
+      .prepare(
+        `INSERT INTO work_items (
+          id, title, description, status, project_dir, issue_provider, issue_code,
+          issue_code_norm, agent_profile_id, created_at, updated_at, last_activity_at
+        ) VALUES (
+          @id, @title, @description, @status, @projectDir, @issueProvider, @issueCode,
+          @issueCodeNorm, @agentProfileId, @createdAt, @updatedAt, @lastActivityAt
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          title=excluded.title, description=excluded.description, status=excluded.status,
+          project_dir=excluded.project_dir, issue_provider=excluded.issue_provider,
+          issue_code=excluded.issue_code, issue_code_norm=excluded.issue_code_norm,
+          agent_profile_id=excluded.agent_profile_id,
+          updated_at=excluded.updated_at, last_activity_at=excluded.last_activity_at`,
+      )
+      .run({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        status: item.status,
+        projectDir: item.projectDir,
+        issueProvider: item.issueProvider,
+        issueCode: item.issueCode,
+        issueCodeNorm: norm,
+        agentProfileId: item.agentProfileId,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+        lastActivityAt: item.lastActivityAt,
+      });
+  }
+
+  touchWorkItem(workItemId: string, patch?: Partial<Pick<WorkItem, "status" | "title" | "projectDir">>): void {
+    const current = this.getWorkItem(workItemId);
+    if (!current) return;
+    const now = Date.now();
+    this.upsertWorkItem({
+      ...current,
+      ...patch,
+      updatedAt: now,
+      lastActivityAt: now,
+    });
+  }
+
+  resolveOrCreateWorkItem(input: ResolveWorkItemInput, settings: Settings): WorkItem | null {
+    const workItemId = (input.workItemId || "").trim();
+    if (workItemId) return this.getWorkItem(workItemId);
+
+    const issueCode = String(input.issueCode || "").trim();
+    const norm = normalizeIssueCode(issueCode);
+    if (!norm) return null;
+
+    const issueProvider = (input.issueProvider || settings.providers.issue || "").trim();
+    const existing = this.findWorkItemByIssue(issueProvider, issueCode);
+    if (existing) return existing;
+
+    const now = Date.now();
+    const displayCode = issueCode.startsWith("#") ? issueCode : `#${norm}`;
+    const item: WorkItem = {
+      id: newWorkItemId(),
+      title: clipTitle(input.title || displayCode, displayCode, 200),
+      description: String(input.description || "").trim(),
+      status: "open",
+      projectDir: path.resolve(input.projectDir || process.cwd()),
+      issueProvider,
+      issueCode: displayCode,
+      agentProfileId: String(input.agentProfileId || "").trim(),
+      createdAt: now,
+      updatedAt: now,
+      lastActivityAt: now,
+    };
+    this.upsertWorkItem(item);
+    return item;
+  }
+
+  syncWorkItemStatus(workItemId: string): void {
+    const id = (workItemId || "").trim();
+    if (!id) return;
+    const current = this.getWorkItem(id);
+    if (!current) return;
+    const tasks = this.listTasksForWorkItem(id, 500);
+    let status: WorkItemStatus = "open";
+    if (tasks.some((t) => ACTIVE_TASK_STATUSES.has(t.status))) status = "in_progress";
+    else if (tasks.length && tasks.every((t) => t.status === "done")) status = "done";
+    else if (tasks.length && tasks.every((t) => t.status === "stopped" || t.status === "failed")) {
+      status = "open";
+    }
+    const lastActivityAt = tasks.reduce(
+      (max, t) => Math.max(max, Number(t.lastActivityAt || t.updatedAt || 0)),
+      current.lastActivityAt,
+    );
+    if (status !== current.status || lastActivityAt !== current.lastActivityAt) {
+      this.upsertWorkItem({
+        ...current,
+        status,
+        lastActivityAt,
+        updatedAt: Date.now(),
+      });
+    }
+  }
+
+  private backfillWorkItemsFromTasks(): void {
+    const flag = this.db.prepare("SELECT value FROM settings WHERE key = ?").get("work_items_backfill_v1") as
+      | { value: string }
+      | undefined;
+    if (flag?.value === "1") return;
+
+    const settings = this.getSettings();
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks
+         WHERE TRIM(COALESCE(issue_code, '')) != ''
+         ORDER BY created_at ASC`,
+      )
+      .all() as Record<string, unknown>[];
+
+    const groups = new Map<string, Record<string, unknown>[]>();
+    for (const row of rows) {
+      const provider = settings.providers.issue || "";
+      const norm = normalizeIssueCode(String(row.issue_code ?? ""));
+      if (!norm) continue;
+      const key = `${provider}\0${norm}`;
+      const list = groups.get(key) || [];
+      list.push(row);
+      groups.set(key, list);
+    }
+
+    for (const [, taskRows] of groups) {
+      const first = taskRows[0];
+      const issueCode = String(first.issue_code ?? "");
+      const norm = normalizeIssueCode(issueCode);
+      const provider = settings.providers.issue || "";
+      let workItem = this.findWorkItemByIssue(provider, issueCode);
+      if (!workItem) {
+        const latest = taskRows[taskRows.length - 1];
+        const now = Date.now();
+        workItem = {
+          id: newWorkItemId(),
+          title: clipTitle(String(latest.title ?? issueCode), issueCode, 200),
+          description: "",
+          status: "open",
+          projectDir: String(latest.project_dir ?? ""),
+          issueProvider: provider,
+          issueCode: issueCode.startsWith("#") ? issueCode : `#${norm}`,
+          agentProfileId: String(latest.agent_profile_id ?? ""),
+          createdAt: Number(first.created_at ?? now),
+          updatedAt: now,
+          lastActivityAt: Number(latest.last_activity_at ?? latest.updated_at ?? now),
+        };
+        this.upsertWorkItem(workItem);
+      }
+      for (const row of taskRows) {
+        const taskId = String(row.id);
+        const existingWi = String(row.work_item_id ?? "").trim();
+        if (!existingWi) {
+          this.db.prepare("UPDATE tasks SET work_item_id = ? WHERE id = ?").run(workItem.id, taskId);
+        }
+      }
+      this.syncWorkItemStatus(workItem.id);
+    }
+
+    this.db
+      .prepare("INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run("work_items_backfill_v1", "1");
   }
 
   /** Tasks still using a workspace (created / running / awaiting). */

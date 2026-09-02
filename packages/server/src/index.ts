@@ -621,6 +621,56 @@ export async function createServer(opts: ServerOptions = {}) {
     },
   );
 
+  app.get("/api/work-items", async () => db.listWorkItems(200));
+
+  app.get<{ Params: { id: string } }>("/api/work-items/:id", async (req, reply) => {
+    const item = db.getWorkItem(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    db.syncWorkItemStatus(item.id);
+    const refreshed = db.getWorkItem(item.id) ?? item;
+    const tasks = db.listTasksForWorkItem(item.id, 200);
+    return { workItem: refreshed, tasks };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/work-items/:id/tasks", async (req, reply) => {
+    const item = db.getWorkItem(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    return db.listTasksForWorkItem(item.id, 200);
+  });
+
+  app.get<{ Params: { code: string }; Querystring: { provider?: string; title?: string; projectDir?: string } }>(
+    "/api/issues/:code/work-item",
+    async (req, reply) => {
+      const code = decodeURIComponent(req.params.code || "").trim();
+      if (!code) return reply.code(400).send({ error: "code_required" });
+      const settings = db.getSettings();
+      const issueProvider = (req.query.provider || settings.providers.issue || "manual").trim();
+      let title = String(req.query.title || "").trim();
+      let projectDir = String(req.query.projectDir || "").trim();
+      if (!title || !projectDir) {
+        try {
+          const provider = getIssueProvider(issueProvider);
+          const issue = await provider.getIssue(code);
+          if (issue) {
+            if (!title) title = issue.title;
+            if (!projectDir) projectDir = issue.projectDir;
+          }
+        } catch {
+          /* optional enrichment */
+        }
+      }
+      const workItem = db.resolveOrCreateWorkItem(
+        { issueCode: code, issueProvider, title, projectDir },
+        settings,
+      );
+      if (!workItem) return reply.code(400).send({ error: "work_item_unresolvable" });
+      db.syncWorkItemStatus(workItem.id);
+      const refreshed = db.getWorkItem(workItem.id) ?? workItem;
+      const tasks = db.listTasksForWorkItem(workItem.id, 200);
+      return { workItem: refreshed, tasks };
+    },
+  );
+
   app.get("/api/tasks", async () => db.listTasks());
 
   app.get<{ Params: { id: string } }>("/api/tasks/:id", async (req, reply) => {
@@ -724,6 +774,7 @@ export async function createServer(opts: ServerOptions = {}) {
       prompt?: string;
       projectDir?: string;
       issueCode?: string;
+      workItemId?: string;
       skill?: string;
       agentProfileId?: string;
       codingAgent?: string;
@@ -740,6 +791,7 @@ export async function createServer(opts: ServerOptions = {}) {
         prompt,
         projectDir: req.body.projectDir,
         issueCode: req.body.issueCode,
+        workItemId: req.body.workItemId,
         skill: req.body.skill,
         agentProfileId: req.body.agentProfileId,
         codingAgent: req.body.codingAgent,

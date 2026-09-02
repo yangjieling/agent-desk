@@ -8,7 +8,7 @@
     "id": { "type": "string", "pattern": "^t_" },
     "taskType": { "enum": ["skill", "workflow"] },
     "status": {
-      "enum": ["created", "running", "awaiting", "done", "failed", "stopped"]
+      "enum": ["created", "queued", "running", "awaiting", "done", "failed", "stopped"]
     },
     "skill": { "type": "string" },
     "workflowId": { "type": "string" },
@@ -20,6 +20,7 @@
     "parentTaskId": { "type": "string" },
     "workflowNodeIndex": { "type": ["integer", "null"], "minimum": 0 },
     "projectDir": { "type": "string" },
+    "workItemId": { "type": "string", "description": "Local work item id (wi_…)" },
     "issueCode": { "type": "string" },
     "title": { "type": "string", "maxLength": 80 },
     "prompt": { "type": "string", "maxLength": 8000 },
@@ -29,6 +30,10 @@
     "sessionId": { "type": "string" },
     "result": { "type": "string" },
     "gateNotifyHash": { "type": "string" },
+    "retryCount": { "type": "integer", "minimum": 0 },
+    "failureCode": { "type": "string" },
+    "failureMessage": { "type": "string" },
+    "nextRetryAt": { "type": "integer" },
     "createdAt": { "type": "integer" },
     "updatedAt": { "type": "integer" },
     "lastActivityAt": { "type": "integer" }

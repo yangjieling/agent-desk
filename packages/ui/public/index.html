@@ -796,6 +796,25 @@
   </div>
 </div>
 
+<div class="modal-mask" id="workItemMask" onclick="onWorkItemMaskClick(event)">
+  <div class="modal work-item-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="工作项">
+    <div class="modal-head">
+      <div class="log-head-main">
+        <span class="mt" id="workItemTitle">工作项</span>
+        <div class="log-meta" id="workItemMeta"></div>
+      </div>
+      <button class="mc" type="button" onclick="closeWorkItemModal()">×</button>
+    </div>
+    <div class="work-item-body">
+      <p class="work-item-desc" id="workItemDesc" hidden></p>
+      <h4 class="work-item-runs-title">执行记录</h4>
+      <div id="workItemRuns" class="work-item-runs">
+        <div class="work-item-loading">加载中…</div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="modal-mask" id="wfEditMask" onclick="onWfEditMaskClick(event)">
   <div class="modal wf-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑流程">
     <div class="modal-head">
