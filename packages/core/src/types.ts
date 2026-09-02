@@ -118,7 +118,21 @@ export interface Settings {
    * Environment variables AD_GITHUB_* still override when set.
    */
   github: GitHubSettings;
+  /**
+   * Generic HTTP webhook notify URL stored under ~/.agent-desk.
+   * Environment variable AD_NOTIFY_WEBHOOK_URL still overrides when set.
+   */
+  notifyWebhook: NotifyWebhookSettings;
 }
+
+/** Persisted generic webhook notify settings. */
+export interface NotifyWebhookSettings {
+  url: string;
+}
+
+export const DEFAULT_NOTIFY_WEBHOOK_SETTINGS: NotifyWebhookSettings = {
+  url: "",
+};
 
 /** Persisted DingTalk notify / interactive-card settings (no env required). */
 export interface DingTalkSettings {
@@ -182,6 +196,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   dingtalk: { ...DEFAULT_DINGTALK_SETTINGS },
   github: { ...DEFAULT_GITHUB_SETTINGS },
+  notifyWebhook: { ...DEFAULT_NOTIFY_WEBHOOK_SETTINGS },
 };
 
 export const TITLE_MAX_LEN = 80;

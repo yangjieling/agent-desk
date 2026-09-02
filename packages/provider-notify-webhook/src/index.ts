@@ -4,16 +4,22 @@ import {
   type NotifyProvider,
   type TaskNotifyPayload,
 } from "@agent-desk/provider-notify";
+import { resolveNotifyWebhookUrl } from "./resolve.js";
+
+export { resolveNotifyWebhookUrl, setNotifyWebhookSettingsSource } from "./resolve.js";
 
 export class WebhookNotifyProvider implements NotifyProvider {
   readonly id = "webhook";
   readonly displayName = "Webhook";
 
-  constructor(private readonly webhookUrl = process.env.AD_NOTIFY_WEBHOOK_URL ?? "") {}
+  private webhookUrl(): string {
+    return resolveNotifyWebhookUrl();
+  }
 
   private async post(body: unknown): Promise<void> {
-    if (!this.webhookUrl) return;
-    const res = await fetch(this.webhookUrl, {
+    const url = this.webhookUrl();
+    if (!url) return;
+    const res = await fetch(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
@@ -32,8 +38,8 @@ export class WebhookNotifyProvider implements NotifyProvider {
   }
 }
 
-export function registerWebhookNotifyProvider(url?: string): WebhookNotifyProvider {
-  const provider = new WebhookNotifyProvider(url);
+export function registerWebhookNotifyProvider(): WebhookNotifyProvider {
+  const provider = new WebhookNotifyProvider();
   registerNotifyProvider(provider);
   return provider;
 }

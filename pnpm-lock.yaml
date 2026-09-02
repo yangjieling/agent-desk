@@ -146,6 +146,9 @@ importers:
 
   packages/provider-notify-webhook:
     dependencies:
+      '@agent-desk/core':
+        specifier: workspace:*
+        version: link:../core
       '@agent-desk/provider-notify':
         specifier: workspace:*
         version: link:../provider-notify

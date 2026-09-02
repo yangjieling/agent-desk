@@ -3038,6 +3038,49 @@ function setSubconfigExpanded(card, expanded) {
   if (head) head.setAttribute("aria-expanded", expanded ? "true" : "false");
 }
 
+const settingRowStatusTimers = new WeakMap();
+
+function ensureSettingRowStatus(row) {
+  let el = row.querySelector(".setting-save-status");
+  if (!el) {
+    el = document.createElement("span");
+    el.className = "setting-save-status";
+    el.setAttribute("aria-live", "polite");
+    if (row.classList.contains("is-stack")) {
+      row.appendChild(el);
+    } else {
+      const control = row.querySelector(
+        ".toggle, .setting-dropdown, .setting-select, .setting-secret-wrap",
+      );
+      if (control && control.parentElement === row) {
+        row.insertBefore(el, control);
+      } else {
+        row.appendChild(el);
+      }
+    }
+  }
+  return el;
+}
+
+function setSettingRowStatus(row, status, msg) {
+  if (!row) return;
+  const el = ensureSettingRowStatus(row);
+  const prev = settingRowStatusTimers.get(row);
+  if (prev) clearTimeout(prev);
+  el.className = "setting-save-status";
+  if (status) el.classList.add(`is-${status}`);
+  if (status === "saving") el.textContent = "保存中…";
+  else if (status === "saved") el.textContent = msg || "已保存";
+  else if (status === "error") el.textContent = msg || "保存失败";
+  else el.textContent = "";
+  if (status === "saved") {
+    settingRowStatusTimers.set(
+      row,
+      setTimeout(() => setSettingRowStatus(row, ""), 2000),
+    );
+  }
+}
+
 function bindSubconfigToggles(root) {
   if (!root) return;
   root.querySelectorAll(".setting-subconfig-card").forEach((card) => {
@@ -3797,12 +3840,18 @@ async function initSettingsUI() {
                 : prevStr
                   ? SETTINGS_SECRET_MASK
                   : "";
+            setSettingRowStatus(row, "");
             return;
           }
-          if (nextVal === prevStr) return;
+          if (nextVal === prevStr) {
+            setSettingRowStatus(row, "");
+            return;
+          }
         } else if (nextVal === prevStr) {
+          setSettingRowStatus(row, "");
           return;
         }
+        setSettingRowStatus(row, "saving");
         try {
           const next = await saveSettingsPatch(settingsPatchForKey(key, nextVal));
           state = next;
@@ -3819,13 +3868,13 @@ async function initSettingsUI() {
           } else {
             input.value = isSecret && savedStr ? SETTINGS_SECRET_MASK : savedStr;
           }
-          toast(`已更新：${settingsLabel(row, key)}`);
+          setSettingRowStatus(row, "saved");
         } catch (e) {
           input.value =
             isSecret && prevStr && input.dataset.revealed !== "1"
               ? SETTINGS_SECRET_MASK
               : prevStr;
-          toast(`保存失败: ${e.message || e}`);
+          setSettingRowStatus(row, "error", "保存失败");
         }
       };
       input.onchange = () => {

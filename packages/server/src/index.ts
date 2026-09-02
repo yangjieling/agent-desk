@@ -20,7 +20,7 @@ import {
 } from "@agent-desk/provider-notify-dingtalk";
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
 import { listNotifyProviders } from "@agent-desk/provider-notify";
-import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
+import { registerWebhookNotifyProvider, setNotifyWebhookSettingsSource } from "@agent-desk/provider-notify-webhook";
 import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import {
   createTask,
@@ -47,8 +47,10 @@ import {
 import {
   DEFAULT_DINGTALK_SETTINGS,
   DEFAULT_GITHUB_SETTINGS,
+  DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
   type DingTalkSettings,
   type GitHubSettings,
+  type NotifyWebhookSettings,
   type Settings,
   type Task,
 } from "@agent-desk/core";
@@ -103,6 +105,17 @@ function mergeGitHubSettings(
     ...cur,
     ...patch,
     token: keepSecret(patch.token, cur.token),
+  };
+}
+
+function mergeNotifyWebhookSettings(
+  cur: NotifyWebhookSettings,
+  patch: Partial<NotifyWebhookSettings>,
+): NotifyWebhookSettings {
+  return {
+    ...DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
+    ...cur,
+    ...patch,
   };
 }
 
@@ -164,6 +177,7 @@ export async function createServer(opts: ServerOptions = {}) {
   const db = openDb(dataDir);
   setDingTalkSettingsSource(() => db.getSettings());
   setGitHubSettingsSource(() => db.getSettings());
+  setNotifyWebhookSettingsSource(() => db.getSettings());
   const settings = db.getSettings();
   const runnerOpts = { db, settings, dataDir };
   registerWorkflowHooks(dataDir, runnerOpts);
@@ -285,6 +299,14 @@ export async function createServer(opts: ServerOptions = {}) {
       );
     } else {
       next.github = cur.github;
+    }
+    if (body.notifyWebhook && typeof body.notifyWebhook === "object") {
+      next.notifyWebhook = mergeNotifyWebhookSettings(
+        cur.notifyWebhook,
+        body.notifyWebhook as Partial<NotifyWebhookSettings>,
+      );
+    } else {
+      next.notifyWebhook = cur.notifyWebhook;
     }
     const agentChanged =
       typeof body.defaultAgentId === "string" &&

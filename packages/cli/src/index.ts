@@ -16,7 +16,7 @@ import {
 } from "@agent-desk/provider-notify-dingtalk";
 import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
 import { getNotifyProvider, listNotifyProviders } from "@agent-desk/provider-notify";
-import { registerWebhookNotifyProvider } from "@agent-desk/provider-notify-webhook";
+import { registerWebhookNotifyProvider, setNotifyWebhookSettingsSource } from "@agent-desk/provider-notify-webhook";
 import { createTask, resumeTask, startTask } from "@agent-desk/runner";
 import { startServer } from "@agent-desk/server";
 import { listSkillSummaries, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
@@ -42,6 +42,7 @@ function wireSettingsSources(dataDir: string) {
   const db = openDb(dataDir);
   setDingTalkSettingsSource(() => db.getSettings());
   setGitHubSettingsSource(() => db.getSettings());
+  setNotifyWebhookSettingsSource(() => db.getSettings());
   return db;
 }
 

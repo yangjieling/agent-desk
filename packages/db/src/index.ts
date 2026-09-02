@@ -207,6 +207,10 @@ export class AgentDeskDb {
         ...DEFAULT_SETTINGS.github,
         ...(parsed.github || {}),
       },
+      notifyWebhook: {
+        ...DEFAULT_SETTINGS.notifyWebhook,
+        ...(parsed.notifyWebhook || {}),
+      },
     };
   }
 

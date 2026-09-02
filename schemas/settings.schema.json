@@ -69,6 +69,13 @@
         "apiBase": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "notifyWebhook": {
+      "type": "object",
+      "properties": {
+        "url": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

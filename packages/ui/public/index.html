@@ -444,7 +444,18 @@
                   <span class="setting-subconfig-title">飞书 / Lark</span>
                 </button>
                 <div class="setting-subconfig-body">
-                  <p class="setting-subconfig-desc">当前请用环境变量配置：AD_FEISHU_APP_ID、AD_FEISHU_APP_SECRET、AD_FEISHU_RECEIVE_ID 等。设置页表单后续可补。</p>
+                  <div class="setting-env-guide">
+                    <p class="setting-env-guide-title">通过环境变量配置</p>
+                    <p class="setting-env-guide-desc">飞书 / Lark 需自建应用并开通机器人能力；设置页表单将于后续版本支持。</p>
+                    <ul class="setting-env-guide-list">
+                      <li><code>AD_FEISHU_APP_ID</code></li>
+                      <li><code>AD_FEISHU_APP_SECRET</code></li>
+                      <li><code>AD_FEISHU_RECEIVE_ID</code></li>
+                      <li><code>AD_FEISHU_RECEIVE_ID_TYPE</code>（可选）</li>
+                      <li><code>AD_FEISHU_API_BASE</code>（可选，Lark 国际版）</li>
+                    </ul>
+                    <a class="setting-env-guide-link" href="https://github.com/yangjieling/agent-desk/blob/main/docs/providers.md#feishu-setup" target="_blank" rel="noopener noreferrer">查看配置文档 →</a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -458,7 +469,14 @@
                   <span class="setting-subconfig-title">Webhook</span>
                 </button>
                 <div class="setting-subconfig-body">
-                  <p class="setting-subconfig-desc">通用 HTTP Webhook。详细地址等请按 docs/providers.md 用环境变量配置；设置页表单后续可补。</p>
+                  <p class="setting-subconfig-desc">POST JSON 到目标 URL。保存在 ~/.agent-desk；环境变量 <code>AD_NOTIFY_WEBHOOK_URL</code> 非空时优先。</p>
+                  <div class="setting-row is-stack" data-key="notifyWebhook.url" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">Webhook URL</p>
+                      <p class="sd">接收通知的 HTTP 端点，如 https://example.com/hooks/agent-desk</p>
+                    </div>
+                    <input class="setting-select" type="url" placeholder="https://…">
+                  </div>
                 </div>
               </div>
             </div>
@@ -527,6 +545,7 @@
           <div class="settings-section">
             <h3 class="settings-subtitle">任务默认</h3>
             <p class="settings-section-desc">新建任务与 AI 修复的默认行为</p>
+          <div class="settings-prefs-card">
           <div class="setting-row" data-key="autoConfirmGates">
             <div class="setting-meta">
               <p class="st">闸门自动确认</p>
@@ -560,6 +579,7 @@
               <input type="checkbox" checked>
               <span class="track"><span class="thumb"></span></span>
             </label>
+          </div>
           </div>
           </div>
 
