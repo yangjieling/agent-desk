@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/autopilot.json",
+  "title": "Autopilot",
+  "type": "object",
+  "required": ["id", "name", "status", "action", "cronExpression", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^ap_" },
+    "name": { "type": "string", "maxLength": 120 },
+    "runbook": { "type": "string" },
+    "status": { "enum": ["active", "paused", "archived"] },
+    "action": { "enum": ["skill_task", "workflow_run"] },
+    "executionMode": { "enum": ["run_only", "create_work_item"] },
+    "skill": { "type": "string" },
+    "workflowId": { "type": "string" },
+    "projectDir": { "type": "string" },
+    "agentProfileId": { "type": "string" },
+    "model": { "type": "string" },
+    "titleTemplate": { "type": "string" },
+    "cronExpression": { "type": "string" },
+    "timezone": { "type": "string" },
+    "nextRunAt": { "type": "integer" },
+    "lastRunAt": { "type": "integer" },
+    "concurrencyPolicy": { "enum": ["skip", "allow"] },
+    "createdAt": { "type": "integer" },
+    "updatedAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

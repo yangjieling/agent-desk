@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/autopilot-run.json",
+  "title": "AutopilotRun",
+  "type": "object",
+  "required": ["id", "autopilotId", "source", "status", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^ar_" },
+    "autopilotId": { "type": "string" },
+    "source": { "enum": ["schedule", "manual"] },
+    "status": { "enum": ["pending", "running", "skipped", "completed", "failed"] },
+    "taskId": { "type": "string" },
+    "workflowRunId": { "type": "string" },
+    "workItemId": { "type": "string" },
+    "plannedAt": { "type": "integer" },
+    "triggeredAt": { "type": "integer" },
+    "completedAt": { "type": "integer" },
+    "failureReason": { "type": "string" },
+    "createdAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

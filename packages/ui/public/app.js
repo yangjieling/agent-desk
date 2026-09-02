@@ -114,6 +114,7 @@ const VIEW_TITLES = {
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   agents: ["智能体", "可命名的 Agent 配置：提供方、模型、技能与系统指令"],
+  autopilots: ["自动化", "按计划定时创建任务或启动流程（需 oh web 保持运行）"],
   "tasks-new": ["新建任务", "创建技能任务或启动流程"],
   "tasks-list": ["任务管理", "执行日志、闸门确认与工作区"],
   settings: ["集成与偏好", "通知、缺陷来源与任务默认行为"],
@@ -2016,6 +2017,11 @@ const MODAL_DISMISS_LAYERS = [
     closeDropdownsInRoot: true,
   },
   {
+    id: "autopilotEditMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeAutopilotEditor(),
+  },
+  {
     id: "skillMask",
     isOpen: (el) => !!el?.classList.contains("show"),
     close: () => closeSkillDetail(),
@@ -3631,6 +3637,310 @@ async function loadAgentsPage() {
   await refreshTaskAgentPickers(state);
 }
 
+const AUTOPILOT_CRON_PRESETS = [
+  { value: "*/15 * * * *", label: "每 15 分钟" },
+  { value: "0 * * * *", label: "每小时" },
+  { value: "0 9 * * *", label: "每天 09:00" },
+  { value: "0 9 * * 1-5", label: "工作日 09:00" },
+];
+
+const AUTOPILOT_RUN_STATUS_LABEL = {
+  pending: "排队",
+  running: "触发中",
+  skipped: "已跳过",
+  completed: "已触发",
+  failed: "失败",
+};
+
+let AUTOPILOT_EDIT_ID = "";
+let AUTOPILOT_LIST = [];
+
+function cronPresetLabel(expr) {
+  const hit = AUTOPILOT_CRON_PRESETS.find((p) => p.value === expr);
+  return hit ? hit.label : expr || "-";
+}
+
+function renderAutopilotCard(ap) {
+  const id = esc(ap.id || "");
+  const active = ap.status === "active";
+  const last = ap.lastRun;
+  const lastBit = last
+    ? `${AUTOPILOT_RUN_STATUS_LABEL[last.status] || last.status} · ${fmtTime(last.triggeredAt || last.createdAt)}`
+    : "尚未运行";
+  const meta = [
+    active ? "已启用" : "已暂停",
+    cronPresetLabel(ap.cronExpression),
+    ap.action === "workflow_run" ? `流程 ${ap.workflowId || "-"}` : `技能 ${ap.skill || "default"}`,
+    shortPath(ap.projectDir),
+  ]
+    .filter((x) => x && x !== "-")
+    .join(" · ");
+  const schedule = active
+    ? `下次 ${fmtTime(ap.nextRunAt)} · 上次 ${lastBit}`
+    : `已暂停 · 上次 ${lastBit}`;
+  const runbook = String(ap.runbook || "").trim();
+  const toggleLabel = active ? "暂停" : "启用";
+  const toggleFn = active ? "pauseAutopilot" : "resumeAutopilot";
+  return `<div class="ap-card">
+    <div class="ap-card-main">
+      <div class="ap-card-name">
+        <span>${esc(ap.name || ap.id)}</span>
+        <span class="log-meta-chip${active ? " status-running" : ""}">${active ? "启用" : "暂停"}</span>
+      </div>
+      <div class="ap-card-meta">${esc(meta)}</div>
+      <div class="ap-card-meta">${esc(schedule)}</div>
+      ${runbook ? `<div class="ap-card-runbook">${esc(runbook)}</div>` : ""}
+    </div>
+    <div class="ap-card-actions">
+      <button type="button" class="btn-refresh" onclick="runAutopilotNow('${id}')">立即运行</button>
+      <button type="button" class="btn-outline" onclick="${toggleFn}('${id}')">${toggleLabel}</button>
+      <button type="button" class="btn-refresh" onclick="openAutopilotEditor('${id}')">编辑</button>
+      <button type="button" class="btn-stop" onclick="deleteAutopilot('${id}')">删除</button>
+    </div>
+  </div>`;
+}
+
+async function loadAutopilotsPage() {
+  const box = document.getElementById("autopilotsList");
+  if (!box) return;
+  box.innerHTML = '<div class="wf-empty">加载中…</div>';
+  try {
+    AUTOPILOT_LIST = await api("/api/autopilots");
+    if (!AUTOPILOT_LIST.length) {
+      box.innerHTML =
+        '<div class="wf-empty">暂无自动化。点击「新建自动化」创建第一条定时规则。</div>';
+      return;
+    }
+    box.innerHTML = AUTOPILOT_LIST.map(renderAutopilotCard).join("");
+  } catch (e) {
+    box.innerHTML = `<div class="wf-empty">加载失败: ${esc(e.message || e)}</div>`;
+  }
+}
+
+function onAutopilotEditMaskClick(e) {
+  if (e.target.id === "autopilotEditMask") closeAutopilotEditor();
+}
+
+function closeAutopilotEditor() {
+  const mask = document.getElementById("autopilotEditMask");
+  if (mask) mask.classList.remove("show");
+  AUTOPILOT_EDIT_ID = "";
+}
+
+function onAutopilotActionChange() {
+  const action = document.getElementById("ap-ed-action")?.value || "skill_task";
+  const skillWrap = document.getElementById("ap-ed-skill-wrap");
+  const wfWrap = document.getElementById("ap-ed-wf-wrap");
+  if (skillWrap) skillWrap.hidden = action !== "skill_task";
+  if (wfWrap) wfWrap.hidden = action !== "workflow_run";
+}
+
+function onAutopilotPresetChange() {
+  const preset = document.getElementById("ap-ed-preset")?.value || "";
+  const wrap = document.getElementById("ap-ed-cron-wrap");
+  const cron = document.getElementById("ap-ed-cron");
+  const custom = preset === "custom";
+  if (wrap) wrap.hidden = !custom;
+  if (!custom && cron) cron.value = preset;
+  void previewAutopilotCron();
+}
+
+async function previewAutopilotCron() {
+  const el = document.getElementById("ap-ed-cron-preview");
+  if (!el) return;
+  const preset = document.getElementById("ap-ed-preset")?.value || "";
+  const expression =
+    preset === "custom"
+      ? (document.getElementById("ap-ed-cron")?.value || "").trim()
+      : preset;
+  if (!expression) {
+    el.textContent = "";
+    return;
+  }
+  try {
+    const d = await api("/api/autopilots/cron/preview", {
+      method: "POST",
+      body: JSON.stringify({ expression, count: 3 }),
+    });
+    const times = (d.next || []).map((t) => fmtTime(t)).filter(Boolean);
+    el.textContent = times.length ? `接下来：${times.join(" · ")}` : "无法计算下次运行时间";
+  } catch (e) {
+    el.textContent = `Cron 无效：${e.message || e}`;
+  }
+}
+
+async function fillAutopilotEditorSelects(ap) {
+  const skillSel = document.getElementById("ap-ed-skill");
+  const wfSel = document.getElementById("ap-ed-workflow");
+  const agentSel = document.getElementById("ap-ed-agent");
+  if (skillSel) {
+    let skills = [];
+    try {
+      skills = await api("/api/skills");
+    } catch {
+      skills = [];
+    }
+    const cur = (ap && ap.skill) || "default";
+    const ids = new Set(skills.map((s) => s.id || s.name).filter(Boolean));
+    if (cur && !ids.has(cur)) skills = [{ id: cur, name: cur }, ...skills];
+    skillSel.innerHTML = (skills.length ? skills : [{ id: "default", name: "default" }])
+      .map((s) => {
+        const id = s.id || s.name || "default";
+        return `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(s.name || id)}</option>`;
+      })
+      .join("");
+  }
+  if (wfSel) {
+    let wfs = [];
+    try {
+      wfs = await api("/api/workflows");
+    } catch {
+      wfs = [];
+    }
+    const cur = (ap && ap.workflowId) || "";
+    wfSel.innerHTML =
+      `<option value="">选择流程…</option>` +
+      wfs
+        .map((w) => {
+          const id = w.id || "";
+          return `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(w.name || id)}</option>`;
+        })
+        .join("");
+  }
+  if (agentSel) {
+    await loadAgentProfiles();
+    const cur = (ap && ap.agentProfileId) || "";
+    agentSel.innerHTML =
+      `<option value="">（跟随默认）</option>` +
+      AGENT_PROFILES.map((a) => {
+        return `<option value="${esc(a.id)}"${a.id === cur ? " selected" : ""}>${esc(agentProfileLabel(a))}</option>`;
+      }).join("");
+  }
+}
+
+async function openAutopilotEditor(id) {
+  AUTOPILOT_EDIT_ID = String(id || "").trim();
+  let ap = null;
+  if (AUTOPILOT_EDIT_ID) {
+    try {
+      ap = await api(`/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}`);
+    } catch (e) {
+      toast(`加载失败: ${e.message || e}`);
+      return;
+    }
+  }
+  document.getElementById("apEditTitle").textContent = ap ? "编辑自动化" : "新建自动化";
+  document.getElementById("ap-ed-name").value = ap?.name || "";
+  document.getElementById("ap-ed-runbook").value = ap?.runbook || "";
+  document.getElementById("ap-ed-action").value = ap?.action || "skill_task";
+  document.getElementById("ap-ed-mode").value = ap?.executionMode || "run_only";
+  document.getElementById("ap-ed-status").value = ap?.status === "paused" ? "paused" : "active";
+  document.getElementById("ap-ed-dir").value =
+    ap?.projectDir || document.getElementById("t-dir")?.value || loadRecentDirs()[0] || "";
+  document.getElementById("ap-ed-title").value = ap?.titleTemplate || "{{name}} · {{time}}";
+  const cron = ap?.cronExpression || "0 9 * * *";
+  const presetEl = document.getElementById("ap-ed-preset");
+  const known = AUTOPILOT_CRON_PRESETS.some((p) => p.value === cron);
+  if (presetEl) presetEl.value = known ? cron : "custom";
+  document.getElementById("ap-ed-cron").value = cron;
+  await fillAutopilotEditorSelects(ap);
+  onAutopilotActionChange();
+  onAutopilotPresetChange();
+  document.getElementById("autopilotEditMask").classList.add("show");
+}
+
+async function saveAutopilotEditor() {
+  const name = (document.getElementById("ap-ed-name").value || "").trim();
+  if (!name) return toast("请填写名称");
+  const action = document.getElementById("ap-ed-action").value || "skill_task";
+  const skill = (document.getElementById("ap-ed-skill").value || "default").trim() || "default";
+  const workflowId = (document.getElementById("ap-ed-workflow").value || "").trim();
+  if (action === "workflow_run" && !workflowId) return toast("请选择流程");
+  const projectDir = (document.getElementById("ap-ed-dir").value || "").trim();
+  if (!projectDir) return toast("请填写工作区目录");
+  const preset = document.getElementById("ap-ed-preset").value || "";
+  const cronExpression =
+    preset === "custom"
+      ? (document.getElementById("ap-ed-cron").value || "").trim()
+      : preset;
+  if (!cronExpression) return toast("请填写 cron 表达式");
+  const body = {
+    name,
+    runbook: (document.getElementById("ap-ed-runbook").value || "").trim(),
+    action,
+    executionMode: document.getElementById("ap-ed-mode").value || "run_only",
+    status: document.getElementById("ap-ed-status").value || "active",
+    skill,
+    workflowId: action === "workflow_run" ? workflowId : "",
+    projectDir,
+    agentProfileId: (document.getElementById("ap-ed-agent").value || "").trim(),
+    titleTemplate: (document.getElementById("ap-ed-title").value || "").trim(),
+    cronExpression,
+  };
+  try {
+    if (AUTOPILOT_EDIT_ID) {
+      await api(`/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+      toast("已保存");
+    } else {
+      await api("/api/autopilots", { method: "POST", body: JSON.stringify(body) });
+      toast("已创建");
+    }
+    closeAutopilotEditor();
+    await loadAutopilotsPage();
+  } catch (e) {
+    toast(`保存失败: ${e.message || e}`);
+  }
+}
+
+async function pauseAutopilot(id) {
+  try {
+    await api(`/api/autopilots/${encodeURIComponent(id)}/pause`, { method: "POST", body: "{}" });
+    toast("已暂停");
+    await loadAutopilotsPage();
+  } catch (e) {
+    toast(`操作失败: ${e.message || e}`);
+  }
+}
+
+async function resumeAutopilot(id) {
+  try {
+    await api(`/api/autopilots/${encodeURIComponent(id)}/resume`, { method: "POST", body: "{}" });
+    toast("已启用");
+    await loadAutopilotsPage();
+  } catch (e) {
+    toast(`操作失败: ${e.message || e}`);
+  }
+}
+
+async function runAutopilotNow(id) {
+  try {
+    const d = await api(`/api/autopilots/${encodeURIComponent(id)}/run`, {
+      method: "POST",
+      body: "{}",
+    });
+    const taskId = d?.run?.taskId || "";
+    toast(taskId ? "已触发，正在打开任务…" : "已触发");
+    await loadAutopilotsPage();
+    if (taskId) openTaskView(taskId);
+  } catch (e) {
+    toast(`触发失败: ${e.message || e}`);
+  }
+}
+
+async function deleteAutopilot(id) {
+  if (!window.confirm("确认删除该自动化？")) return;
+  try {
+    await api(`/api/autopilots/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("已删除");
+    await loadAutopilotsPage();
+  } catch (e) {
+    toast(`删除失败: ${e.message || e}`);
+  }
+}
+
 function closeAgentEditor() {
   const mask = document.getElementById("agentEditMask");
   if (mask) mask.classList.remove("show");
@@ -4385,6 +4695,7 @@ function refreshCurrentView() {
   if (CURRENT_VIEW === "workflows") return loadWorkflows();
   if (CURRENT_VIEW === "skills") return loadSkills();
   if (CURRENT_VIEW === "agents") return loadAgentsPage();
+  if (CURRENT_VIEW === "autopilots") return loadAutopilotsPage();
   if (CURRENT_VIEW === "settings") return initSettingsUI();
 }
 
@@ -5402,7 +5713,7 @@ function switchView(view, opts = {}) {
   if (view !== "inbox") stopInboxPolling();
   CURRENT_VIEW = view;
 
-  ["dashboard", "inbox", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "agents", "settings"].forEach((v) => {
+  ["dashboard", "inbox", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "agents", "autopilots", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
@@ -5480,6 +5791,7 @@ function switchView(view, opts = {}) {
     if (view === "workflows") loadWorkflows();
     if (view === "skills") loadSkills();
     if (view === "agents") loadAgentsPage();
+    if (view === "autopilots") loadAutopilotsPage();
   }
 
   history.replaceState(null, "", u.pathname + u.search);

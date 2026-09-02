@@ -6,10 +6,19 @@ import {
   DEFAULT_SETTINGS,
   clipTitle,
   newAgentId,
+  newAutopilotRunId,
   newWorkItemEventId,
   newWorkItemId,
   normalizeIssueCode,
   type AgentProfile,
+  type Autopilot,
+  type AutopilotAction,
+  type AutopilotConcurrencyPolicy,
+  type AutopilotExecutionMode,
+  type AutopilotRun,
+  type AutopilotRunSource,
+  type AutopilotRunStatus,
+  type AutopilotStatus,
   type Settings,
   type Task,
   type TaskStatus,
@@ -84,6 +93,48 @@ function rowToAgent(row: Record<string, unknown>): AgentProfile {
     instructions: String(row.instructions ?? ""),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
+  };
+}
+
+function rowToAutopilot(row: Record<string, unknown>): Autopilot {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    runbook: String(row.runbook ?? ""),
+    status: (String(row.status ?? "active") || "active") as AutopilotStatus,
+    action: (String(row.action ?? "skill_task") || "skill_task") as AutopilotAction,
+    executionMode: (String(row.execution_mode ?? "run_only") || "run_only") as AutopilotExecutionMode,
+    skill: String(row.skill ?? ""),
+    workflowId: String(row.workflow_id ?? ""),
+    projectDir: String(row.project_dir ?? ""),
+    agentProfileId: String(row.agent_profile_id ?? ""),
+    model: String(row.model ?? ""),
+    titleTemplate: String(row.title_template ?? ""),
+    cronExpression: String(row.cron_expression ?? ""),
+    timezone: String(row.timezone ?? "local"),
+    nextRunAt: Number(row.next_run_at ?? 0),
+    lastRunAt: Number(row.last_run_at ?? 0),
+    concurrencyPolicy: (String(row.concurrency_policy ?? "skip") ||
+      "skip") as AutopilotConcurrencyPolicy,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+function rowToAutopilotRun(row: Record<string, unknown>): AutopilotRun {
+  return {
+    id: String(row.id),
+    autopilotId: String(row.autopilot_id ?? ""),
+    source: (String(row.source ?? "schedule") || "schedule") as AutopilotRunSource,
+    status: (String(row.status ?? "pending") || "pending") as AutopilotRunStatus,
+    taskId: String(row.task_id ?? ""),
+    workflowRunId: String(row.workflow_run_id ?? ""),
+    workItemId: String(row.work_item_id ?? ""),
+    plannedAt: Number(row.planned_at ?? 0),
+    triggeredAt: Number(row.triggered_at ?? 0),
+    completedAt: Number(row.completed_at ?? 0),
+    failureReason: String(row.failure_reason ?? ""),
+    createdAt: Number(row.created_at ?? 0),
   };
 }
 
@@ -225,6 +276,49 @@ export class AgentDeskDb {
         created_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_work_item_events_wi ON work_item_events(work_item_id, created_at DESC);
+    `);
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS autopilots (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        runbook TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active',
+        action TEXT NOT NULL,
+        execution_mode TEXT NOT NULL DEFAULT 'run_only',
+        skill TEXT NOT NULL DEFAULT '',
+        workflow_id TEXT NOT NULL DEFAULT '',
+        project_dir TEXT NOT NULL DEFAULT '',
+        agent_profile_id TEXT NOT NULL DEFAULT '',
+        model TEXT NOT NULL DEFAULT '',
+        title_template TEXT NOT NULL DEFAULT '',
+        cron_expression TEXT NOT NULL,
+        timezone TEXT NOT NULL DEFAULT 'local',
+        next_run_at INTEGER NOT NULL DEFAULT 0,
+        last_run_at INTEGER NOT NULL DEFAULT 0,
+        concurrency_policy TEXT NOT NULL DEFAULT 'skip',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_autopilots_next ON autopilots(status, next_run_at);
+
+      CREATE TABLE IF NOT EXISTS autopilot_runs (
+        id TEXT PRIMARY KEY,
+        autopilot_id TEXT NOT NULL,
+        source TEXT NOT NULL,
+        status TEXT NOT NULL,
+        task_id TEXT NOT NULL DEFAULT '',
+        workflow_run_id TEXT NOT NULL DEFAULT '',
+        work_item_id TEXT NOT NULL DEFAULT '',
+        planned_at INTEGER NOT NULL DEFAULT 0,
+        triggered_at INTEGER NOT NULL,
+        completed_at INTEGER NOT NULL DEFAULT 0,
+        failure_reason TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_autopilot_runs_ap ON autopilot_runs(autopilot_id, created_at DESC);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_autopilot_runs_plan
+        ON autopilot_runs(autopilot_id, planned_at)
+        WHERE planned_at > 0;
     `);
     this.backfillWorkItemsFromTasks();
     this.ensureDefaultAgents();
@@ -788,6 +882,194 @@ export class AgentDeskDb {
       )
       .get({ projectDir: resolved, exceptId: exceptId ?? "" }) as { n: number };
     return row?.n ?? 0;
+  }
+
+  listAutopilots(limit = 200): Autopilot[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM autopilots
+         WHERE status != 'archived'
+         ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(limit) as Record<string, unknown>[];
+    return rows.map(rowToAutopilot);
+  }
+
+  getAutopilot(id: string): Autopilot | null {
+    const row = this.db.prepare("SELECT * FROM autopilots WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToAutopilot(row) : null;
+  }
+
+  upsertAutopilot(item: Autopilot): void {
+    this.db
+      .prepare(
+        `INSERT INTO autopilots (
+          id, name, runbook, status, action, execution_mode, skill, workflow_id,
+          project_dir, agent_profile_id, model, title_template, cron_expression,
+          timezone, next_run_at, last_run_at, concurrency_policy, created_at, updated_at
+        ) VALUES (
+          @id, @name, @runbook, @status, @action, @executionMode, @skill, @workflowId,
+          @projectDir, @agentProfileId, @model, @titleTemplate, @cronExpression,
+          @timezone, @nextRunAt, @lastRunAt, @concurrencyPolicy, @createdAt, @updatedAt
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          name=excluded.name, runbook=excluded.runbook, status=excluded.status,
+          action=excluded.action, execution_mode=excluded.execution_mode,
+          skill=excluded.skill, workflow_id=excluded.workflow_id,
+          project_dir=excluded.project_dir, agent_profile_id=excluded.agent_profile_id,
+          model=excluded.model, title_template=excluded.title_template,
+          cron_expression=excluded.cron_expression, timezone=excluded.timezone,
+          next_run_at=excluded.next_run_at, last_run_at=excluded.last_run_at,
+          concurrency_policy=excluded.concurrency_policy, updated_at=excluded.updated_at`,
+      )
+      .run({
+        id: item.id,
+        name: item.name,
+        runbook: item.runbook,
+        status: item.status,
+        action: item.action,
+        executionMode: item.executionMode,
+        skill: item.skill,
+        workflowId: item.workflowId,
+        projectDir: item.projectDir,
+        agentProfileId: item.agentProfileId,
+        model: item.model,
+        titleTemplate: item.titleTemplate,
+        cronExpression: item.cronExpression,
+        timezone: item.timezone,
+        nextRunAt: item.nextRunAt,
+        lastRunAt: item.lastRunAt,
+        concurrencyPolicy: item.concurrencyPolicy,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      });
+  }
+
+  deleteAutopilot(id: string): boolean {
+    const current = this.getAutopilot(id);
+    if (!current) return false;
+    this.upsertAutopilot({
+      ...current,
+      status: "archived",
+      updatedAt: Date.now(),
+      nextRunAt: 0,
+    });
+    return true;
+  }
+
+  listDueAutopilots(nowMs = Date.now(), limit = 50): Autopilot[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM autopilots
+         WHERE status = 'active' AND next_run_at > 0 AND next_run_at <= @now
+         ORDER BY next_run_at ASC LIMIT @limit`,
+      )
+      .all({ now: nowMs, limit }) as Record<string, unknown>[];
+    return rows.map(rowToAutopilot);
+  }
+
+  listAutopilotRuns(autopilotId: string, limit = 50): AutopilotRun[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM autopilot_runs WHERE autopilot_id = @autopilotId
+         ORDER BY created_at DESC LIMIT @limit`,
+      )
+      .all({ autopilotId, limit }) as Record<string, unknown>[];
+    return rows.map(rowToAutopilotRun);
+  }
+
+  getAutopilotRun(id: string): AutopilotRun | null {
+    const row = this.db.prepare("SELECT * FROM autopilot_runs WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToAutopilotRun(row) : null;
+  }
+
+  upsertAutopilotRun(run: AutopilotRun): void {
+    this.db
+      .prepare(
+        `INSERT INTO autopilot_runs (
+          id, autopilot_id, source, status, task_id, workflow_run_id, work_item_id,
+          planned_at, triggered_at, completed_at, failure_reason, created_at
+        ) VALUES (
+          @id, @autopilotId, @source, @status, @taskId, @workflowRunId, @workItemId,
+          @plannedAt, @triggeredAt, @completedAt, @failureReason, @createdAt
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          status=excluded.status, task_id=excluded.task_id,
+          workflow_run_id=excluded.workflow_run_id, work_item_id=excluded.work_item_id,
+          completed_at=excluded.completed_at, failure_reason=excluded.failure_reason`,
+      )
+      .run({
+        id: run.id,
+        autopilotId: run.autopilotId,
+        source: run.source,
+        status: run.status,
+        taskId: run.taskId,
+        workflowRunId: run.workflowRunId,
+        workItemId: run.workItemId,
+        plannedAt: run.plannedAt,
+        triggeredAt: run.triggeredAt,
+        completedAt: run.completedAt,
+        failureReason: run.failureReason,
+        createdAt: run.createdAt,
+      });
+  }
+
+  findAutopilotRunByPlan(autopilotId: string, plannedAt: number): AutopilotRun | null {
+    if (!plannedAt) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM autopilot_runs
+         WHERE autopilot_id = @autopilotId AND planned_at = @plannedAt
+         LIMIT 1`,
+      )
+      .get({ autopilotId, plannedAt }) as Record<string, unknown> | undefined;
+    return row ? rowToAutopilotRun(row) : null;
+  }
+
+  hasActiveAutopilotRun(autopilotId: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM autopilot_runs
+         WHERE autopilot_id = @autopilotId AND status IN ('pending', 'running')`,
+      )
+      .get({ autopilotId }) as { n: number };
+    return (row?.n ?? 0) > 0;
+  }
+
+  createAutopilotRunStub(input: {
+    autopilotId: string;
+    source: AutopilotRunSource;
+    plannedAt?: number;
+  }): AutopilotRun | null {
+    const plannedAt = Number(input.plannedAt || 0);
+    if (plannedAt > 0 && this.findAutopilotRunByPlan(input.autopilotId, plannedAt)) {
+      return null;
+    }
+    const now = Date.now();
+    const run: AutopilotRun = {
+      id: newAutopilotRunId(),
+      autopilotId: input.autopilotId,
+      source: input.source,
+      status: "pending",
+      taskId: "",
+      workflowRunId: "",
+      workItemId: "",
+      plannedAt,
+      triggeredAt: now,
+      completedAt: 0,
+      failureReason: "",
+      createdAt: now,
+    };
+    try {
+      this.upsertAutopilotRun(run);
+      return run;
+    } catch {
+      return null;
+    }
   }
 }
 

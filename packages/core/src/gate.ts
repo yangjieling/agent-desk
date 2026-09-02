@@ -279,6 +279,14 @@ export function newWorkItemEventId(): string {
   return `we_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
+export function newAutopilotId(): string {
+  return `ap_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+}
+
+export function newAutopilotRunId(): string {
+  return `ar_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+}
+
 /** Normalize issue codes for lookup (#42 and 42 match). */
 export function normalizeIssueCode(code: string): string {
   return String(code || "")

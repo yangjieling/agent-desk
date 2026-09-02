@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, newAgentId, parseGate, type AgentProfile } from "@agent-desk/core";
+import { clipPrompt, clipTitle, newAgentId, newAutopilotId, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -57,6 +57,12 @@ import {
   type Task,
 } from "@agent-desk/core";
 import { browse as fsBrowse, mkdir as fsMkdir } from "./fs-browser.js";
+import {
+  advanceAutopilotSchedule,
+  dispatchAutopilot,
+} from "./autopilot-dispatch.js";
+import { startAutopilotScheduler, stopAutopilotScheduler } from "./autopilot-scheduler.js";
+import { previewCronOccurrences, validateCronExpression } from "./cron-next.js";
 
 /** Mask stored secrets in API responses (UI shows placeholder; blank save keeps old). */
 const SECRET_MASK = "********";
@@ -1283,10 +1289,199 @@ export async function createServer(opts: ServerOptions = {}) {
     }
   });
 
+  const summarizeAutopilot = (ap: Autopilot) => {
+    const runs = db.listAutopilotRuns(ap.id, 1);
+    const lastRun = runs[0] || null;
+    return { ...ap, lastRun };
+  };
+
+  type AutopilotBody = {
+    name?: string;
+    runbook?: string;
+    status?: string;
+    action?: string;
+    executionMode?: string;
+    skill?: string;
+    workflowId?: string;
+    projectDir?: string;
+    agentProfileId?: string;
+    model?: string;
+    titleTemplate?: string;
+    cronExpression?: string;
+    timezone?: string;
+    concurrencyPolicy?: string;
+  };
+
+  function buildAutopilotFromBody(
+    body: AutopilotBody,
+    existing?: Autopilot | null,
+  ): { ok: true; item: Autopilot } | { ok: false; status: number; error: string } {
+    const name = clipTitle(String(body.name ?? existing?.name ?? "").trim(), "Autopilot", 120);
+    if (!name.trim()) return { ok: false, status: 400, error: "name_required" };
+    const cronExpression = String(body.cronExpression ?? existing?.cronExpression ?? "").trim();
+    const cronOk = validateCronExpression(cronExpression);
+    if (!cronOk.ok) return { ok: false, status: 400, error: `invalid_cron:${cronOk.error}` };
+
+    const actionRaw = String(body.action ?? existing?.action ?? "skill_task").trim();
+    const action = actionRaw === "workflow_run" ? "workflow_run" : "skill_task";
+    const executionMode =
+      String(body.executionMode ?? existing?.executionMode ?? "run_only").trim() === "create_work_item"
+        ? "create_work_item"
+        : "run_only";
+    const statusRaw = String(body.status ?? existing?.status ?? "active").trim();
+    const status =
+      statusRaw === "paused" ? "paused" : statusRaw === "archived" ? "archived" : "active";
+    const skill = String(body.skill ?? existing?.skill ?? "default").trim() || "default";
+    const workflowId = String(body.workflowId ?? existing?.workflowId ?? "").trim();
+    if (action === "workflow_run") {
+      if (!workflowId) return { ok: false, status: 400, error: "workflow_id_required" };
+      if (!getWorkflow(dataDir, workflowId)) {
+        return { ok: false, status: 400, error: "workflow_not_found" };
+      }
+    }
+    const projectDir = path.resolve(
+      String(body.projectDir ?? existing?.projectDir ?? "").trim() || process.cwd(),
+    );
+    const now = Date.now();
+    const item: Autopilot = {
+      id: existing?.id || newAutopilotId(),
+      name,
+      runbook: clipPrompt(String(body.runbook ?? existing?.runbook ?? "").trim()),
+      status,
+      action,
+      executionMode,
+      skill,
+      workflowId: action === "workflow_run" ? workflowId : "",
+      projectDir,
+      agentProfileId: String(body.agentProfileId ?? existing?.agentProfileId ?? "").trim(),
+      model: String(body.model ?? existing?.model ?? "").trim(),
+      titleTemplate: String(body.titleTemplate ?? existing?.titleTemplate ?? "{{name}} · {{time}}").trim(),
+      cronExpression,
+      timezone: String(body.timezone ?? existing?.timezone ?? "local").trim() || "local",
+      nextRunAt: existing?.nextRunAt || 0,
+      lastRunAt: existing?.lastRunAt || 0,
+      concurrencyPolicy:
+        String(body.concurrencyPolicy ?? existing?.concurrencyPolicy ?? "skip").trim() === "allow"
+          ? "allow"
+          : "skip",
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    return { ok: true, item };
+  }
+
+  app.get("/api/autopilots", async () => {
+    return db.listAutopilots(200).map(summarizeAutopilot);
+  });
+
+  app.get<{ Params: { id: string } }>("/api/autopilots/:id", async (req, reply) => {
+    const ap = db.getAutopilot(req.params.id);
+    if (!ap || ap.status === "archived") return reply.code(404).send({ error: "not_found" });
+    return summarizeAutopilot(ap);
+  });
+
+  app.post<{ Body: AutopilotBody }>("/api/autopilots", async (req, reply) => {
+    const built = buildAutopilotFromBody(req.body || {});
+    if (!built.ok) return reply.code(built.status).send({ error: built.error });
+    let item = built.item;
+    if (item.status === "active") item = advanceAutopilotSchedule(db, item, Date.now());
+    else {
+      item = { ...item, nextRunAt: 0 };
+      db.upsertAutopilot(item);
+    }
+    return summarizeAutopilot(item);
+  });
+
+  app.put<{ Params: { id: string }; Body: AutopilotBody }>("/api/autopilots/:id", async (req, reply) => {
+    const current = db.getAutopilot(req.params.id);
+    if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
+    const built = buildAutopilotFromBody(req.body || {}, current);
+    if (!built.ok) return reply.code(built.status).send({ error: built.error });
+    let item = built.item;
+    const cronChanged = item.cronExpression !== current.cronExpression;
+    const resumed = current.status !== "active" && item.status === "active";
+    if (item.status === "active" && (cronChanged || resumed || !item.nextRunAt)) {
+      item = advanceAutopilotSchedule(db, item, Date.now());
+    } else if (item.status !== "active") {
+      item = { ...item, nextRunAt: 0 };
+      db.upsertAutopilot(item);
+    } else {
+      db.upsertAutopilot(item);
+    }
+    return summarizeAutopilot(item);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/autopilots/:id/pause", async (req, reply) => {
+    const current = db.getAutopilot(req.params.id);
+    if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
+    const next: Autopilot = {
+      ...current,
+      status: "paused",
+      nextRunAt: 0,
+      updatedAt: Date.now(),
+    };
+    db.upsertAutopilot(next);
+    return summarizeAutopilot(next);
+  });
+
+  app.post<{ Params: { id: string } }>("/api/autopilots/:id/resume", async (req, reply) => {
+    const current = db.getAutopilot(req.params.id);
+    if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
+    const next = advanceAutopilotSchedule(
+      db,
+      { ...current, status: "active", updatedAt: Date.now() },
+      Date.now(),
+    );
+    return summarizeAutopilot(next);
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/autopilots/:id", async (req, reply) => {
+    if (!db.deleteAutopilot(req.params.id)) return reply.code(404).send({ error: "not_found" });
+    return { ok: true };
+  });
+
+  app.post<{ Params: { id: string } }>("/api/autopilots/:id/run", async (req, reply) => {
+    const current = db.getAutopilot(req.params.id);
+    if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
+    try {
+      const result = await dispatchAutopilot(db, runnerOpts, dataDir, current, {
+        source: "manual",
+        plannedAt: 0,
+      });
+      return { ok: true, run: result.run, autopilot: summarizeAutopilot(result.autopilot) };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg === "duplicate_or_busy") return reply.code(409).send({ error: "busy" });
+      return reply.code(500).send({ error: msg });
+    }
+  });
+
+  app.get<{ Params: { id: string } }>("/api/autopilots/:id/runs", async (req, reply) => {
+    const current = db.getAutopilot(req.params.id);
+    if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
+    return db.listAutopilotRuns(current.id, 50);
+  });
+
+  app.post<{ Body: { expression?: string; count?: number } }>(
+    "/api/autopilots/cron/preview",
+    async (req, reply) => {
+      const expression = String(req.body?.expression || "").trim();
+      const cronOk = validateCronExpression(expression);
+      if (!cronOk.ok) return reply.code(400).send({ error: `invalid_cron:${cronOk.error}` });
+      const count = Math.min(12, Math.max(1, Number(req.body?.count) || 5));
+      try {
+        return { ok: true, expression, next: previewCronOccurrences(expression, count) };
+      } catch (e) {
+        return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+      }
+    },
+  );
+
   app.post("/api/shutdown", async (_req, reply) => {
     void reply.send({ ok: true });
     setImmediate(async () => {
       try {
+        stopAutopilotScheduler();
         await app.close();
       } finally {
         process.exit(0);
@@ -1294,14 +1489,15 @@ export async function createServer(opts: ServerOptions = {}) {
     });
   });
 
-  return { app, db, settings, dataDir };
+  return { app, db, settings, dataDir, runnerOpts };
 }
 
 export async function startServer(opts: ServerOptions = {}) {
   const host = opts.host ?? process.env.AD_HOST ?? "127.0.0.1";
   const port = opts.port ?? Number(process.env.AD_PORT ?? 19877);
-  const { app, db, dataDir } = await createServer(opts);
+  const { app, db, dataDir, runnerOpts } = await createServer(opts);
   await app.listen({ host, port });
+  startAutopilotScheduler(db, runnerOpts, dataDir);
 
   // Interactive DingTalk cards: one Stream connection with the web process.
   // Config from env AD_DINGTALK_* (preferred) or Settings.dingtalk in ~/.agent-desk.

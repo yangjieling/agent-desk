@@ -64,6 +64,55 @@ export interface WorkItemEvent {
   createdAt: number;
 }
 
+/** Local Autopilot rule (cron → skill task or workflow). */
+export type AutopilotStatus = "active" | "paused" | "archived";
+export type AutopilotAction = "skill_task" | "workflow_run";
+/** create_work_item ≈ Multica create_issue; run_only ≈ Multica run_only. */
+export type AutopilotExecutionMode = "run_only" | "create_work_item";
+export type AutopilotConcurrencyPolicy = "skip" | "allow";
+export type AutopilotRunSource = "schedule" | "manual";
+export type AutopilotRunStatus = "pending" | "running" | "skipped" | "completed" | "failed";
+
+export interface Autopilot {
+  id: string;
+  name: string;
+  /** Runbook / prompt body passed to the task or workflow. */
+  runbook: string;
+  status: AutopilotStatus;
+  action: AutopilotAction;
+  executionMode: AutopilotExecutionMode;
+  skill: string;
+  workflowId: string;
+  projectDir: string;
+  agentProfileId: string;
+  model: string;
+  titleTemplate: string;
+  /** Standard 5-field cron: minute hour day-of-month month day-of-week. */
+  cronExpression: string;
+  timezone: string;
+  nextRunAt: number;
+  lastRunAt: number;
+  concurrencyPolicy: AutopilotConcurrencyPolicy;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface AutopilotRun {
+  id: string;
+  autopilotId: string;
+  source: AutopilotRunSource;
+  status: AutopilotRunStatus;
+  taskId: string;
+  workflowRunId: string;
+  workItemId: string;
+  /** Cron slot timestamp for schedule idempotency; 0 for manual. */
+  plannedAt: number;
+  triggeredAt: number;
+  completedAt: number;
+  failureReason: string;
+  createdAt: number;
+}
+
 export interface Task {
   id: string;
   taskType: TaskType;

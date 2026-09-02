@@ -14,6 +14,7 @@
   <div class="nav-item" data-view="inbox"><span class="ic">◈</span>待办</div>
   <div class="nav-item" data-view="bugs"><span class="ic">◎</span>缺陷列表</div>
   <div class="nav-item" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
+  <div class="nav-item" data-view="autopilots"><span class="ic">⏱</span>自动化</div>
   <div class="nav-group-label">配置</div>
   <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
   <div class="nav-item" data-view="skills"><span class="ic">✦</span>技能</div>
@@ -349,6 +350,15 @@
         <button class="btn-refresh" type="button" onclick="loadAgentsPage()">刷新</button>
       </div>
       <div id="agentsPageList" class="agents-page-list"></div>
+    </section>
+
+    <section id="view-autopilots" style="display:none">
+      <p class="ap-page-hint">按 cron 定时创建技能任务或启动流程。需保持 <code>oh web</code> 运行；Webhook 与建 Issue 不在本阶段。</p>
+      <div class="toolbar">
+        <button class="btn-install" type="button" onclick="openAutopilotEditor()">新建自动化</button>
+        <button class="btn-refresh" type="button" onclick="loadAutopilotsPage()">刷新</button>
+      </div>
+      <div id="autopilotsList" class="ap-list"></div>
     </section>
 
     <section id="view-settings" style="display:none">
@@ -867,6 +877,77 @@
     <div class="dlg-foot wf-edit-foot">
       <button type="button" class="dlg-cancel" onclick="closeWorkflowEditor()">取消</button>
       <button type="button" class="dlg-ok" onclick="saveWorkflowEditor()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="autopilotEditMask" onclick="onAutopilotEditMaskClick(event)">
+  <div class="modal wf-edit-modal ap-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑自动化">
+    <div class="modal-head">
+      <span class="mt" id="apEditTitle">新建自动化</span>
+      <button class="mc" type="button" onclick="closeAutopilotEditor()">×</button>
+    </div>
+    <div class="wf-edit-body ap-edit-body">
+      <label class="wf-field">名称<input id="ap-ed-name" type="text" placeholder="例如: 每日健康检查" maxlength="120"></label>
+      <label class="wf-field">Runbook（任务描述）
+        <textarea id="ap-ed-runbook" rows="5" maxlength="8000" placeholder="每次触发时传给 Agent 的提示词…"></textarea>
+      </label>
+      <div class="ap-edit-row">
+        <label class="wf-field">动作
+          <select id="ap-ed-action" onchange="onAutopilotActionChange()">
+            <option value="skill_task">创建技能任务</option>
+            <option value="workflow_run">启动流程</option>
+          </select>
+        </label>
+        <label class="wf-field" id="ap-ed-skill-wrap">技能
+          <select id="ap-ed-skill"></select>
+        </label>
+        <label class="wf-field" id="ap-ed-wf-wrap" hidden>流程
+          <select id="ap-ed-workflow"></select>
+        </label>
+      </div>
+      <div class="ap-edit-row">
+        <label class="wf-field">执行模式
+          <select id="ap-ed-mode">
+            <option value="run_only">仅运行（不建工作项）</option>
+            <option value="create_work_item">创建工作项后运行</option>
+          </select>
+        </label>
+        <label class="wf-field">启用
+          <select id="ap-ed-status">
+            <option value="active">启用（按计划触发）</option>
+            <option value="paused">暂停</option>
+          </select>
+        </label>
+      </div>
+      <label class="wf-field">工作区目录
+        <input id="ap-ed-dir" type="text" placeholder="/path/to/project" maxlength="500">
+      </label>
+      <div class="ap-edit-row">
+        <label class="wf-field">Agent
+          <select id="ap-ed-agent"></select>
+        </label>
+        <label class="wf-field">标题模板
+          <input id="ap-ed-title" type="text" placeholder="{{name}} · {{time}}" maxlength="200">
+        </label>
+      </div>
+      <label class="wf-field">计划
+        <select id="ap-ed-preset" onchange="onAutopilotPresetChange()">
+          <option value="*/15 * * * *">每 15 分钟</option>
+          <option value="0 * * * *">每小时</option>
+          <option value="0 9 * * *">每天 09:00</option>
+          <option value="0 9 * * 1-5">工作日 09:00</option>
+          <option value="custom">自定义 cron…</option>
+        </select>
+      </label>
+      <label class="wf-field" id="ap-ed-cron-wrap" hidden>Cron（分 时 日 月 周）
+        <input id="ap-ed-cron" type="text" placeholder="*/15 * * * *" maxlength="80" oninput="previewAutopilotCron()">
+      </label>
+      <p class="ap-cron-preview" id="ap-ed-cron-preview"></p>
+    </div>
+    <div class="dlg-foot wf-edit-foot">
+      <button type="button" class="dlg-cancel" onclick="closeAutopilotEditor()">取消</button>
+      <button type="button" class="dlg-ok" onclick="saveAutopilotEditor()">保存</button>
     </div>
   </div>
 </div>
