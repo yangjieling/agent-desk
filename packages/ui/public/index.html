@@ -47,7 +47,7 @@
         <div class="dash-stat dash-stat-action" id="dash-awaiting-stat" role="button" tabindex="0"
           title="点击查看待办" onclick="goToInbox()"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goToInbox();}">
-          <p class="ds-label">待确认</p>
+          <p class="ds-label">待办</p>
           <div class="ds-num blue" id="dash-awaiting">-</div>
         </div>
         <div class="dash-stat">
@@ -69,7 +69,7 @@
         </div>
         <div class="dash-card">
           <div class="dc-head">
-            <h3 class="dc-title">待确认任务</h3>
+            <h3 class="dc-title">待办事项</h3>
             <span class="dc-link" id="dash-awaiting-link" onclick="goToInbox()">查看待办</span>
           </div>
           <div id="dash-awaiting-tasks"></div>
@@ -813,6 +813,7 @@
       <button class="mc" type="button" onclick="closeWorkItemModal()">×</button>
     </div>
     <div class="work-item-body">
+      <div class="work-item-review-bar" id="workItemReviewBar" hidden></div>
       <div class="work-item-detail" id="workItemDetail" hidden></div>
       <div class="work-item-sec-head" id="workItemTasksHead" hidden>
         <h4 class="work-item-runs-title">任务</h4>

@@ -233,6 +233,7 @@ export async function createServer(opts: ServerOptions = {}) {
     const active = tasks.filter((t) => t.status === "running" || t.status === "created" || t.status === "queued");
     const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
     const failedRecent = tasks.filter((t) => t.status === "failed").slice(0, 12);
+    const inReview = db.listWorkItemsByStatus("in_review", 100);
 
     const summarize = (t: (typeof tasks)[number]) => ({
       id: t.id,
@@ -278,11 +279,22 @@ export async function createServer(opts: ServerOptions = {}) {
     return {
       ok: true,
       awaiting_count: awaiting.length,
+      in_review_count: inReview.length,
+      inbox_count: awaiting.length + inReview.length,
       active_count: active.length,
       done_week_count: doneWeek.length,
       failed_count: tasks.filter((t) => t.status === "failed").length,
       open_issue_count: openIssueCount,
       awaiting_tasks: awaiting.slice(0, 12).map(summarize),
+      in_review_items: inReview.slice(0, 12).map((w) => ({
+        id: w.id,
+        title: w.title,
+        status: w.status,
+        issueCode: w.issueCode,
+        projectDir: w.projectDir,
+        updatedAt: w.updatedAt,
+        lastActivityAt: w.lastActivityAt,
+      })),
       active_tasks: active.slice(0, 12).map(summarize),
       failed_tasks: failedRecent.map(summarize),
       open_issues: openIssues,
@@ -290,15 +302,16 @@ export async function createServer(opts: ServerOptions = {}) {
   });
 
   app.get("/api/inbox", async () => {
-    const tasks = db
+    const gateTasks = db
       .listTasks(300)
       .filter((t) => t.status === "awaiting")
       .sort((a, b) => Number(b.lastActivityAt || b.updatedAt) - Number(a.lastActivityAt || a.updatedAt));
 
-    const items = tasks.map((t) => {
+    const gateItems = gateTasks.map((t) => {
       const gate = parseGate(t.result || "");
       return {
         taskId: t.id,
+        workItemId: t.workItemId || "",
         type: "gate" as const,
         title: t.title,
         status: t.status,
@@ -314,6 +327,35 @@ export async function createServer(opts: ServerOptions = {}) {
         lastActivityAt: t.lastActivityAt,
       };
     });
+
+    const reviewItems = db.listWorkItemsByStatus("in_review", 100).map((w) => {
+      const tasks = db.listTasksForWorkItem(w.id, 20);
+      const latestDone =
+        tasks.find((t) => t.status === "done") ||
+        tasks[0] ||
+        null;
+      return {
+        type: "acceptance" as const,
+        workItemId: w.id,
+        taskId: latestDone?.id || "",
+        title: w.title,
+        status: w.status,
+        gateHeading: "执行已完成，等待验收",
+        gateName: null,
+        choices: [],
+        skill: latestDone?.skill || "",
+        workflowName: latestDone?.workflowName || "",
+        issueCode: w.issueCode || "",
+        projectDir: w.projectDir || latestDone?.projectDir || "",
+        agentProfileId: w.agentProfileId || latestDone?.agentProfileId || "",
+        updatedAt: w.updatedAt,
+        lastActivityAt: w.lastActivityAt,
+      };
+    });
+
+    const items = [...gateItems, ...reviewItems].sort(
+      (a, b) => Number(b.lastActivityAt || b.updatedAt) - Number(a.lastActivityAt || a.updatedAt),
+    );
 
     return { ok: true, count: items.length, items };
   });
@@ -712,6 +754,32 @@ export async function createServer(opts: ServerOptions = {}) {
       });
       if (!event) return reply.code(400).send({ error: "create_failed" });
       return event;
+    },
+  );
+
+  app.post<{ Params: { id: string } }>("/api/work-items/:id/accept", async (req, reply) => {
+    const item = db.getWorkItem(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    if (item.status !== "in_review") {
+      return reply.code(409).send({ error: "not_in_review", status: item.status });
+    }
+    const next = db.acceptWorkItem(item.id);
+    if (!next) return reply.code(409).send({ error: "accept_failed" });
+    return { ok: true, workItem: next };
+  });
+
+  app.post<{ Params: { id: string }; Body: { note?: string } }>(
+    "/api/work-items/:id/reject",
+    async (req, reply) => {
+      const item = db.getWorkItem(req.params.id);
+      if (!item) return reply.code(404).send({ error: "not_found" });
+      if (item.status !== "in_review") {
+        return reply.code(409).send({ error: "not_in_review", status: item.status });
+      }
+      const note = String(req.body?.note || "").trim().slice(0, 2000);
+      const next = db.rejectWorkItem(item.id, note);
+      if (!next) return reply.code(409).send({ error: "reject_failed" });
+      return { ok: true, workItem: next };
     },
   );
 

@@ -570,13 +570,27 @@ export class AgentDeskDb {
     if (!id) return;
     const current = this.getWorkItem(id);
     if (!current) return;
+    // Human-cancelled stays cancelled until explicitly reopened.
+    if (current.status === "cancelled") return;
+
     const tasks = this.listTasksForWorkItem(id, 500);
     let status: WorkItemStatus = "open";
-    if (tasks.some((t) => ACTIVE_TASK_STATUSES.has(t.status))) status = "in_progress";
-    else if (tasks.length && tasks.every((t) => t.status === "done")) status = "done";
-    else if (tasks.length && tasks.every((t) => t.status === "stopped" || t.status === "failed")) {
+    if (tasks.some((t) => ACTIVE_TASK_STATUSES.has(t.status))) {
+      status = "in_progress";
+    } else if (tasks.some((t) => t.status === "done")) {
+      // Delivery complete → wait for human acceptance (do not auto-close).
+      // Preserve done only after explicit accept; migrate legacy auto-done → in_review.
+      const accepted = this.listWorkItemEvents(id, 100).some(
+        (e) =>
+          e.kind === "system" &&
+          e.author === "user" &&
+          String(e.body || "").includes("验收通过"),
+      );
+      status = accepted ? "done" : "in_review";
+    } else if (tasks.length) {
       status = "open";
     }
+
     const lastActivityAt = tasks.reduce(
       (max, t) => Math.max(max, Number(t.lastActivityAt || t.updatedAt || 0)),
       current.lastActivityAt,
@@ -589,6 +603,59 @@ export class AgentDeskDb {
         updatedAt: Date.now(),
       });
     }
+  }
+
+  listWorkItemsByStatus(status: WorkItemStatus, limit = 100): WorkItem[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM work_items WHERE status = @status
+         ORDER BY last_activity_at DESC LIMIT @limit`,
+      )
+      .all({ status, limit }) as Record<string, unknown>[];
+    return rows.map(rowToWorkItem);
+  }
+
+  acceptWorkItem(workItemId: string): WorkItem | null {
+    const current = this.getWorkItem(workItemId);
+    if (!current) return null;
+    if (current.status !== "in_review") return null;
+    const now = Date.now();
+    const next: WorkItem = {
+      ...current,
+      status: "done",
+      updatedAt: now,
+      lastActivityAt: now,
+    };
+    this.upsertWorkItem(next);
+    this.addWorkItemEvent({
+      workItemId: next.id,
+      kind: "system",
+      author: "user",
+      body: "验收通过",
+    });
+    return next;
+  }
+
+  rejectWorkItem(workItemId: string, note?: string): WorkItem | null {
+    const current = this.getWorkItem(workItemId);
+    if (!current) return null;
+    if (current.status !== "in_review") return null;
+    const now = Date.now();
+    const next: WorkItem = {
+      ...current,
+      status: "open",
+      updatedAt: now,
+      lastActivityAt: now,
+    };
+    this.upsertWorkItem(next);
+    const text = String(note || "").trim();
+    this.addWorkItemEvent({
+      workItemId: next.id,
+      kind: "system",
+      author: "user",
+      body: text ? `验收未通过：${text}` : "验收未通过，已重新打开",
+    });
+    return next;
   }
 
   listWorkItemEvents(workItemId: string, limit = 200): WorkItemEvent[] {

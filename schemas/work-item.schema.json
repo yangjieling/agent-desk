@@ -8,7 +8,7 @@
     "id": { "type": "string", "pattern": "^wi_" },
     "title": { "type": "string", "maxLength": 200 },
     "description": { "type": "string" },
-    "status": { "enum": ["open", "in_progress", "done", "cancelled"] },
+    "status": { "enum": ["open", "in_progress", "in_review", "done", "cancelled"] },
     "projectDir": { "type": "string" },
     "issueProvider": { "type": "string" },
     "issueCode": { "type": "string" },

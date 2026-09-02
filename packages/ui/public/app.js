@@ -82,6 +82,7 @@ const STATUS_LABEL = {
 const WORK_ITEM_STATUS_LABEL = {
   open: "进行中",
   in_progress: "执行中",
+  in_review: "待验收",
   done: "已完成",
   cancelled: "已取消",
 };
@@ -108,7 +109,7 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 
 const VIEW_TITLES = {
   dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
-  inbox: ["待办", "需要你确认的闸门与待处理事项"],
+  inbox: ["待办", "闸门确认与工作项验收"],
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
@@ -4422,7 +4423,7 @@ function inboxItemSub(item) {
   return bits.join(" · ");
 }
 
-function renderInboxItem(item) {
+function renderInboxGateItem(item) {
   const id = esc(item.taskId || "");
   const title = esc(item.title || item.taskId || "-");
   const gate = esc(item.gateHeading || "等待确认");
@@ -4449,6 +4450,69 @@ function renderInboxItem(item) {
   </div>`;
 }
 
+function renderInboxAcceptanceItem(item) {
+  const wid = esc(item.workItemId || "");
+  const tid = esc(item.taskId || "");
+  const title = esc(item.title || item.workItemId || "-");
+  const sub = esc(inboxItemSub(item));
+  const openBtn = tid
+    ? `<button type="button" class="btn-outline" onclick="openInboxTask('${tid}')">查看结果</button>`
+    : wid
+      ? `<button type="button" class="btn-outline" onclick="openWorkItemById('${wid}')">工作项</button>`
+      : "";
+  return `<div class="inbox-card">
+    <div class="inbox-card-head">
+      <span class="tag tag-review">待验收</span>
+      <div class="inbox-card-body">
+        <div class="inbox-card-title" title="${title}">${title}</div>
+        <div class="inbox-card-gate is-review">执行已完成，请确认是否验收通过</div>
+        ${sub ? `<div class="inbox-card-sub">${sub}</div>` : ""}
+      </div>
+      ${openBtn}
+    </div>
+    <div class="inbox-card-actions">
+      <button type="button" class="inbox-choice-btn inbox-accept-btn" onclick="acceptWorkItemFromInbox('${wid}')">验收通过</button>
+      <button type="button" class="inbox-choice-btn inbox-reject-btn" onclick="rejectWorkItemFromInbox('${wid}')">未通过</button>
+    </div>
+  </div>`;
+}
+
+function renderInboxItem(item) {
+  if (item && item.type === "acceptance") return renderInboxAcceptanceItem(item);
+  return renderInboxGateItem(item);
+}
+
+async function acceptWorkItemFromInbox(workItemId) {
+  const id = String(workItemId || "").trim();
+  if (!id) return;
+  try {
+    await api(`/api/work-items/${encodeURIComponent(id)}/accept`, { method: "POST", body: "{}" });
+    toast("已验收通过");
+    await loadInbox(true);
+    if (typeof loadDashboard === "function" && CURRENT_VIEW === "dashboard") loadDashboard();
+  } catch (e) {
+    toast(`验收失败: ${e.message || e}`);
+  }
+}
+
+async function rejectWorkItemFromInbox(workItemId) {
+  const id = String(workItemId || "").trim();
+  if (!id) return;
+  const note = window.prompt("未通过原因（可选）", "") ?? null;
+  if (note === null) return;
+  try {
+    await api(`/api/work-items/${encodeURIComponent(id)}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ note: String(note || "").trim() }),
+    });
+    toast("已标记未通过，工作项已重新打开");
+    await loadInbox(true);
+    if (typeof loadDashboard === "function" && CURRENT_VIEW === "dashboard") loadDashboard();
+  } catch (e) {
+    toast(`操作失败: ${e.message || e}`);
+  }
+}
+
 async function loadInbox(force) {
   const list = document.getElementById("inboxList");
   const summary = document.getElementById("inboxSummary");
@@ -4458,13 +4522,19 @@ async function loadInbox(force) {
     const d = await api("/api/inbox");
     const count = d.count ?? (d.items || []).length;
     updateAwaitingNavBadge(count);
-    if (summary) {
-      summary.innerHTML =
-        count > 0
-          ? `共有 <strong>${count}</strong> 项待你处理，多为 Agent 闸门确认。`
-          : "暂无待办，所有任务均无需你立即操作。";
-    }
     const items = d.items || [];
+    const gates = items.filter((it) => it.type !== "acceptance").length;
+    const reviews = items.filter((it) => it.type === "acceptance").length;
+    if (summary) {
+      if (count > 0) {
+        const parts = [];
+        if (gates) parts.push(`${gates} 项闸门确认`);
+        if (reviews) parts.push(`${reviews} 项待验收`);
+        summary.innerHTML = `共有 <strong>${count}</strong> 项待你处理（${parts.join("，")}）。`;
+      } else {
+        summary.innerHTML = "暂无待办，所有任务均无需你立即操作。";
+      }
+    }
     list.innerHTML = items.length
       ? items.map((item) => renderInboxItem(item)).join("")
       : '<div class="inbox-empty"><div class="inbox-empty-icon">✓</div>暂无待办事项</div>';
@@ -4580,6 +4650,7 @@ function resetWorkItemModalShell(loadingText) {
   const detail = document.getElementById("workItemDetail");
   const tasks = document.getElementById("workItemTasks");
   const tasksHead = document.getElementById("workItemTasksHead");
+  const reviewBar = document.getElementById("workItemReviewBar");
   const noteInput = document.getElementById("workItemNoteInput");
   if (mask) mask.classList.add("show");
   if (timeline) timeline.innerHTML = `<div class="work-item-loading">${loadingText || "加载中…"}</div>`;
@@ -4592,6 +4663,10 @@ function resetWorkItemModalShell(loadingText) {
     tasks.innerHTML = "";
   }
   if (tasksHead) tasksHead.hidden = true;
+  if (reviewBar) {
+    reviewBar.hidden = true;
+    reviewBar.innerHTML = "";
+  }
   if (noteInput) noteInput.value = "";
 }
 
@@ -4822,6 +4897,55 @@ function renderWorkItemTimeline(tasks, events) {
   box.scrollTop = box.scrollHeight;
 }
 
+function renderWorkItemReviewBar(item) {
+  const bar = document.getElementById("workItemReviewBar");
+  if (!bar) return;
+  if (!item || item.status !== "in_review") {
+    bar.hidden = true;
+    bar.innerHTML = "";
+    return;
+  }
+  const id = esc(item.id || "");
+  bar.innerHTML =
+    `<span class="work-item-review-text">执行已完成，等待你验收</span>` +
+    `<div class="work-item-review-actions">` +
+    `<button type="button" class="inbox-choice-btn inbox-accept-btn" onclick="acceptWorkItemFromModal('${id}')">验收通过</button>` +
+    `<button type="button" class="inbox-choice-btn inbox-reject-btn" onclick="rejectWorkItemFromModal('${id}')">未通过</button>` +
+    `</div>`;
+  bar.hidden = false;
+}
+
+async function acceptWorkItemFromModal(workItemId) {
+  const id = String(workItemId || WORK_ITEM_MODAL_ID || "").trim();
+  if (!id) return;
+  try {
+    await api(`/api/work-items/${encodeURIComponent(id)}/accept`, { method: "POST", body: "{}" });
+    toast("已验收通过");
+    const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+    renderWorkItemModal(data);
+  } catch (e) {
+    toast(`验收失败: ${e.message || e}`);
+  }
+}
+
+async function rejectWorkItemFromModal(workItemId) {
+  const id = String(workItemId || WORK_ITEM_MODAL_ID || "").trim();
+  if (!id) return;
+  const note = window.prompt("未通过原因（可选）", "") ?? null;
+  if (note === null) return;
+  try {
+    await api(`/api/work-items/${encodeURIComponent(id)}/reject`, {
+      method: "POST",
+      body: JSON.stringify({ note: String(note || "").trim() }),
+    });
+    toast("已标记未通过，工作项已重新打开");
+    const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+    renderWorkItemModal(data);
+  } catch (e) {
+    toast(`操作失败: ${e.message || e}`);
+  }
+}
+
 function renderWorkItemModal(data) {
   const item = data?.workItem;
   const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
@@ -4835,7 +4959,8 @@ function renderWorkItemModal(data) {
   if (metaEl) {
     const chips = [];
     const st = item.status || "open";
-    chips.push(`<span class="log-meta-chip">${esc(WORK_ITEM_STATUS_LABEL[st] || st)}</span>`);
+    const stCls = st === "in_review" ? " status-awaiting" : st === "done" ? " status-done" : "";
+    chips.push(`<span class="log-meta-chip${stCls}">${esc(WORK_ITEM_STATUS_LABEL[st] || st)}</span>`);
     if (item.issueCode) chips.push(`<span class="log-meta-chip bug-code">${esc(item.issueCode)}</span>`);
     const proj = shortPath(item.projectDir || "");
     if (proj && proj !== "-") {
@@ -4846,6 +4971,7 @@ function renderWorkItemModal(data) {
     if (discussionCount) chips.push(`<span class="log-meta-chip">${discussionCount} 条讨论</span>`);
     metaEl.innerHTML = chips.join("");
   }
+  renderWorkItemReviewBar(item);
   renderWorkItemDetail(item, issue);
   renderWorkItemTasks(tasks);
   renderWorkItemTimeline(tasks, events);
@@ -5220,8 +5346,8 @@ async function loadDashboard(force) {
       if (el) el.textContent = String(n ?? 0);
     };
     setNum("dash-open-issues", d.open_issue_count);
-    setNum("dash-awaiting", d.awaiting_count);
-    updateAwaitingNavBadge(d.awaiting_count);
+    setNum("dash-awaiting", d.inbox_count ?? ((d.awaiting_count || 0) + (d.in_review_count || 0)));
+    updateAwaitingNavBadge(d.inbox_count ?? ((d.awaiting_count || 0) + (d.in_review_count || 0)));
     setNum("dash-active", d.active_count);
     setNum("dash-done-week", d.done_week_count);
 
@@ -5234,9 +5360,35 @@ async function loadDashboard(force) {
       : '<div class="dash-empty">暂无开放缺陷</div>';
 
     const awaiting = d.awaiting_tasks || [];
-    awaitingBox.innerHTML = awaiting.length
-      ? awaiting.map((t) => renderDashTaskItem(t, "处理")).join("")
-      : '<div class="dash-empty">暂无待确认事项</div>';
+    const reviews = d.in_review_items || [];
+    const todoBits = [];
+    if (awaiting.length) {
+      todoBits.push(...awaiting.map((t) => renderDashTaskItem(t, "处理")));
+    }
+    if (reviews.length) {
+      todoBits.push(
+        ...reviews.map((w) => {
+          const id = esc(w.id || "");
+          const title = esc(w.title || w.id || "-");
+          const sub = esc(
+            [w.issueCode, shortPath(w.projectDir), fmtTime(w.lastActivityAt || w.updatedAt)]
+              .filter((x) => x && x !== "-")
+              .join(" · "),
+          );
+          return `<div class="dash-item">
+            <span class="tag tag-review">待验收</span>
+            <div class="di-body">
+              <div class="di-title" title="${title}">${title}</div>
+              ${sub ? `<div class="di-sub">${sub}</div>` : ""}
+            </div>
+            <button type="button" class="btn-outline" onclick="openWorkItemById('${id}')">验收</button>
+          </div>`;
+        }),
+      );
+    }
+    awaitingBox.innerHTML = todoBits.length
+      ? todoBits.join("")
+      : '<div class="dash-empty">暂无待办事项</div>';
   } catch (e) {
     awaitingBox.innerHTML = `<div class="dash-empty">加载失败: ${esc(e.message || e)}</div>`;
     issuesBox.innerHTML = "";

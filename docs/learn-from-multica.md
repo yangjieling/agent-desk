@@ -30,7 +30,7 @@
 | 2 | Agent 是队友身份 | 名字、指令、模型、Skills、Access、绑定 Runtime | 可命名 Agent 配置（provider/model/skill/instructions）+ 任务/workflow 绑定 | **已有** | 设置页 CRUD；新建任务与流程步骤可选 Agent |
 | 3 | 控制面 / 执行面分离 | 服务端排队；本机 daemon claim 再 spawn CLI | 单机 Fastify 直跑 | **可做 MVP** | 即使仍本地优先，也可引入「队列领取 + 心跳」；远程机为长期 |
 | 4 | 多种触发入口 | 分配 / @提及 / Chat / Autopilot | 建任务 / 跑 workflow / GitHub 修缺陷 | **可做 MVP** | 先扩「分配到 Agent」与定时；Chat/@ 可后置 |
-| 5 | 人只在关键点出现 | Inbox + `in_review` | 侧栏「待办」页聚合 `awaiting` 闸门；通知深链进任务 | **已有**（Inbox MVP）/ **可做 MVP**（`in_review` 验收态） | 闸门保留；待办页展示闸门选项快捷回复 |
+| 5 | 人只在关键点出现 | Inbox + `in_review` | 待办聚合闸门 `awaiting` + 工作项 `in_review` 验收 | **已有**（MVP） | 闸门快捷回复；Accept/Reject；任务完成≠工作项完成 |
 
 ---
 
@@ -120,7 +120,7 @@
 | 阶段 | 能力 | UI 方向（示例） |
 | --- | --- | --- |
 | 现在 | Agent 身份（#2） | 「智能体」侧栏一级页；设置只留全局默认项 ✅ |
-| 近期 | 待办 / Inbox（#5） | 侧栏「待办」+ 角标，聚合闸门待确认 ✅ |
+| 近期 | 待办 / Inbox（#5） | 侧栏「待办」+ 角标，聚合闸门待确认与工作项待验收 ✅ |
 | 近期 | Issue ≠ Task（#1） | 「工作项详情 + 执行记录时间线」，而非单条 task 行塞一切 |
 | 中期 | Autopilot（#13） | 独立「自动化」列表 + Runbook 编辑，不硬塞进流程页 |
 | 长期 | Runtime / daemon（#3、#10） | 「本机运行时」状态页，类似 Multica 运行时但保持本地单用户 |
@@ -156,6 +156,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-02 | #5 `in_review` 验收态：WorkItem 交付后待验收；Inbox Accept/Reject；不再因任务完成自动关闭工作项 |
 | 2026-09-02 | #11 工作项评论/事件流 MVP：gate 决策自动写入、手动备注、工作项弹窗时间线 |
 | 2026-09-02 | #1 Issue ≠ Task MVP：WorkItem 表、`/api/work-items`、缺陷页工作项与执行时间线 |
 | 2026-09-02 | #10 Runtime 发现：启动探测日志、`GET /api/runtimes`、设置页与智能体页展示 CLI 状态 |

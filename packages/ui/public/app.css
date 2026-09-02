@@ -278,6 +278,7 @@
   .tag-mid { background: #fff4e5; color: #b8730a; }
   .tag-low { background: #f0f1f2; color: #80868b; }
   .tag-urgent { background: #fdecea; color: #c0392b; }
+  .tag-review { background: #e7f0ff; color: #2f6feb; }
   .tag-normal { background: #e7f0ff; color: #2f6feb; }
   .btn-outline { background: #fff; color: #3c4043; border: 1px solid #dadce0;
                  padding: 5px 14px; border-radius: 6px; font-size: 12px; cursor: pointer;
@@ -299,6 +300,11 @@
   .inbox-card-title { font-size: 15px; font-weight: 600; color: #1f2329; line-height: 1.4;
                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .inbox-card-gate { margin-top: 4px; font-size: 13px; color: #b8730a; font-weight: 500; }
+  .inbox-card-gate.is-review { color: #2f6feb; }
+  .inbox-accept-btn { border-color: #cde7d3; color: #1e7e34; background: #f6fef9; }
+  .inbox-accept-btn:hover { background: #e9f7ee; }
+  .inbox-reject-btn { border-color: #f3c6cb; color: #c0392b; background: #fff; }
+  .inbox-reject-btn:hover { background: #fdeaea; }
   .inbox-card-sub { margin-top: 4px; font-size: 12px; color: #9aa0a6; line-height: 1.45; }
   .inbox-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .inbox-choice-btn { padding: 6px 12px; border: 1px solid #d9dce1; border-radius: 8px;
@@ -1109,6 +1115,13 @@
 
   .work-item-modal { width: min(720px, 92vw); max-width: 720px; height: min(78vh, 720px); }
   .work-item-body { flex: 1; min-height: 0; overflow: auto; padding: 14px 18px 18px; display: flex; flex-direction: column; }
+  .work-item-review-bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+    margin: 0 0 14px; padding: 10px 12px; border: 1px solid #c9daf8; border-radius: 10px; background: #f5f8ff;
+  }
+  .work-item-review-bar[hidden] { display: none !important; }
+  .work-item-review-text { font-size: 13px; color: #2f6feb; font-weight: 500; }
+  .work-item-review-actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .work-item-detail {
     margin: 0 0 14px; padding: 0; border: none; background: transparent;
   }

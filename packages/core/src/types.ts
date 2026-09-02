@@ -31,7 +31,7 @@ export interface AgentProfile {
   updatedAt: number;
 }
 
-export type WorkItemStatus = "open" | "in_progress" | "done" | "cancelled";
+export type WorkItemStatus = "open" | "in_progress" | "in_review" | "done" | "cancelled";
 
 export interface WorkItem {
   id: string;
