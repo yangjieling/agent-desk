@@ -6,11 +6,21 @@
   "properties": {
     "notifyEnabled": { "type": "boolean", "default": true },
     "autoConfirmGates": { "type": "boolean", "default": false },
+    "defaultAgentId": {
+      "type": "string",
+      "default": "",
+      "description": "Default named agent profile for new tasks"
+    },
     "codingAgent": { "type": "string", "default": "claude" },
     "defaultModel": {
       "type": "string",
       "default": "",
       "description": "Default LLM model for new tasks; empty = follow CLI default"
+    },
+    "workspaceLockEnabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, only one active task per project directory"
     },
     "idleTimeoutSec": { "type": "integer", "default": 3600 },
     "awaitingIdleTimeoutSec": { "type": "integer", "default": 86400 },

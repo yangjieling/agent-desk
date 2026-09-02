@@ -19,11 +19,13 @@ function normalizeNodes(raw: unknown): WorkflowNode[] {
     const rec = item as Record<string, unknown>;
     const skill = String(rec.skill ?? "").trim();
     if (!skill) continue;
+    const agentProfileId = String(rec.agentProfileId ?? rec.agent_profile_id ?? "").trim();
     nodes.push({
       id: String(rec.id ?? `n_${nodes.length + 1}`).trim(),
       skill,
       title: String(rec.title ?? skill).trim() || skill,
       prompt: String(rec.prompt ?? "").trim(),
+      ...(agentProfileId ? { agentProfileId } : {}),
       requireGate: !!rec.requireGate || !!rec.require_gate,
       onFailure: (() => {
         const raw = String(rec.onFailure ?? rec.on_failure ?? "stop").trim();

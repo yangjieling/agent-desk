@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/agent.json",
+  "title": "AgentProfile",
+  "type": "object",
+  "required": ["id", "name", "provider", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^a_" },
+    "name": { "type": "string", "maxLength": 80 },
+    "provider": { "type": "string" },
+    "model": { "type": "string" },
+    "defaultSkill": { "type": "string" },
+    "instructions": { "type": "string" },
+    "createdAt": { "type": "integer" },
+    "updatedAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

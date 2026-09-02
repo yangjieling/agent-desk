@@ -10,6 +10,18 @@ export type TaskType = "skill" | "workflow";
 
 export type WorkflowMode = "shared" | "independent";
 
+export interface AgentProfile {
+  id: string;
+  name: string;
+  /** Provider id: claude, codex, cursor, … */
+  provider: string;
+  model: string;
+  defaultSkill: string;
+  instructions: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface Task {
   id: string;
   taskType: TaskType;
@@ -27,6 +39,8 @@ export interface Task {
   issueCode: string;
   title: string;
   prompt: string;
+  /** Named agent profile; empty = follow settings.defaultAgentId / codingAgent */
+  agentProfileId: string;
   codingAgent: string;
   model: string;
   sessionId: string;
@@ -42,6 +56,8 @@ export interface WorkflowNode {
   skill: string;
   title: string;
   prompt: string;
+  /** Optional agent profile for this step; empty = inherit workflow / task default */
+  agentProfileId?: string;
   /** When true, step prompt insists on emitting a human gate before finishing. */
   requireGate?: boolean;
   /** v1: only "stop" is honored by the engine; others are reserved. */
@@ -73,9 +89,13 @@ export interface ParsedGate {
 export interface Settings {
   notifyEnabled: boolean;
   autoConfirmGates: boolean;
+  /** Default named agent profile for new tasks. */
+  defaultAgentId: string;
   codingAgent: string;
   /** Default LLM model for new tasks; empty = follow CLI default. */
   defaultModel: string;
+  /** When true, only one active task per project directory at a time. */
+  workspaceLockEnabled: boolean;
   idleTimeoutSec: number;
   awaitingIdleTimeoutSec: number;
   webBaseUrl: string;
@@ -146,8 +166,10 @@ export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = {
 export const DEFAULT_SETTINGS: Settings = {
   notifyEnabled: true,
   autoConfirmGates: false,
+  defaultAgentId: "",
   codingAgent: "claude",
   defaultModel: "",
+  workspaceLockEnabled: true,
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,
   webBaseUrl: "http://127.0.0.1:19877",

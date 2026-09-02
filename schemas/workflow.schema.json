@@ -21,6 +21,7 @@
           "skill": { "type": "string" },
           "title": { "type": "string" },
           "prompt": { "type": "string" },
+          "agentProfileId": { "type": "string" },
           "requireGate": { "type": "boolean", "default": false },
           "onFailure": { "enum": ["stop", "continue", "retry"], "default": "stop" }
         },

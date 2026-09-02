@@ -442,15 +442,14 @@ function renderLogMeta(task) {
   }
   const issue = tField(task, "issueCode", "issue_code");
   if (issue) chips.push(`<span class="log-meta-chip bug-code">${esc(issue)}</span>`);
-  const agent = (tField(task, "codingAgent", "coding_agent") || "").trim();
-  if (agent) {
-    const agentLabel = agentLabelFor(agent) || agent;
-    chips.push(`<span class="log-meta-chip" title="任务 Agent">${esc(agentLabel)}</span>`);
+  const agentChip = agentChipLabelForTask(task);
+  if (agentChip) {
+    chips.push(`<span class="log-meta-chip" title="任务 Agent">${esc(agentChip)}</span>`);
   }
   const model = (tField(task, "model", "model") || "").trim();
   if (model) {
     chips.push(`<span class="log-meta-chip" title="任务模型">${esc(model)}</span>`);
-  } else if (agent) {
+  } else if (agentChip) {
     chips.push(`<span class="log-meta-chip" title="任务模型">默认模型</span>`);
   }
   const proj = shortPath(tField(task, "projectDir", "project_dir"));
@@ -1661,6 +1660,7 @@ function showLog(id) {
   const switching = LOG_ID !== id;
   LOG_ID = id;
   if (switching) {
+    void loadAgentProfiles().then(() => refreshAgentProviderCache());
     LOG_TITLE = "";
     LOG_CHOICES_KEY = "";
     LOG_RENDER_SIG = "";
@@ -2133,10 +2133,12 @@ function explainWorkflowStartError(err, wfId) {
 async function startWorkflowRun(workflowId, opts = {}) {
   const projectDir = String(opts.projectDir || "").trim();
   if (!projectDir) throw new Error("请选择工作区");
+  const agentProfileId = String(opts.agentProfileId || getSelectedAgentProfileId() || "").trim();
   const body = {
     projectDir,
     title: opts.title,
     prompt: opts.prompt,
+    ...(agentProfileId ? { agentProfileId } : {}),
     ...(opts.issueCode ? { issueCode: opts.issueCode } : {}),
   };
   const run = await api(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
@@ -2284,33 +2286,9 @@ async function initTaskNewPage() {
   syncWorkspaceLabel();
   fillSkillOptions();
   try {
-    const [s, agents] = await Promise.all([
-      api("/api/settings"),
-      loadDiscoveredAgentProviders(),
-    ]);
-    const agentEl = document.getElementById("t-run-agent");
-    const agentId = (s.codingAgent || agents[0]?.id || "").trim();
-    if (agentEl) {
-      const match = agents.find((a) => a.id === agentId);
-      if (match) {
-        agentEl.textContent = agentProviderLabel(match);
-        agentEl.title = match.path ? `CLI: ${match.path}` : "";
-      } else if (agents.length) {
-        agentEl.textContent = agentProviderLabel(agents[0]);
-        agentEl.title = agents[0].path ? `CLI: ${agents[0].path}` : "";
-      } else {
-        agentEl.textContent = "未检测到 CLI";
-        agentEl.title = "请先在设置中安装并配置编码 Agent";
-      }
-    }
-    const modelOpts = await loadAgentModelOptions(agentId);
-    const initialModel = s.defaultModel || "";
-    mountModelDropdown(
-      document.getElementById("t-model"),
-      modelOpts,
-      initialModel,
-      () => {},
-    );
+    const s = await api("/api/settings");
+    await refreshAgentProviderCache();
+    await refreshTaskAgentPickers(s);
   } catch {
     /* ignore */
   }
@@ -2366,12 +2344,14 @@ async function createTask() {
       const workflowId = document.getElementById("t-workflow").value;
       if (!workflowId) throw new Error("请选择流程");
       const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
+      const agentProfileId = getSelectedAgentProfileId();
       const run = await api(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
         method: "POST",
         body: JSON.stringify({
           title,
           prompt,
           projectDir,
+          ...(agentProfileId ? { agentProfileId } : {}),
           ...(issueCode ? { issueCode } : {}),
         }),
       });
@@ -2384,6 +2364,7 @@ async function createTask() {
     } else {
       const skill = getTaskSkillId();
       const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
+      const agentProfileId = getSelectedAgentProfileId();
       const task = await api("/api/tasks", {
         method: "POST",
         body: JSON.stringify({
@@ -2392,6 +2373,7 @@ async function createTask() {
           projectDir,
           skill,
           model: (document.getElementById("t-model")?.dataset.value || "").trim(),
+          ...(agentProfileId ? { agentProfileId } : {}),
           ...(issueCode ? { issueCode } : {}),
         }),
       });
@@ -2625,10 +2607,17 @@ function renderWfEditorNodes() {
   box.innerHTML = nodes
     .map((n, i) => {
       const gateChecked = n.requireGate ? " checked" : "";
+      const agentOpts = agentProfileDropdownOptions(AGENT_PROFILES, true)
+        .map(
+          (o) =>
+            `<option value="${esc(o.id)}"${o.id === (n.agentProfileId || "") ? " selected" : ""}>${esc(o.displayName)}</option>`,
+        )
+        .join("");
       return `<div class="wf-ed-node" data-idx="${i}">
         <div class="wf-ed-node-top">
           <input type="text" data-k="title" value="${esc(n.title || "")}" placeholder="步骤标题">
           <select data-k="skill">${skillOptionsHtml(n.skill || "default")}</select>
+          <select data-k="agentProfileId" title="本步 Agent">${agentOpts}</select>
           <button type="button" class="btn-stop" onclick="wfEditorRemoveNode(${i})">删除</button>
         </div>
         <textarea data-k="prompt" placeholder="本步指令（可选）">${esc(n.prompt || "")}</textarea>
@@ -2650,11 +2639,13 @@ function readWfEditorNodesFromDom() {
     const skill = (el.querySelector('[data-k="skill"]')?.value || "").trim();
     const prompt = (el.querySelector('[data-k="prompt"]')?.value || "").trim();
     const requireGate = !!el.querySelector('[data-k="requireGate"]')?.checked;
+    const agentProfileId = (el.querySelector('[data-k="agentProfileId"]')?.value || "").trim();
     nodes.push({
       id: (WF_EDIT.nodes[i] && WF_EDIT.nodes[i].id) || `n${i + 1}`,
       title: title || skill || `步骤 ${i + 1}`,
       skill: skill || "default",
       prompt,
+      ...(agentProfileId ? { agentProfileId } : {}),
       requireGate,
       onFailure: "stop",
     });
@@ -2695,7 +2686,7 @@ function closeWorkflowEditor() {
 }
 
 async function openWorkflowEditor(id, opts = {}) {
-  await ensureWfSkillOpts();
+  await Promise.all([ensureWfSkillOpts(), loadAgentProfiles()]);
   let settings = {};
   try {
     settings = await api("/api/settings");
@@ -2712,6 +2703,7 @@ async function openWorkflowEditor(id, opts = {}) {
       title: n.title || n.skill || `步骤 ${i + 1}`,
       skill: n.skill || "default",
       prompt: n.prompt || "",
+      agentProfileId: n.agentProfileId || n.agent_profile_id || "",
       requireGate: !!n.requireGate,
       onFailure: n.onFailure || "stop",
     }));
@@ -2787,6 +2779,7 @@ async function saveWorkflowEditor() {
       title: n.title,
       skill: n.skill,
       prompt: n.prompt || "",
+      ...(n.agentProfileId ? { agentProfileId: n.agentProfileId } : {}),
       requireGate: !!n.requireGate,
       onFailure: "stop",
     })),
@@ -3200,6 +3193,187 @@ function formatModelOptionLabel(m) {
 }
 
 let AGENT_PROVIDER_BY_ID = new Map();
+let AGENT_PROFILES = [];
+let AGENT_EDIT = null;
+
+async function loadAgentProfiles() {
+  try {
+    AGENT_PROFILES = await api("/api/agents");
+  } catch {
+    AGENT_PROFILES = [];
+  }
+  return AGENT_PROFILES;
+}
+
+function agentProfileLabel(agent) {
+  if (!agent) return "未知 Agent";
+  const prov = AGENT_PROVIDER_BY_ID.get(agent.provider) || agent.provider;
+  return `${agent.name} · ${prov}`;
+}
+
+function agentProfileDropdownOptions(profiles, includeEmpty = false) {
+  const opts = (profiles || []).map((a) => ({
+    id: a.id,
+    displayName: agentProfileLabel(a),
+  }));
+  if (includeEmpty) opts.unshift({ id: "", displayName: "（继承默认）" });
+  return opts;
+}
+
+async function renderAgentsSettingsList() {
+  const box = document.getElementById("agentsList");
+  if (!box) return;
+  await loadAgentProfiles();
+  if (!AGENT_PROFILES.length) {
+    box.innerHTML = '<p class="setting-subconfig-desc">暂无 Agent，点击下方新建。</p>';
+    return;
+  }
+  box.innerHTML = AGENT_PROFILES.map(
+    (a) => `<div class="agent-profile-row">
+      <div>
+        <div class="n">${esc(a.name)}</div>
+        <div class="sk-ver">${esc(a.provider)}${a.model ? ` · ${esc(a.model)}` : ""}${a.defaultSkill && a.defaultSkill !== "default" ? ` · skill:${esc(a.defaultSkill)}` : ""}</div>
+      </div>
+      <div class="sk-act" style="display:flex;gap:6px">
+        <button type="button" class="btn-refresh" onclick="openAgentEditor('${esc(a.id)}')">编辑</button>
+        <button type="button" class="btn-stop" onclick="deleteAgentProfile('${esc(a.id)}')">删除</button>
+      </div>
+    </div>`,
+  ).join("");
+}
+
+function closeAgentEditor() {
+  const mask = document.getElementById("agentEditMask");
+  if (mask) mask.classList.remove("show");
+  AGENT_EDIT = null;
+}
+
+function onAgentEditMaskClick(e) {
+  if (e.target === e.currentTarget) closeAgentEditor();
+}
+
+async function openAgentEditor(id) {
+  await refreshAgentProviderCache();
+  const providers = await loadDiscoveredAgentProviders();
+  const sel = document.getElementById("agent-ed-provider");
+  if (sel) {
+    sel.innerHTML = providers
+      .map((p) => `<option value="${esc(p.id)}">${esc(agentProviderLabel(p))}</option>`)
+      .join("");
+  }
+  const existing = id ? AGENT_PROFILES.find((a) => a.id === id) : null;
+  AGENT_EDIT = { id: existing?.id || "", isNew: !existing };
+  document.getElementById("agentEditTitle").textContent = existing ? "编辑 Agent" : "新建 Agent";
+  document.getElementById("agent-ed-name").value = existing?.name || "";
+  if (sel) sel.value = existing?.provider || providers[0]?.id || "claude";
+  document.getElementById("agent-ed-model").value = existing?.model || "";
+  document.getElementById("agent-ed-skill").value = existing?.defaultSkill || "default";
+  document.getElementById("agent-ed-instructions").value = existing?.instructions || "";
+  document.getElementById("agentEditMask").classList.add("show");
+}
+
+async function saveAgentEditor() {
+  if (!AGENT_EDIT) return;
+  const name = (document.getElementById("agent-ed-name").value || "").trim();
+  const provider = (document.getElementById("agent-ed-provider").value || "").trim();
+  const model = (document.getElementById("agent-ed-model").value || "").trim();
+  const defaultSkill = (document.getElementById("agent-ed-skill").value || "default").trim() || "default";
+  const instructions = (document.getElementById("agent-ed-instructions").value || "").trim();
+  if (!name) return toast("请填写 Agent 名称");
+  if (!provider) return toast("请选择提供方");
+  const body = { name, provider, model, defaultSkill, instructions };
+  try {
+    if (AGENT_EDIT.isNew) {
+      await api("/api/agents", { method: "POST", body: JSON.stringify(body) });
+    } else {
+      await api(`/api/agents/${encodeURIComponent(AGENT_EDIT.id)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    }
+    toast("Agent 已保存");
+    closeAgentEditor();
+    await loadAgentProfiles();
+    await renderAgentsSettingsList();
+    await refreshTaskAgentPickers();
+  } catch (e) {
+    toast(`保存失败: ${e.message || e}`);
+  }
+}
+
+async function deleteAgentProfile(id) {
+  if (!id) return;
+  if (!confirm("确定删除这个 Agent 身份？")) return;
+  try {
+    await api(`/api/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("已删除");
+    await loadAgentProfiles();
+    await renderAgentsSettingsList();
+    await refreshTaskAgentPickers();
+  } catch (e) {
+    toast(`删除失败: ${e.message || e}`);
+  }
+}
+
+function agentChipLabelForTask(task) {
+  const profileId = (tField(task, "agentProfileId", "agent_profile_id") || "").trim();
+  if (profileId && AGENT_PROFILES.length) {
+    const profile = AGENT_PROFILES.find((a) => a.id === profileId);
+    if (profile) return agentProfileLabel(profile);
+  }
+  const provider = (tField(task, "codingAgent", "coding_agent") || "").trim();
+  if (provider) return agentLabelFor(provider) || provider;
+  return "";
+}
+
+async function refreshTaskAgentPickers(settings) {
+  await loadAgentProfiles();
+  const s = settings || (await api("/api/settings").catch(() => ({})));
+  const defaultId = (s.defaultAgentId || AGENT_PROFILES[0]?.id || "").trim();
+  const opts = agentProfileDropdownOptions(AGENT_PROFILES);
+
+  const onTaskAgentChange = async (nextId) => {
+    const profile = AGENT_PROFILES.find((a) => a.id === nextId);
+    const modelOpts = await loadAgentModelOptions(profile?.provider || s.codingAgent || "claude");
+    mountModelDropdown(
+      document.getElementById("t-model"),
+      modelOpts,
+      profile?.model || s.defaultModel || "",
+      () => {},
+    );
+  };
+
+  const taskAgentEl = document.getElementById("t-agent");
+  if (taskAgentEl) {
+    mountSettingDropdown(taskAgentEl, opts, defaultId, onTaskAgentChange);
+  }
+
+  const setDefaultEl = document.getElementById("setDefaultAgent");
+  if (setDefaultEl) {
+    mountSettingDropdown(setDefaultEl, opts, defaultId, async (nextId) => {
+      const next = await saveSettingsPatch({ defaultAgentId: nextId });
+      toast("已更新：默认 Agent");
+      const profile = AGENT_PROFILES.find((a) => a.id === nextId);
+      if (profile) {
+        const modelOpts = await loadAgentModelOptions(profile.provider);
+        mountModelDropdown(
+          document.getElementById("setModel"),
+          modelOpts,
+          profile.model || next.defaultModel || "",
+          async (modelVal) => {
+            await saveSettingsPatch({ defaultModel: modelVal });
+            toast("已更新：默认模型");
+          },
+        );
+      }
+      await refreshTaskAgentPickers(next);
+    });
+  }
+}
+
+function getSelectedAgentProfileId() {
+  return (document.getElementById("t-agent")?.dataset.value || "").trim();
+}
 
 async function refreshAgentProviderCache() {
   const rows = await loadDiscoveredAgentProviders();
@@ -3511,6 +3685,9 @@ async function initSettingsUI() {
       toast("已更新：新建流程默认模式");
     },
   );
+
+  await renderAgentsSettingsList();
+  await refreshTaskAgentPickers(state);
 
   card.querySelectorAll(".setting-row").forEach((row) => {
     const key = row.dataset.key;

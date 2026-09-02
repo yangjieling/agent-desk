@@ -27,7 +27,7 @@
 | # | 主题 | Multica 做法 | agent-desk 现状 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | 1 | Issue ≠ Task | Issue 是持续工作；Task 是一次执行；一个 Issue 可有多次运行 | 任务生命周期偏「一次跑完」 | **可做 MVP** | Schema 拆「工作项 + 执行记录」；保留现有 task API 兼容层 |
-| 2 | Agent 是队友身份 | 名字、指令、模型、Skills、Access、绑定 Runtime | 基本是 `codingAgent: claude/codex/cursor` | **可做 MVP** | 可命名、可复用的 Agent 配置，再映射到现有 provider |
+| 2 | Agent 是队友身份 | 名字、指令、模型、Skills、Access、绑定 Runtime | 可命名 Agent 配置（provider/model/skill/instructions）+ 任务/workflow 绑定 | **已有** | 设置页 CRUD；新建任务与流程步骤可选 Agent |
 | 3 | 控制面 / 执行面分离 | 服务端排队；本机 daemon claim 再 spawn CLI | 单机 Fastify 直跑 | **可做 MVP** | 即使仍本地优先，也可引入「队列领取 + 心跳」；远程机为长期 |
 | 4 | 多种触发入口 | 分配 / @提及 / Chat / Autopilot | 建任务 / 跑 workflow / GitHub 修缺陷 | **可做 MVP** | 先扩「分配到 Agent」与定时；Chat/@ 可后置 |
 | 5 | 人只在关键点出现 | Inbox + `in_review` | 已有 `oh-choices` 闸门与通知深链 | **已有**（闸门）/ **可做 MVP**（Inbox、验收态） | 闸门保留；补待办收件箱与「待验收」状态 |
@@ -39,7 +39,7 @@
 | # | 主题 | Multica 要点 | agent-desk 现状 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- |
 | 6 | 任务队列与重试 | `queued → running → failed`、自动重试、取消、离线等待 | workflow 节点有 `onFailure: retry`；全局队列/重试不完整 | **可做 MVP** | 统一 runner 级重试与失败原因码 |
-| 7 | 并发与工作目录锁 | daemon/agent 并发上限；同目录互斥 | 无显式目录锁与全局并发上限 | **可做 MVP** | 避免同 workspace 并行互相踩 |
+| 7 | 并发与工作目录锁 | daemon/agent 并发上限；同目录互斥 | 设置项 `workspaceLockEnabled`；同 `projectDir` 仅一个 active 任务 | **已有** | 独立并行 workflow 与互斥冲突时需关闭互斥或换目录 |
 | 8 | 执行可观测性 | 工具调用级时间轴；Token/费用可见 | 有 stdout/stderr 时间轴与原始 JSONL | **已有**（日志）/ **可做 MVP**（用量） | 先解析各 CLI 用量事件再汇总 |
 | 9 | 安全边界说清楚 | 「不假装沙箱」+ 专用用户/容器；任务级 token、独立 workdir | 文档较少；本地用户权限即边界 | **可做 MVP** | 补 `docs/security.md`；可选独立 workdir |
 | 10 | Runtime 发现 | daemon 扫 PATH、注册多 CLI、心跳在线 | 设置里选默认 Agent；启动时假定 CLI 已装 | **可做 MVP** | 启动时探测 + UI 展示可用后端 |
@@ -112,4 +112,4 @@
 
 | 日期 | 说明 |
 | --- | --- |
-| 2026-09-01 | 初版：对照 agent-desk 与仓库内 Multica 整理 P0–P3 清单 |
+| 2026-09-02 | #2 Agent 身份、#7 工作区互斥 MVP 落地 |

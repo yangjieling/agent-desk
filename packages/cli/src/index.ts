@@ -173,29 +173,34 @@ tasks
   .requiredOption("-t, --title <title>", "task title")
   .requiredOption("-p, --prompt <prompt>", "task prompt")
   .option("--skill <id>", "skill id (SKILL.md pack)", "default")
+  .option("--agent <id>", "agent profile id")
   .option("--project-dir <dir>", "project directory", process.cwd())
   .option("--data-dir <dir>", "data directory", defaultDataDir())
   .action(async (opts: {
     title: string;
     prompt: string;
     skill: string;
+    agent?: string;
     projectDir: string;
     dataDir: string;
   }) => {
     registerProviders();
     const db = openDb(opts.dataDir);
     const settings = db.getSettings();
+    const runnerOpts = { db, settings };
     const task = createTask(
       {
         title: clipTitle(opts.title),
         prompt: clipPrompt(opts.prompt),
         projectDir: opts.projectDir,
         skill: opts.skill,
+        agentProfileId: opts.agent,
       },
       settings,
+      runnerOpts,
     );
     db.upsertTask(task);
-    await startTask({ db, settings }, task.id);
+    await startTask(runnerOpts, task.id);
     console.log(task.id);
   });
 

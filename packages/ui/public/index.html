@@ -196,7 +196,6 @@
       <div class="composer-page">
         <div class="composer-hero">
           <h2 class="composer-title">今天要处理什么？</h2>
-          <span class="composer-badge" id="t-run-agent">Claude</span>
         </div>
 
         <div class="composer-topbar">
@@ -211,6 +210,12 @@
               <span class="topbar-chev" aria-hidden="true">▾</span>
             </button>
             <input type="hidden" id="t-dir" value="">
+          </div>
+
+          <span class="topbar-dot" aria-hidden="true"></span>
+
+          <div class="topbar-item" id="t-agent-wrap">
+            <div class="setting-dropdown topbar-skill-dd" id="t-agent" data-value="" title="Agent 身份"></div>
           </div>
 
           <span class="topbar-dot" aria-hidden="true"></span>
@@ -516,12 +521,30 @@
             </div>
             <div class="setting-dropdown" id="setWfMode" data-value="shared"></div>
           </div>
-          <div class="setting-row" data-key="codingAgent" data-type="select">
+          <div class="setting-row" data-key="workspaceLockEnabled">
             <div class="setting-meta">
-              <p class="st">默认编码 Agent</p>
-              <p class="sd">自动探测本机已安装的 CLI（claude / codex / agent）</p>
+              <p class="st">工作区互斥</p>
+              <p class="sd">同一项目目录同时只允许一个进行中的任务，避免并行踩踏</p>
             </div>
-            <div class="setting-dropdown" id="setAgent" data-value="claude"></div>
+            <label class="toggle" title="工作区互斥">
+              <input type="checkbox" checked>
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row is-stack">
+            <div class="setting-meta">
+              <p class="st">Agent 身份</p>
+              <p class="sd">可命名的 Agent 配置：提供方、模型、默认技能与系统指令</p>
+            </div>
+            <div id="agentsList" class="agents-list"></div>
+            <button type="button" class="btn-refresh" onclick="openAgentEditor()">新建 Agent</button>
+          </div>
+          <div class="setting-row" data-key="defaultAgentId" data-type="select">
+            <div class="setting-meta">
+              <p class="st">默认 Agent</p>
+              <p class="sd">新建任务时默认选中的 Agent 身份</p>
+            </div>
+            <div class="setting-dropdown" id="setDefaultAgent" data-value=""></div>
           </div>
           <div class="setting-row" data-key="defaultModel" data-type="select">
             <div class="setting-meta">
@@ -621,6 +644,28 @@
     </div>
     <div class="skill-meta" id="skillMeta"></div>
     <pre class="modal-body skill-body" id="skillBody"></pre>
+  </div>
+</div>
+
+<div class="modal-mask" id="agentEditMask" onclick="onAgentEditMaskClick(event)">
+  <div class="modal wf-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑 Agent">
+    <div class="modal-head">
+      <span class="mt" id="agentEditTitle">新建 Agent</span>
+      <button class="mc" type="button" onclick="closeAgentEditor()">×</button>
+    </div>
+    <div class="wf-edit-body">
+      <label class="wf-field">名称<input id="agent-ed-name" type="text" placeholder="例如: 修复专家" maxlength="80"></label>
+      <label class="wf-field">提供方
+        <select id="agent-ed-provider"></select>
+      </label>
+      <label class="wf-field">模型（可选）<input id="agent-ed-model" type="text" placeholder="留空则跟随 CLI 默认"></label>
+      <label class="wf-field">默认技能<input id="agent-ed-skill" type="text" placeholder="default" maxlength="80"></label>
+      <label class="wf-field">系统指令<textarea id="agent-ed-instructions" rows="5" placeholder="这名 Agent 的角色与约束…"></textarea></label>
+    </div>
+    <div class="dlg-foot wf-edit-foot">
+      <button type="button" class="dlg-cancel" onclick="closeAgentEditor()">取消</button>
+      <button type="button" class="dlg-ok" onclick="saveAgentEditor()">保存</button>
+    </div>
   </div>
 </div>
 

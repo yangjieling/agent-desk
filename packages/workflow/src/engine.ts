@@ -3,6 +3,7 @@ import {
   clipTitle,
   newTaskId,
   newWorkflowRunId,
+  resolveAgentConfig,
   type Settings,
   type Task,
   type Workflow,
@@ -15,6 +16,7 @@ import {
   enqueueStartTask,
   isTaskRunning,
   onTaskComplete,
+  resolveTaskAgent,
   startTask,
   stopTask,
   type RunnerOptions,
@@ -94,8 +96,17 @@ export function createWorkflowTask(
     prompt?: string;
     projectDir?: string;
     issueCode?: string;
+    agentProfileId?: string;
   },
+  opts?: RunnerOptions,
 ): Task {
+  const resolved = opts
+    ? resolveTaskAgent(opts, settings, { agentProfileId: input.agentProfileId })
+    : resolveAgentConfig(
+        input.agentProfileId ? db.getAgent(input.agentProfileId) : null,
+        settings,
+        { agentProfileId: input.agentProfileId },
+      );
   const now = Date.now();
   const task: Task = {
     id: newTaskId(),
@@ -114,8 +125,9 @@ export function createWorkflowTask(
     issueCode: input.issueCode ?? "",
     title: clipTitle(input.title ?? workflow.name),
     prompt: clipPrompt(input.prompt ?? ""),
-    codingAgent: settings.codingAgent,
-    model: settings.defaultModel ?? "",
+    agentProfileId: resolved.agentProfileId,
+    codingAgent: resolved.codingAgent,
+    model: resolved.model,
     sessionId: "",
     result: "",
     gateNotifyHash: "",
@@ -191,6 +203,20 @@ function syncIndependentRun(dataDir: string, db: AgentDeskDb, run: WorkflowRun):
   return persistRun(dataDir, db, run);
 }
 
+function resolveNodeAgent(
+  opts: RunnerOptions,
+  settings: Settings,
+  wfNode: { agentProfileId?: string },
+  parent: Task | null,
+): ReturnType<typeof resolveTaskAgent> {
+  const agentProfileId = (wfNode.agentProfileId || parent?.agentProfileId || "").trim();
+  return resolveTaskAgent(opts, settings, {
+    agentProfileId,
+    codingAgent: parent?.codingAgent,
+    model: parent?.model,
+  });
+}
+
 async function runShared(dataDir: string, opts: RunnerOptions, runId: string): Promise<void> {
   let run = getRun(dataDir, runId);
   if (!run) return;
@@ -213,6 +239,8 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
 
   let sharedContext = run.sharedContext;
   let inputPrompt = run.inputPrompt;
+  const settings = opts.db.getSettings();
+  const parentTask = opts.db.getTask(parentId);
 
   for (let i = run.currentIndex; i < run.nodes.length; i++) {
     run = getRun(dataDir, runId)!;
@@ -235,6 +263,7 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
 
     if (i === run.currentIndex) inputPrompt = "";
 
+    const nodeAgent = resolveNodeAgent(opts, settings, wfNode, parentTask);
     run = updateRunNode(dataDir, run, i, { taskId: parentId, status: "running" });
     run.currentIndex = i;
     run = persistRun(dataDir, opts.db, run);
@@ -245,6 +274,9 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
       status: "created",
       workflowNodeIndex: i,
       gateNotifyHash: "",
+      agentProfileId: nodeAgent.agentProfileId,
+      codingAgent: nodeAgent.codingAgent,
+      model: nodeAgent.model,
     });
 
     await startTask(opts, parentId);
@@ -313,6 +345,7 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
   for (let i = 0; i < run.nodes.length; i++) {
     const wfNode = wf.nodes[i];
     const prompt = buildIndependentPrompt(wfNode, i === 0 ? run.inputPrompt : "");
+    const nodeAgent = resolveNodeAgent(opts, settings, wfNode, parent);
     const child = createTask(
       {
         title: clipTitle(`${run.workflowName} · ${wfNode.title}`),
@@ -320,10 +353,12 @@ async function runIndependent(dataDir: string, opts: RunnerOptions, runId: strin
         projectDir: run.projectDir,
         issueCode: run.issueCode,
         skill: wfNode.skill,
-        codingAgent: parent?.codingAgent,
-        model: parent?.model ?? settings.defaultModel,
+        agentProfileId: nodeAgent.agentProfileId,
+        codingAgent: nodeAgent.codingAgent,
+        model: nodeAgent.model || settings.defaultModel,
       },
-      opts.db.getSettings(),
+      settings,
+      opts,
     );
     const childTask: Task = {
       ...child,
@@ -375,6 +410,7 @@ export interface StartRunInput {
   issueCode?: string;
   parentTaskId?: string;
   title?: string;
+  agentProfileId?: string;
 }
 
 export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunInput): WorkflowRun {
@@ -391,7 +427,8 @@ export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunIn
       prompt: input.inputPrompt,
       projectDir: input.projectDir,
       issueCode: input.issueCode,
-    });
+      agentProfileId: input.agentProfileId,
+    }, opts);
   }
 
   const now = Date.now();

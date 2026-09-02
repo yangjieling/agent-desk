@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle } from "@agent-desk/core";
+import { clipPrompt, clipTitle, newAgentId, type AgentProfile } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -287,10 +287,17 @@ export async function createServer(opts: ServerOptions = {}) {
       next.github = cur.github;
     }
     const agentChanged =
+      typeof body.defaultAgentId === "string" &&
+      body.defaultAgentId.trim() !== cur.defaultAgentId;
+    if (agentChanged && body.defaultAgentId) {
+      const profile = db.getAgent(String(body.defaultAgentId).trim());
+      if (profile) next.codingAgent = profile.provider;
+    }
+    const providerChanged =
       typeof body.codingAgent === "string" &&
       body.codingAgent.trim() &&
       body.codingAgent.trim() !== cur.codingAgent;
-    if (agentChanged) {
+    if (providerChanged) {
       try {
         const backend = getAgentBackend(next.codingAgent);
         const catalog = await backend.listModels();
@@ -308,6 +315,99 @@ export async function createServer(opts: ServerOptions = {}) {
   );
 
   app.get("/api/agent-providers", async () => listInstalledAgentProviders());
+
+  app.get("/api/agents", async () => db.listAgents());
+
+  app.get<{ Params: { id: string } }>("/api/agents/:id", async (req, reply) => {
+    const agent = db.getAgent(req.params.id);
+    if (!agent) return reply.code(404).send({ error: "not_found" });
+    return agent;
+  });
+
+  app.post<{
+    Body: {
+      name?: string;
+      provider?: string;
+      model?: string;
+      defaultSkill?: string;
+      instructions?: string;
+    };
+  }>("/api/agents", async (req, reply) => {
+    const name = String(req.body.name || "").trim();
+    const provider = String(req.body.provider || "").trim();
+    if (!name) return reply.code(400).send({ error: "name_required" });
+    if (!provider) return reply.code(400).send({ error: "provider_required" });
+    try {
+      getAgentBackend(provider);
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+    const now = Date.now();
+    const agent: AgentProfile = {
+      id: newAgentId(),
+      name,
+      provider,
+      model: String(req.body.model || "").trim(),
+      defaultSkill: String(req.body.defaultSkill || "default").trim() || "default",
+      instructions: String(req.body.instructions || "").trim(),
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.upsertAgent(agent);
+    return agent;
+  });
+
+  app.put<{
+    Params: { id: string };
+    Body: {
+      name?: string;
+      provider?: string;
+      model?: string;
+      defaultSkill?: string;
+      instructions?: string;
+    };
+  }>("/api/agents/:id", async (req, reply) => {
+    const current = db.getAgent(req.params.id);
+    if (!current) return reply.code(404).send({ error: "not_found" });
+    const provider = String(req.body.provider ?? current.provider).trim();
+    try {
+      getAgentBackend(provider);
+    } catch (e) {
+      return reply.code(400).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+    const now = Date.now();
+    const agent: AgentProfile = {
+      ...current,
+      name: String(req.body.name ?? current.name).trim() || current.name,
+      provider,
+      model: String(req.body.model ?? current.model).trim(),
+      defaultSkill: String(req.body.defaultSkill ?? current.defaultSkill).trim() || "default",
+      instructions: String(req.body.instructions ?? current.instructions).trim(),
+      updatedAt: now,
+    };
+    db.upsertAgent(agent);
+    const settings = db.getSettings();
+    if (settings.defaultAgentId === agent.id) {
+      db.saveSettings({ ...settings, codingAgent: agent.provider });
+    }
+    return agent;
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/agents/:id", async (req, reply) => {
+    const current = db.getAgent(req.params.id);
+    if (!current) return reply.code(404).send({ error: "not_found" });
+    const settings = db.getSettings();
+    if (settings.defaultAgentId === current.id) {
+      const remaining = db.listAgents().filter((a) => a.id !== current.id);
+      db.saveSettings({
+        ...settings,
+        defaultAgentId: remaining[0]?.id || "",
+        codingAgent: remaining[0]?.provider || settings.codingAgent,
+      });
+    }
+    db.deleteAgent(current.id);
+    return { ok: true };
+  });
 
   app.get<{ Querystring: { agent?: string } }>("/api/agent-models", async (req, reply) => {
     const agentId = (req.query.agent || db.getSettings().codingAgent || "claude").trim();
@@ -528,6 +628,7 @@ export async function createServer(opts: ServerOptions = {}) {
       projectDir?: string;
       issueCode?: string;
       skill?: string;
+      agentProfileId?: string;
       codingAgent?: string;
       model?: string;
     };
@@ -543,10 +644,12 @@ export async function createServer(opts: ServerOptions = {}) {
         projectDir: req.body.projectDir,
         issueCode: req.body.issueCode,
         skill: req.body.skill,
+        agentProfileId: req.body.agentProfileId,
         codingAgent: req.body.codingAgent,
         model: req.body.model,
       },
       db.getSettings(),
+      runnerOpts,
     );
     db.upsertTask(task);
     enqueueStartTask(runnerOpts, task.id);
@@ -680,6 +783,7 @@ export async function createServer(opts: ServerOptions = {}) {
         prompt?: string;
         requireGate?: boolean;
         onFailure?: string;
+        agentProfileId?: string;
       }>;
     };
   }>("/api/workflows", async (req, reply) => {
@@ -701,6 +805,9 @@ export async function createServer(opts: ServerOptions = {}) {
           skill: String(n.skill || "").trim(),
           title: String(n.title || n.skill || `步骤 ${i + 1}`).trim(),
           prompt: String(n.prompt || "").trim(),
+          ...(String(n.agentProfileId || "").trim()
+            ? { agentProfileId: String(n.agentProfileId).trim() }
+            : {}),
           requireGate: !!n.requireGate,
           onFailure:
             n.onFailure === "continue" || n.onFailure === "retry" ? n.onFailure : "stop",
@@ -725,6 +832,7 @@ export async function createServer(opts: ServerOptions = {}) {
         prompt?: string;
         requireGate?: boolean;
         onFailure?: string;
+        agentProfileId?: string;
       }>;
     };
   }>("/api/workflows/:id", async (req, reply) => {
@@ -749,6 +857,13 @@ export async function createServer(opts: ServerOptions = {}) {
           skill: String(n.skill || "").trim(),
           title: String(n.title || n.skill || `步骤 ${i + 1}`).trim(),
           prompt: String(n.prompt || "").trim(),
+          ...(String((n as { agentProfileId?: string }).agentProfileId || "").trim()
+            ? {
+                agentProfileId: String(
+                  (n as { agentProfileId?: string }).agentProfileId,
+                ).trim(),
+              }
+            : {}),
           requireGate: !!(n as { requireGate?: boolean }).requireGate,
           onFailure:
             (n as { onFailure?: string }).onFailure === "continue" ||
@@ -775,7 +890,7 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.post<{
     Params: { id: string };
-    Body: { title?: string; prompt?: string; projectDir?: string; issueCode?: string };
+    Body: { title?: string; prompt?: string; projectDir?: string; issueCode?: string; agentProfileId?: string };
   }>("/api/workflows/:id/run", async (req, reply) => {
     const wf = getWorkflow(dataDir, req.params.id);
     if (!wf) return reply.code(404).send({ error: "not_found" });
@@ -786,6 +901,7 @@ export async function createServer(opts: ServerOptions = {}) {
         inputPrompt: req.body.prompt,
         projectDir: req.body.projectDir,
         issueCode: req.body.issueCode,
+        agentProfileId: req.body.agentProfileId,
       });
       return run;
     } catch (e) {

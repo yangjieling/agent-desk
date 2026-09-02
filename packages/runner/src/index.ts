@@ -17,6 +17,8 @@ import {
   newTaskId,
   parseApprovedDangerousCommandIds,
   parseGate,
+  prependAgentInstructions,
+  resolveAgentConfig,
   resolveTaskStatusAfterRun,
   type Settings,
   type Task,
@@ -44,6 +46,7 @@ export interface CreateTaskInput {
   projectDir?: string;
   issueCode?: string;
   skill?: string;
+  agentProfileId?: string;
   codingAgent?: string;
   model?: string;
 }
@@ -113,13 +116,31 @@ async function emitTaskComplete(task: Task): Promise<void> {
   }
 }
 
-export function createTask(input: CreateTaskInput, settings: Settings): Task {
+export function resolveTaskAgent(
+  opts: RunnerOptions,
+  settings: Settings,
+  input: {
+    agentProfileId?: string;
+    codingAgent?: string;
+    model?: string;
+    skill?: string;
+  },
+) {
+  const profileId = (input.agentProfileId || settings.defaultAgentId || "").trim();
+  const profile = profileId ? opts.db.getAgent(profileId) : null;
+  return resolveAgentConfig(profile, settings, input);
+}
+
+export function createTask(input: CreateTaskInput, settings: Settings, opts?: RunnerOptions): Task {
+  const resolved = opts
+    ? resolveTaskAgent(opts, settings, input)
+    : resolveAgentConfig(null, settings, input);
   const now = Date.now();
   return {
     id: newTaskId(),
     taskType: "skill",
     status: "created",
-    skill: input.skill ?? "default",
+    skill: input.skill ?? resolved.defaultSkill,
     workflowId: "",
     workflowRunId: "",
     workflowName: "",
@@ -132,8 +153,9 @@ export function createTask(input: CreateTaskInput, settings: Settings): Task {
     issueCode: input.issueCode ?? "",
     title: clipTitle(input.title),
     prompt: clipPrompt(input.prompt),
-    codingAgent: input.codingAgent ?? settings.codingAgent,
-    model: input.model ?? settings.defaultModel ?? "",
+    agentProfileId: resolved.agentProfileId,
+    codingAgent: resolved.codingAgent,
+    model: resolved.model,
     sessionId: "",
     result: "",
     gateNotifyHash: "",
@@ -276,20 +298,36 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     const taskSessionId = task.sessionId;
 
     const settings = resolveSettings(opts);
+    const cwd = task.projectDir || process.cwd();
+
+    if (settings.workspaceLockEnabled !== false) {
+      const busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
+      if (busy > 0) {
+        return markTaskFailed(
+          opts,
+          taskId,
+          new Error(`工作区正被其他任务占用：${cwd}。请等待完成或停止后再试。`),
+        );
+      }
+    }
+
     const backend = getAgentBackend(task.codingAgent || settings.codingAgent);
     await backend.requireReady();
 
     const controller = new AbortController();
     running.set(taskId, controller);
 
-    const cwd = task.projectDir || process.cwd();
     const skillMount = mountSkill(task.skill || "default", { cwd });
     const runPrompt = agentPromptBodyForRun(task.prompt, Boolean(task.sessionId));
-    const promptBody = task.sessionId
+    let promptBody = task.sessionId
       ? runPrompt
       : skillMount.promptPrefix
         ? `${skillMount.promptPrefix}\n${task.prompt}`
         : task.prompt;
+    if (!task.sessionId && task.agentProfileId) {
+      const profile = opts.db.getAgent(task.agentProfileId);
+      promptBody = prependAgentInstructions(promptBody, profile?.instructions || "");
+    }
     const promptFile = promptPath(task.id);
     fs.writeFileSync(promptFile, promptBody, "utf8");
 
