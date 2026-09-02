@@ -14,6 +14,11 @@
   .nav-item:hover { background: #eef0f3; }
   .nav-item.active { background: #e8f0fe; color: #1a73e8; font-weight: 500; }
   .nav-item .ic { width: 18px; text-align: center; opacity: .85; font-size: 15px; }
+  .nav-badge {
+    margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
+    background: #d93025; color: #fff; font-size: 11px; font-weight: 600; line-height: 18px; text-align: center;
+  }
+  .nav-item.active .nav-badge { background: #c5221f; }
   .nav-group-label { padding: 14px 12px 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
                      text-transform: uppercase; color: #9aa0a6; }
   .nav-group-label:first-of-type { padding-top: 4px; }
@@ -246,6 +251,11 @@
   .dash-stat .ds-num.red { color: #e53935; }
   .dash-stat .ds-num.blue { color: #1a73e8; }
   .dash-stat .ds-num.green { color: #1e7e34; }
+  .dash-stat-action { cursor: pointer; transition: box-shadow .15s, border-color .15s; }
+  .dash-stat-action:hover { box-shadow: 0 2px 10px rgba(26,115,232,.12); }
+  .dash-stat-action:focus-visible { outline: 2px solid #1a73e8; outline-offset: 2px; }
+  .dash-stat-action.has-alert { border-color: #aecbfa; background: #f8fbff; }
+  .dash-stat-action.has-alert .ds-num.blue { color: #d93025; }
   .dash-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .dash-card { background: #fff; border-radius: 14px; padding: 18px 20px 12px;
                box-shadow: 0 1px 3px rgba(60,64,67,.08); min-height: 280px; }

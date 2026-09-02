@@ -9,6 +9,7 @@ let DEEP_LINK_REPLY_SENT = false;
 
 let TASKS = [];
 let TASK_FILTER = "all";
+let AWAITING_COUNT = 0;
 let TASK_PAGE = 1;
 let TASK_POLL_TIMER = null;
 let TASK_POLL_SIG = "";
@@ -810,8 +811,60 @@ async function loadHealth() {
 async function loadTasks(showToast) {
   TASKS = await api("/api/tasks");
   TASK_POLL_SIG = taskListSignature(TASKS);
+  updateAwaitingNavBadge(countAwaitingTasks(TASKS));
   renderTasks();
   if (showToast) toast(`已刷新 ${uiRootTasks().length} 条任务`);
+}
+
+function countAwaitingTasks(tasks) {
+  return (tasks || []).filter((t) => (t.status || "") === "awaiting").length;
+}
+
+function setTaskFilter(filter, opts = {}) {
+  const next = filter || "all";
+  TASK_FILTER = next;
+  TASK_PAGE = 1;
+  document.querySelectorAll("#taskFilters .chip").forEach((c) => {
+    c.classList.toggle("active", (c.dataset.filter || "all") === next);
+  });
+  if (opts.syncUrl !== false && CURRENT_VIEW === "tasks-list") {
+    const u = new URL(location.href);
+    if (next === "all") u.searchParams.delete("filter");
+    else u.searchParams.set("filter", next);
+    history.replaceState(null, "", u.pathname + u.search);
+  }
+  if (CURRENT_VIEW === "tasks-list") renderTasks();
+}
+
+function updateAwaitingNavBadge(count) {
+  AWAITING_COUNT = Math.max(0, Number(count) || 0);
+  const nav = document.querySelector('.nav-item[data-view="tasks-list"]');
+  if (nav) {
+    let badge = nav.querySelector(".nav-badge");
+    if (!badge) {
+      badge = document.createElement("span");
+      badge.className = "nav-badge";
+      badge.setAttribute("aria-label", "待确认任务数");
+      nav.appendChild(badge);
+    }
+    if (AWAITING_COUNT > 0) {
+      badge.textContent = AWAITING_COUNT > 99 ? "99+" : String(AWAITING_COUNT);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+  const stat = document.getElementById("dash-awaiting-stat");
+  if (stat) stat.classList.toggle("has-alert", AWAITING_COUNT > 0);
+  const link = document.getElementById("dash-awaiting-link");
+  if (link) {
+    link.textContent =
+      AWAITING_COUNT > 0 ? `查看待确认 (${AWAITING_COUNT})` : "查看任务";
+  }
+}
+
+function goToAwaitingTasks(taskId) {
+  switchView("tasks-list", { filter: "awaiting", taskId: taskId || "" });
 }
 
 function isLogTaskActive(task) {
@@ -830,6 +883,7 @@ async function pollTasksQuiet() {
     const prevStatus = new Map(TASKS.map((t) => [t.id, t.status || ""]));
     TASK_POLL_SIG = sig;
     TASKS = next;
+    updateAwaitingNavBadge(countAwaitingTasks(TASKS));
     renderTasks();
     next.forEach((t) => {
       const was = prevStatus.get(t.id) || "";
@@ -1114,10 +1168,7 @@ function renderTasks() {
 document.getElementById("taskFilters").addEventListener("click", (e) => {
   const btn = e.target.closest(".chip");
   if (!btn) return;
-  TASK_FILTER = btn.dataset.filter || "all";
-  TASK_PAGE = 1;
-  document.querySelectorAll("#taskFilters .chip").forEach((c) => c.classList.toggle("active", c === btn));
-  renderTasks();
+  setTaskFilter(btn.dataset.filter || "all");
 });
 
 const taskBoardToggle = document.getElementById("taskBoardToggle");
@@ -3991,7 +4042,7 @@ function renderDashTaskItem(t, actionLabel) {
       <div class="di-title" title="${title}">${title}</div>
       ${sub ? `<div class="di-sub">${sub}</div>` : ""}
     </div>
-    <button type="button" class="btn-outline" onclick="showLog('${id}')">${esc(actionLabel)}</button>
+    <button type="button" class="btn-outline" onclick="goToAwaitingTasks('${id}')">${esc(actionLabel)}</button>
   </div>`;
 }
 
@@ -4057,8 +4108,7 @@ function relatedTaskForIssue(code) {
 
 function openIssueTask(taskId) {
   if (!taskId) return;
-  switchView("tasks-list");
-  loadTasks().then(() => showLog(taskId));
+  switchView("tasks-list", { taskId });
 }
 
 function severityBadge(sev) {
@@ -4361,6 +4411,7 @@ async function loadDashboard(force) {
     };
     setNum("dash-open-issues", d.open_issue_count);
     setNum("dash-awaiting", d.awaiting_count);
+    updateAwaitingNavBadge(d.awaiting_count);
     setNum("dash-active", d.active_count);
     setNum("dash-done-week", d.done_week_count);
 
@@ -4382,7 +4433,7 @@ async function loadDashboard(force) {
   }
 }
 
-function switchView(view) {
+function switchView(view, opts = {}) {
   if (view !== "tasks-list" && LOG_ID) closeLog();
   if (view !== "tasks-list") stopTaskPolling();
   if (view !== "dashboard") stopDashPolling();
@@ -4416,6 +4467,16 @@ function switchView(view) {
     x.classList.toggle("active", x.dataset.view === navView);
   });
 
+  const u = new URL(location.href);
+  if (!view || view === "dashboard") u.searchParams.delete("view");
+  else u.searchParams.set("view", view);
+  if (view === "tasks-list") {
+    if (opts.filter) u.searchParams.set("filter", opts.filter);
+    else if (opts.resetFilter) u.searchParams.delete("filter");
+  } else {
+    u.searchParams.delete("filter");
+  }
+
   if (view === "settings") {
     initSettingsUI();
   }
@@ -4428,7 +4489,17 @@ function switchView(view) {
     if (view === "tasks-new") initTaskNewPage();
     if (view === "tasks-list") {
       setSessionPanelVisible(!!LOG_ID);
-      loadTasks();
+      const filterToApply = opts.filter
+        || (!opts.resetFilter && u.searchParams.get("filter"))
+        || "all";
+      setTaskFilter(filterToApply, { syncUrl: false });
+      if (filterToApply === "awaiting" && !opts.taskId) {
+        document.getElementById("taskBoard")?.classList.remove("collapsed");
+      }
+      const openTaskId = (opts.taskId || "").trim();
+      loadTasks().then(() => {
+        if (openTaskId) showLog(openTaskId);
+      });
       startTaskPolling();
     }
     if (view === "dashboard") {
@@ -4441,14 +4512,15 @@ function switchView(view) {
     if (view === "agents") loadAgentsPage();
   }
 
-  const u = new URL(location.href);
-  if (!view || view === "dashboard") u.searchParams.delete("view");
-  else u.searchParams.set("view", view);
   history.replaceState(null, "", u.pathname + u.search);
 }
 
 document.querySelectorAll(".nav-item[data-view]").forEach((el) => {
-  el.addEventListener("click", () => switchView(el.dataset.view));
+  el.addEventListener("click", () => {
+    const v = el.dataset.view;
+    if (v === "tasks-list") switchView(v, { resetFilter: true });
+    else switchView(v);
+  });
 });
 
 document.getElementById("wf-q").addEventListener("input", renderWorkflows);
@@ -4474,9 +4546,9 @@ bindRawDrawerResize();
 
 (function initDeepLink() {
   const logId = URL_PARAMS.get("log") || URL_PARAMS.get("task");
+  const filter = (URL_PARAMS.get("filter") || "").trim();
   if (logId) {
-    switchView("tasks-list");
-    loadTasks().then(() => showLog(logId));
+    switchView("tasks-list", { filter: filter || undefined, taskId: logId });
     return;
   }
   const view = (URL_PARAMS.get("view") || "").trim();
@@ -4484,7 +4556,7 @@ bindRawDrawerResize();
     view &&
     ["dashboard", "bugs", "workflows", "skills", "agents", "tasks-new", "tasks-list", "settings"].includes(view)
   ) {
-    switchView(view);
+    switchView(view, view === "tasks-list" && filter ? { filter } : undefined);
     return;
   }
   switchView("dashboard");

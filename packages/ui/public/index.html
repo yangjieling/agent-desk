@@ -43,7 +43,9 @@
           <p class="ds-label">开放缺陷</p>
           <div class="ds-num red" id="dash-open-issues">-</div>
         </div>
-        <div class="dash-stat">
+        <div class="dash-stat dash-stat-action" id="dash-awaiting-stat" role="button" tabindex="0"
+          title="点击查看待确认任务" onclick="goToAwaitingTasks()"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goToAwaitingTasks();}">
           <p class="ds-label">待确认</p>
           <div class="ds-num blue" id="dash-awaiting">-</div>
         </div>
@@ -67,7 +69,7 @@
         <div class="dash-card">
           <div class="dc-head">
             <h3 class="dc-title">待确认任务</h3>
-            <span class="dc-link" onclick="switchView('tasks-list')">全部任务</span>
+            <span class="dc-link" id="dash-awaiting-link" onclick="goToAwaitingTasks()">查看待确认</span>
           </div>
           <div id="dash-awaiting-tasks"></div>
         </div>
