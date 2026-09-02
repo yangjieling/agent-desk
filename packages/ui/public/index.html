@@ -11,6 +11,7 @@
   <div class="brand">agent-desk<span class="ver" id="ver"></span></div>
   <div class="nav-group-label">工作</div>
   <div class="nav-item active" data-view="dashboard"><span class="ic">▣</span>总览看板</div>
+  <div class="nav-item" data-view="inbox"><span class="ic">◈</span>待办</div>
   <div class="nav-item" data-view="bugs"><span class="ic">◎</span>缺陷列表</div>
   <div class="nav-item" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
   <div class="nav-group-label">配置</div>
@@ -44,8 +45,8 @@
           <div class="ds-num red" id="dash-open-issues">-</div>
         </div>
         <div class="dash-stat dash-stat-action" id="dash-awaiting-stat" role="button" tabindex="0"
-          title="点击查看待确认任务" onclick="goToAwaitingTasks()"
-          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goToAwaitingTasks();}">
+          title="点击查看待办" onclick="goToInbox()"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goToInbox();}">
           <p class="ds-label">待确认</p>
           <div class="ds-num blue" id="dash-awaiting">-</div>
         </div>
@@ -69,11 +70,16 @@
         <div class="dash-card">
           <div class="dc-head">
             <h3 class="dc-title">待确认任务</h3>
-            <span class="dc-link" id="dash-awaiting-link" onclick="goToAwaitingTasks()">查看待确认</span>
+            <span class="dc-link" id="dash-awaiting-link" onclick="goToInbox()">查看待办</span>
           </div>
           <div id="dash-awaiting-tasks"></div>
         </div>
       </div>
+    </section>
+
+    <section id="view-inbox" style="display:none">
+      <div class="inbox-summary" id="inboxSummary" aria-live="polite"></div>
+      <div id="inboxList" class="inbox-list"></div>
     </section>
 
     <section id="view-bugs" style="display:none">

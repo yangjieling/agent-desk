@@ -286,6 +286,32 @@
   .dash-item .btn-outline { margin-left: 6px; }
   .dash-item .btn-outline:first-of-type { margin-left: 0; }
   .dash-item .btn-outline:disabled { opacity: .55; cursor: not-allowed; }
+
+  .inbox-summary { margin-bottom: 16px; padding: 12px 14px; border-radius: 10px;
+                   background: #f8f9fa; border: 1px solid #e8eaed; font-size: 13px; color: #5f6368; }
+  .inbox-summary strong { color: #1f2329; font-weight: 600; }
+  .inbox-list { display: flex; flex-direction: column; gap: 0; }
+  .inbox-card { display: flex; flex-direction: column; gap: 10px; padding: 16px 4px;
+                border-bottom: 1px solid #f0f1f3; }
+  .inbox-card:last-child { border-bottom: none; }
+  .inbox-card-head { display: flex; align-items: flex-start; gap: 12px; }
+  .inbox-card-body { flex: 1; min-width: 0; }
+  .inbox-card-title { font-size: 15px; font-weight: 600; color: #1f2329; line-height: 1.4;
+                       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .inbox-card-gate { margin-top: 4px; font-size: 13px; color: #b8730a; font-weight: 500; }
+  .inbox-card-sub { margin-top: 4px; font-size: 12px; color: #9aa0a6; line-height: 1.45; }
+  .inbox-card-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .inbox-choice-btn { padding: 6px 12px; border: 1px solid #d9dce1; border-radius: 8px;
+                      background: #fff; color: #1f2329; font-size: 12px; cursor: pointer; }
+  .inbox-choice-btn:hover { background: #f3f4f6; border-color: #c4c7cc; }
+  .inbox-empty { padding: 48px 16px; text-align: center; color: #9aa0a6; font-size: 14px; }
+  .inbox-empty-icon { font-size: 28px; margin-bottom: 8px; opacity: .6; }
+  .page-head.inbox-mode { display: flex; align-items: flex-start; justify-content: space-between;
+                          gap: 16px; margin-bottom: 20px; }
+  .page-head.inbox-mode .page-title { text-align: left; margin: 0 0 4px; }
+  .page-head.inbox-mode .page-sub { text-align: left; margin: 0; }
+  .page-head.inbox-mode .page-head-actions { display: flex; }
+  .main-inner.inbox-wide { max-width: 980px; }
   @media (max-width: 860px) {
     .dash-stats, .dash-cols { grid-template-columns: 1fr; }
   }

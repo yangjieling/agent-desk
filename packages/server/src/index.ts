@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, newAgentId, type AgentProfile } from "@agent-desk/core";
+import { clipPrompt, clipTitle, newAgentId, parseGate, type AgentProfile } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -256,6 +256,35 @@ export async function createServer(opts: ServerOptions = {}) {
       failed_tasks: failedRecent.map(summarize),
       open_issues: openIssues,
     };
+  });
+
+  app.get("/api/inbox", async () => {
+    const tasks = db
+      .listTasks(300)
+      .filter((t) => t.status === "awaiting")
+      .sort((a, b) => Number(b.lastActivityAt || b.updatedAt) - Number(a.lastActivityAt || a.updatedAt));
+
+    const items = tasks.map((t) => {
+      const gate = parseGate(t.result || "");
+      return {
+        taskId: t.id,
+        type: "gate" as const,
+        title: t.title,
+        status: t.status,
+        gateHeading: gate?.heading || null,
+        gateName: gate?.name || null,
+        choices: gate?.choices || [],
+        skill: t.skill || "",
+        workflowName: t.workflowName || "",
+        issueCode: t.issueCode || "",
+        projectDir: t.projectDir || "",
+        agentProfileId: t.agentProfileId || "",
+        updatedAt: t.updatedAt,
+        lastActivityAt: t.lastActivityAt,
+      };
+    });
+
+    return { ok: true, count: items.length, items };
   });
 
   app.get<{ Querystring: { path?: string } }>("/api/fs/browse", async (req) => {

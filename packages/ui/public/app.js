@@ -27,6 +27,7 @@ let SKILL_LIST = [];
 let SK_FILTER = "all";
 let CURRENT_VIEW = "dashboard";
 let DASH_POLL_TIMER = null;
+let INBOX_POLL_TIMER = null;
 
 let BUGS = [];
 let BUG_PAGE = 1;
@@ -79,6 +80,7 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 
 const VIEW_TITLES = {
   dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
+  inbox: ["待办", "需要你确认的闸门与待处理事项"],
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
@@ -838,13 +840,13 @@ function setTaskFilter(filter, opts = {}) {
 
 function updateAwaitingNavBadge(count) {
   AWAITING_COUNT = Math.max(0, Number(count) || 0);
-  const nav = document.querySelector('.nav-item[data-view="tasks-list"]');
+  const nav = document.querySelector('.nav-item[data-view="inbox"]');
   if (nav) {
     let badge = nav.querySelector(".nav-badge");
     if (!badge) {
       badge = document.createElement("span");
       badge.className = "nav-badge";
-      badge.setAttribute("aria-label", "待确认任务数");
+      badge.setAttribute("aria-label", "待办数量");
       nav.appendChild(badge);
     }
     if (AWAITING_COUNT > 0) {
@@ -859,8 +861,23 @@ function updateAwaitingNavBadge(count) {
   const link = document.getElementById("dash-awaiting-link");
   if (link) {
     link.textContent =
-      AWAITING_COUNT > 0 ? `查看待确认 (${AWAITING_COUNT})` : "查看任务";
+      AWAITING_COUNT > 0 ? `查看待办 (${AWAITING_COUNT})` : "查看待办";
   }
+}
+
+function goToInbox() {
+  switchView("inbox");
+}
+
+function openInboxTask(taskId) {
+  openTaskView(taskId, { filter: "awaiting" });
+}
+
+function openInboxTaskWithReply(taskId, reply) {
+  if (!taskId) return;
+  DEEP_LINK_REPLY = String(reply || "").trim();
+  DEEP_LINK_REPLY_SENT = false;
+  openTaskView(taskId, { filter: "awaiting" });
 }
 
 function openTaskView(taskId, opts = {}) {
@@ -886,7 +903,7 @@ function openWorkflowRunTask(taskId, status) {
 function goToAwaitingTasks(taskId) {
   const id = (taskId || "").trim();
   if (id) openTaskView(id, { filter: "awaiting" });
-  else switchView("tasks-list", { filter: "awaiting" });
+  else goToInbox();
 }
 
 function syncPageTitle(view) {
@@ -917,7 +934,7 @@ async function pollTasksQuiet() {
       const was = prevStatus.get(t.id) || "";
       const now = t.status || "";
       if (now === "awaiting" && was === "running") {
-        toast(`「${t.title || t.id}」等待确认，可点击「处理」`);
+        toast(`「${t.title || t.id}」等待确认，请前往待办处理`);
       }
       if (LOG_ID === t.id && now !== was) {
         void pollLog();
@@ -4078,6 +4095,7 @@ async function stopProgram() {
 
 function refreshCurrentView() {
   if (CURRENT_VIEW === "dashboard") return loadDashboard(true);
+  if (CURRENT_VIEW === "inbox") return loadInbox(true);
   if (CURRENT_VIEW === "bugs") return loadBugs({ resetPage: false });
   if (CURRENT_VIEW === "tasks-list") return loadTasks(true);
   if (CURRENT_VIEW === "workflows") return loadWorkflows();
@@ -4108,6 +4126,82 @@ function dashTaskSub(t) {
   const when = fmtTime(t.lastActivityAt || t.updatedAt);
   if (when && when !== "-") bits.push(when);
   return bits.join(" · ");
+}
+
+function inboxItemSub(item) {
+  const bits = [];
+  if (item.skill) bits.push(item.skill);
+  if (item.workflowName) bits.push(item.workflowName);
+  if (item.issueCode) bits.push(item.issueCode);
+  if (item.projectDir) bits.push(shortPath(item.projectDir));
+  const when = fmtTime(item.lastActivityAt || item.updatedAt);
+  if (when && when !== "-") bits.push(when);
+  return bits.join(" · ");
+}
+
+function renderInboxItem(item) {
+  const id = esc(item.taskId || "");
+  const title = esc(item.title || item.taskId || "-");
+  const gate = esc(item.gateHeading || "等待确认");
+  const sub = esc(inboxItemSub(item));
+  const choices = (item.choices || []).slice(0, 5);
+  const choiceBtns = choices
+    .map((c) => {
+      const val = JSON.stringify(c.value || "");
+      const label = esc(c.label || c.value || "");
+      return `<button type="button" class="inbox-choice-btn" onclick="openInboxTaskWithReply('${id}', ${val})">${label}</button>`;
+    })
+    .join("");
+  return `<div class="inbox-card">
+    <div class="inbox-card-head">
+      <span class="tag tag-urgent">待确认</span>
+      <div class="inbox-card-body">
+        <div class="inbox-card-title" title="${title}">${title}</div>
+        <div class="inbox-card-gate">${gate}</div>
+        ${sub ? `<div class="inbox-card-sub">${sub}</div>` : ""}
+      </div>
+      <button type="button" class="btn-outline" onclick="openInboxTask('${id}')">打开</button>
+    </div>
+    ${choices.length ? `<div class="inbox-card-actions">${choiceBtns}</div>` : ""}
+  </div>`;
+}
+
+async function loadInbox(force) {
+  const list = document.getElementById("inboxList");
+  const summary = document.getElementById("inboxSummary");
+  if (!list) return;
+  if (force) list.innerHTML = '<div class="inbox-empty"><div class="inbox-empty-icon">◈</div>加载中…</div>';
+  try {
+    const d = await api("/api/inbox");
+    const count = d.count ?? (d.items || []).length;
+    updateAwaitingNavBadge(count);
+    if (summary) {
+      summary.innerHTML =
+        count > 0
+          ? `共有 <strong>${count}</strong> 项待你处理，多为 Agent 闸门确认。`
+          : "暂无待办，所有任务均无需你立即操作。";
+    }
+    const items = d.items || [];
+    list.innerHTML = items.length
+      ? items.map((item) => renderInboxItem(item)).join("")
+      : '<div class="inbox-empty"><div class="inbox-empty-icon">✓</div>暂无待办事项</div>';
+  } catch (e) {
+    list.innerHTML = `<div class="inbox-empty">加载失败: ${esc(e.message || e)}</div>`;
+  }
+}
+
+function stopInboxPolling() {
+  if (INBOX_POLL_TIMER) {
+    clearInterval(INBOX_POLL_TIMER);
+    INBOX_POLL_TIMER = null;
+  }
+}
+
+function startInboxPolling() {
+  stopInboxPolling();
+  INBOX_POLL_TIMER = setInterval(() => {
+    if (CURRENT_VIEW === "inbox" && !document.hidden) loadInbox(false);
+  }, 8000);
 }
 
 function renderDashTaskItem(t, actionLabel) {
@@ -4523,9 +4617,10 @@ function switchView(view, opts = {}) {
   if (view !== "tasks-list" && LOG_ID) closeLog();
   if (view !== "tasks-list") stopTaskPolling();
   if (view !== "dashboard") stopDashPolling();
+  if (view !== "inbox") stopInboxPolling();
   CURRENT_VIEW = view;
 
-  ["dashboard", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "agents", "settings"].forEach((v) => {
+  ["dashboard", "inbox", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "agents", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
@@ -4536,6 +4631,7 @@ function switchView(view, opts = {}) {
     head.classList.toggle("tasks-mode", view === "tasks-list");
     head.classList.toggle("dash-mode", view === "dashboard");
     head.classList.toggle("bugs-mode", view === "bugs");
+    head.classList.toggle("inbox-mode", view === "inbox");
   }
   const main = document.querySelector(".main");
   if (main) main.classList.toggle("tasks-fill", view === "tasks-list" && !!LOG_ID);
@@ -4545,6 +4641,7 @@ function switchView(view, opts = {}) {
     inner.classList.toggle("tasks-session", view === "tasks-list" && !!LOG_ID);
     inner.classList.toggle("dash-wide", view === "dashboard");
     inner.classList.toggle("bugs-wide", view === "bugs");
+    inner.classList.toggle("inbox-wide", view === "inbox");
     inner.classList.toggle("composer-wide", view === "tasks-new");
   }
 
@@ -4593,6 +4690,10 @@ function switchView(view, opts = {}) {
       loadDashboard(true);
       startDashPolling();
     }
+    if (view === "inbox") {
+      loadInbox(true);
+      startInboxPolling();
+    }
     if (view === "bugs") loadBugs({ resetPage: false });
     if (view === "workflows") loadWorkflows();
     if (view === "skills") loadSkills();
@@ -4618,10 +4719,12 @@ document.addEventListener("visibilitychange", () => {
   if (document.hidden) {
     stopTaskPolling();
     stopDashPolling();
+    stopInboxPolling();
     return;
   }
   if (CURRENT_VIEW === "tasks-list") startTaskPolling();
   if (CURRENT_VIEW === "dashboard") startDashPolling();
+  if (CURRENT_VIEW === "inbox") startInboxPolling();
 });
 
 loadHealth();
@@ -4641,7 +4744,7 @@ bindRawDrawerResize();
   const view = (URL_PARAMS.get("view") || "").trim();
   if (
     view &&
-    ["dashboard", "bugs", "workflows", "skills", "agents", "tasks-new", "tasks-list", "settings"].includes(view)
+    ["dashboard", "inbox", "bugs", "workflows", "skills", "agents", "tasks-new", "tasks-list", "settings"].includes(view)
   ) {
     switchView(view, view === "tasks-list" && filter ? { filter } : undefined);
     return;
