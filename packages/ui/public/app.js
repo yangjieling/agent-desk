@@ -3248,6 +3248,30 @@ function closeAgentEditor() {
   AGENT_EDIT = null;
 }
 
+const AGENT_INSTRUCTIONS_MAX = 8000;
+let agentInstructionsEditorBound = false;
+
+function syncAgentInstructionsUi() {
+  const el = document.getElementById("agent-ed-instructions");
+  const countEl = document.getElementById("agent-ed-instructions-count");
+  if (!el) return;
+  const len = (el.value || "").length;
+  if (countEl) {
+    countEl.textContent = `${len} 字`;
+    countEl.classList.toggle("warn", len > AGENT_INSTRUCTIONS_MAX * 0.9);
+  }
+  el.style.height = "auto";
+  el.style.height = `${Math.min(Math.max(el.scrollHeight, 132), 280)}px`;
+}
+
+function bindAgentInstructionsEditor() {
+  if (agentInstructionsEditorBound) return;
+  const el = document.getElementById("agent-ed-instructions");
+  if (!el) return;
+  agentInstructionsEditorBound = true;
+  el.addEventListener("input", syncAgentInstructionsUi);
+}
+
 function onAgentEditMaskClick(e) {
   if (e.target === e.currentTarget) closeAgentEditor();
 }
@@ -3269,6 +3293,8 @@ async function openAgentEditor(id) {
   document.getElementById("agent-ed-model").value = existing?.model || "";
   document.getElementById("agent-ed-skill").value = existing?.defaultSkill || "default";
   document.getElementById("agent-ed-instructions").value = existing?.instructions || "";
+  bindAgentInstructionsEditor();
+  syncAgentInstructionsUi();
   document.getElementById("agentEditMask").classList.add("show");
 }
 

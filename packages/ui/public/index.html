@@ -648,19 +648,38 @@
 </div>
 
 <div class="modal-mask" id="agentEditMask" onclick="onAgentEditMaskClick(event)">
-  <div class="modal wf-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑 Agent">
+  <div class="modal wf-edit-modal agent-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑 Agent">
     <div class="modal-head">
       <span class="mt" id="agentEditTitle">新建 Agent</span>
       <button class="mc" type="button" onclick="closeAgentEditor()">×</button>
     </div>
-    <div class="wf-edit-body">
-      <label class="wf-field">名称<input id="agent-ed-name" type="text" placeholder="例如: 修复专家" maxlength="80"></label>
-      <label class="wf-field">提供方
-        <select id="agent-ed-provider"></select>
-      </label>
-      <label class="wf-field">模型（可选）<input id="agent-ed-model" type="text" placeholder="留空则跟随 CLI 默认"></label>
-      <label class="wf-field">默认技能<input id="agent-ed-skill" type="text" placeholder="default" maxlength="80"></label>
-      <label class="wf-field">系统指令<textarea id="agent-ed-instructions" rows="5" placeholder="这名 Agent 的角色与约束…"></textarea></label>
+    <div class="wf-edit-body agent-edit-body">
+      <div class="agent-edit-grid">
+        <label class="wf-field wf-field-span2">名称<input id="agent-ed-name" type="text" placeholder="例如: 修复专家" maxlength="80"></label>
+        <label class="wf-field">提供方
+          <select id="agent-ed-provider"></select>
+        </label>
+        <label class="wf-field">模型（可选）<input id="agent-ed-model" type="text" placeholder="留空则跟随 CLI 默认"></label>
+        <label class="wf-field wf-field-span2">默认技能<input id="agent-ed-skill" type="text" placeholder="default" maxlength="80"></label>
+      </div>
+      <div class="agent-instructions-block">
+        <div class="agent-instructions-head">
+          <div class="agent-instructions-meta">
+            <span class="agent-instructions-title">系统指令</span>
+            <span class="agent-instructions-hint">定义这名 Agent 的角色与约束；仅在每次<strong>新任务</strong>启动时注入到提示词开头（续跑会话不会重复追加）。</span>
+          </div>
+          <span class="agent-instructions-count" id="agent-ed-instructions-count" aria-live="polite">0 字</span>
+        </div>
+        <div class="agent-instructions-editor">
+          <textarea
+            id="agent-ed-instructions"
+            rows="6"
+            maxlength="8000"
+            placeholder="例如：&#10;你是专注于缺陷修复的 Agent。&#10;- 先确认根因再改代码&#10;- 改动尽量小、可回滚&#10;- 遇到不确定项先输出 oh-choices 闸门"
+            spellcheck="false"
+          ></textarea>
+        </div>
+      </div>
     </div>
     <div class="dlg-foot wf-edit-foot">
       <button type="button" class="dlg-cancel" onclick="closeAgentEditor()">取消</button>

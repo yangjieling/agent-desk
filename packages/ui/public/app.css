@@ -802,8 +802,39 @@
   .wf-edit-modal { width: min(720px, 94vw); height: auto; max-height: 86vh; }
   .wf-edit-body { padding: 8px 22px 12px; overflow: auto; flex: 1; }
   .wf-field { display: block; font-size: 13px; color: #4b5563; margin: 10px 0; }
-  .wf-field input, .wf-field select { display: block; width: 100%; margin-top: 6px; box-sizing: border-box;
+  .wf-field input, .wf-field select, .wf-field textarea { display: block; width: 100%; margin-top: 6px; box-sizing: border-box;
     padding: 8px 10px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 13px; font-family: inherit; }
+  .wf-field textarea { min-height: 64px; line-height: 1.5; resize: vertical; }
+  .wf-field input:focus, .wf-field select:focus, .wf-field textarea:focus {
+    outline: none; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+  }
+  .agent-edit-modal { width: min(640px, 94vw); }
+  .agent-edit-body { padding-bottom: 16px; }
+  .agent-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .agent-edit-grid .wf-field-span2 { grid-column: 1 / -1; }
+  .agent-instructions-block { margin-top: 6px; padding-top: 14px; border-top: 1px solid #f0f1f3; }
+  .agent-instructions-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  .agent-instructions-meta { min-width: 0; }
+  .agent-instructions-title { display: block; font-size: 13px; font-weight: 600; color: #1f2329; }
+  .agent-instructions-hint { display: block; margin-top: 4px; font-size: 12px; line-height: 1.5; color: #9aa0a6; }
+  .agent-instructions-hint strong { font-weight: 600; color: #6b7280; }
+  .agent-instructions-count { flex-shrink: 0; font-size: 11px; color: #9aa0a6; padding-top: 2px; font-variant-numeric: tabular-nums; }
+  .agent-instructions-count.warn { color: #b45309; }
+  .agent-instructions-editor {
+    border: 1px solid #d9dce1; border-radius: 12px; background: #fafbfc;
+    transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+  .agent-instructions-editor:focus-within {
+    border-color: #93c5fd; background: #fff; box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+  }
+  .agent-instructions-editor textarea {
+    display: block; width: 100%; min-height: 132px; max-height: 280px; margin: 0; padding: 12px 14px;
+    border: none; border-radius: 12px; background: transparent; box-sizing: border-box;
+    font-size: 13px; line-height: 1.55; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: #1f2329; resize: none; overflow-y: auto;
+  }
+  .agent-instructions-editor textarea::placeholder { color: #9ca3af; font-family: inherit; }
+  .agent-instructions-editor textarea:focus { outline: none; }
   .wf-nodes-head { display: flex; align-items: center; justify-content: space-between; margin: 16px 0 8px;
                    font-size: 14px; font-weight: 600; color: #1f2329; }
   .wf-ed-nodes { display: flex; flex-direction: column; gap: 10px; }
@@ -825,6 +856,9 @@
     }
   }
   @media (max-width: 560px) {
+    .agent-edit-grid { grid-template-columns: 1fr; }
+    .agent-edit-grid .wf-field-span2 { grid-column: auto; }
+    .agent-instructions-head { flex-direction: column; gap: 6px; }
     .task-board-body { grid-template-columns: 1fr; }
     .task-row { flex-wrap: wrap; }
     .task-row .tr-status { min-width: 0; }
