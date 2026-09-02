@@ -20,7 +20,7 @@ when a decision is needed — without shipping a cloud control plane.
 
 **English | [简体中文](README.zh.md)**
 
-[Architecture](#architecture) · [Quick start](#get-started) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md)
+[Architecture](#architecture) · [Quick start](#get-started) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md) · [docs/security.md](docs/security.md)
 
 ---
 

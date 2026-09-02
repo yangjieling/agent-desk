@@ -518,7 +518,116 @@ function renderLogMeta(task) {
   if (retryHint && (st === "queued" || st === "failed")) {
     chips.push(`<span class="log-meta-chip">${esc(retryHint)}</span>`);
   }
+  const usageChip = formatTaskUsageChip(task.usage || extractUsageFromTaskResult(task));
+  if (usageChip) {
+    chips.push(
+      `<span class="log-meta-chip" title="${esc(usageChip.title)}">${esc(usageChip.label)}</span>`,
+    );
+  }
   el.innerHTML = chips.join("");
+}
+
+function formatTaskUsageChip(u) {
+  if (!u) return null;
+  const input = Number(u.inputTokens || 0);
+  const output = Number(u.outputTokens || 0);
+  const cacheRead = Number(u.cacheReadTokens || 0);
+  const cacheWrite = Number(u.cacheWriteTokens || 0);
+  const cost = u.costUsd == null ? null : Number(u.costUsd);
+  if (!(input > 0 || output > 0 || cacheRead > 0 || cacheWrite > 0 || (cost != null && cost >= 0))) {
+    return null;
+  }
+  const fmt = (n) => {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
+    return String(n);
+  };
+  const parts = [];
+  if (input) parts.push(`${fmt(input)} in`);
+  if (output) parts.push(`${fmt(output)} out`);
+  if (cost != null && cost > 0) {
+    parts.push(cost < 0.01 ? `$${cost.toFixed(4)}` : `$${cost.toFixed(2)}`);
+  }
+  const titleBits = [
+    `input ${input}`,
+    `output ${output}`,
+    cacheRead ? `cache read ${cacheRead}` : "",
+    cacheWrite ? `cache write ${cacheWrite}` : "",
+    cost != null ? `cost $${cost}` : "",
+  ].filter(Boolean);
+  return { label: parts.length ? parts.join(" · ") : "用量", title: titleBits.join(" · ") };
+}
+
+/** Client fallback when API has not attached `usage` (e.g. mid-stream SSE). Claude-shaped only. */
+function extractUsageFromTaskResult(task) {
+  const raw = String((task && task.result) || "");
+  if (!raw) return null;
+  const lines = raw.split("\n");
+  let best = null;
+  const pick = (obj, keys) => {
+    for (const k of keys) {
+      const n = Number(obj && obj[k]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    return 0;
+  };
+  for (const line of lines) {
+    const bare = line.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\] /, "").trim();
+    if (!bare.startsWith("{") || !bare.endsWith("}")) continue;
+    let evt;
+    try {
+      evt = JSON.parse(bare);
+    } catch {
+      continue;
+    }
+    if (evt.type !== "result") continue;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheWriteTokens = 0;
+    let costUsd = null;
+    if (evt.modelUsage && typeof evt.modelUsage === "object") {
+      for (const part of Object.values(evt.modelUsage)) {
+        if (!part || typeof part !== "object") continue;
+        inputTokens += pick(part, ["input_tokens", "inputTokens", "input"]);
+        outputTokens += pick(part, ["output_tokens", "outputTokens", "output"]);
+        cacheReadTokens += pick(part, [
+          "cache_read_input_tokens",
+          "cacheReadInputTokens",
+          "cacheReadTokens",
+        ]);
+        cacheWriteTokens += pick(part, [
+          "cache_creation_input_tokens",
+          "cacheCreationInputTokens",
+          "cacheWriteTokens",
+        ]);
+        const c = Number(part.costUSD);
+        if (Number.isFinite(c) && c >= 0) costUsd = (costUsd || 0) + c;
+      }
+    }
+    if (!(inputTokens || outputTokens || cacheReadTokens || cacheWriteTokens) && evt.usage) {
+      inputTokens = pick(evt.usage, ["input_tokens", "inputTokens", "input"]);
+      outputTokens = pick(evt.usage, ["output_tokens", "outputTokens", "output"]);
+      cacheReadTokens = pick(evt.usage, [
+        "cache_read_input_tokens",
+        "cacheReadInputTokens",
+        "cacheReadTokens",
+      ]);
+      cacheWriteTokens = pick(evt.usage, [
+        "cache_creation_input_tokens",
+        "cacheCreationInputTokens",
+        "cacheWriteTokens",
+      ]);
+    }
+    if (costUsd == null && evt.total_cost_usd != null) {
+      const c = Number(evt.total_cost_usd);
+      if (Number.isFinite(c) && c >= 0) costUsd = c;
+    }
+    if (inputTokens || outputTokens || cacheReadTokens || cacheWriteTokens || costUsd != null) {
+      best = { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, costUsd };
+    }
+  }
+  return best;
 }
 
 /** Creation-time task description (prompt), without later User reply appendices. */

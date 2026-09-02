@@ -40,8 +40,8 @@
 | --- | --- | --- | --- | --- | --- |
 | 6 | 任务队列与重试 | `queued → running → failed`、自动重试、取消、离线等待 | runner 级自动重试 + 工作区排队；失败原因码；设置页可配 | **已有**（MVP） | workflow 步骤 `onFailure: retry/continue` 已接入共享模式 |
 | 7 | 并发与工作目录锁 | daemon/agent 并发上限；同目录互斥 | 设置项 `workspaceLockEnabled`；同 `projectDir` 仅一个 active 任务 | **已有** | 独立并行 workflow 与互斥冲突时需关闭互斥或换目录 |
-| 8 | 执行可观测性 | 工具调用级时间轴；Token/费用可见 | 有 stdout/stderr 时间轴与原始 JSONL | **已有**（日志）/ **可做 MVP**（用量） | 先解析各 CLI 用量事件再汇总 |
-| 9 | 安全边界说清楚 | 「不假装沙箱」+ 专用用户/容器；任务级 token、独立 workdir | 文档较少；本地用户权限即边界 | **可做 MVP** | 补 `docs/security.md`；可选独立 workdir |
+| 8 | 执行可观测性 | 工具调用级时间轴；Token/费用可见 | 日志时间轴 + Claude 用量 chip（解析 `result` JSONL） | **已有**（日志）/ **已有**（用量 MVP） | Codex/Cursor 用量与汇总页后置 |
+| 9 | 安全边界说清楚 | 「不假装沙箱」+ 专用用户/容器；任务级 token、独立 workdir | [docs/security.md](./security.md)；本地用户即边界 | **已有**（文档） | 可选独立 workdir 后置 |
 | 10 | Runtime 发现 | daemon 扫 PATH、注册多 CLI、心跳在线 | 启动探测 + `GET /api/runtimes`；设置页与智能体页展示 CLI 状态 | **已有**（MVP） | 启动日志、`?fresh=1` 重探测；远程 daemon 心跳为长期 |
 
 ---
@@ -156,6 +156,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-02 | #8/#9：Claude 用量 meta chip；`docs/security.md` 说明本地用户边界（不假装沙箱） |
 | 2026-09-02 | #13 Autopilot MVP：cron 调度、Runbook→技能任务/流程、自动化页、立即运行/暂停；无 Webhook |
 | 2026-09-02 | #5 `in_review` 验收态：WorkItem 交付后待验收；Inbox Accept/Reject；不再因任务完成自动关闭工作项 |
 | 2026-09-02 | #11 工作项评论/事件流 MVP：gate 决策自动写入、手动备注、工作项弹窗时间线 |

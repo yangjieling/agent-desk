@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, newAgentId, newAutopilotId, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
+import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -848,7 +848,8 @@ export async function createServer(opts: ServerOptions = {}) {
   app.get<{ Params: { id: string } }>("/api/tasks/:id", async (req, reply) => {
     const task = db.getTask(req.params.id);
     if (!task) return reply.code(404).send({ error: "not_found" });
-    return task;
+    const usage = extractTaskUsageFromLog(task.result || "", task.codingAgent);
+    return usage ? { ...task, usage } : task;
   });
 
   app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(

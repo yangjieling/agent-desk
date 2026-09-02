@@ -19,7 +19,7 @@ agent-desk 是一个开源、**本地优先**的 AI 编码 Agent 编排框架。
 
 [English](README.md) | **简体中文**
 
-[架构](#架构) · [快速开始](#快速开始) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md)
+[架构](#架构) · [快速开始](#快速开始) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md) · [docs/security.md](docs/security.md)
 
 ---
 

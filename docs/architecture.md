@@ -4,7 +4,7 @@
 
 1. **Pluggable providers** — Agent, Issue, and Notify backends are swappable.
 2. **Schema-first** — Task/Workflow/Settings/Skill schemas live in `schemas/` for language-agnostic interchange.
-3. **Local-first** — SQLite + localhost API; no cloud dependency for the OSS core.
+3. **Local-first** — SQLite + localhost API; no cloud dependency for the OSS core. Process boundary = the OS user running the harness (see [security.md](./security.md)).
 4. **Portable skills** — Skill packs are harness-owned descriptors; agents only receive mount (prompt + dirs).
 
 ## Package graph
