@@ -8,12 +8,15 @@
 </head>
 <body>
 <aside class="sidebar">
-  <div class="brand">Open Harness<span class="ver" id="ver"></span></div>
+  <div class="brand">agent-desk<span class="ver" id="ver"></span></div>
+  <div class="nav-group-label">工作</div>
   <div class="nav-item active" data-view="dashboard"><span class="ic">▣</span>总览看板</div>
   <div class="nav-item" data-view="bugs"><span class="ic">◎</span>缺陷列表</div>
   <div class="nav-item" data-view="tasks-list"><span class="ic">☰</span>任务管理</div>
+  <div class="nav-group-label">配置</div>
   <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
   <div class="nav-item" data-view="skills"><span class="ic">✦</span>技能</div>
+  <div class="nav-item" data-view="agents"><span class="ic">◉</span>智能体</div>
   <div class="nav-item" data-view="settings"><span class="ic">⚙</span>设置</div>
 </aside>
 <main class="main">
@@ -306,26 +309,43 @@
       <div id="sk-list"></div>
     </section>
 
+    <section id="view-agents" style="display:none">
+      <div class="agents-page-prefs">
+        <div class="agents-pref-row">
+          <div class="agents-pref-meta">
+            <p class="agents-pref-title">默认 Agent</p>
+            <p class="agents-pref-hint">新建任务时预选的 Agent 身份</p>
+          </div>
+          <div class="setting-dropdown agents-pref-dd" id="setDefaultAgent" data-value=""></div>
+        </div>
+        <div class="agents-pref-row">
+          <div class="agents-pref-meta">
+            <p class="agents-pref-title">默认模型</p>
+            <p class="agents-pref-hint">跟随默认 Agent 的提供方；留空则使用 CLI 默认</p>
+          </div>
+          <div class="setting-dropdown agents-pref-dd" id="setModel" data-value=""></div>
+        </div>
+      </div>
+      <div class="toolbar">
+        <button class="btn-install" type="button" onclick="openAgentEditor()">新建 Agent</button>
+        <button class="btn-refresh" type="button" onclick="loadAgentsPage()">刷新</button>
+      </div>
+      <div id="agentsPageList" class="agents-page-list"></div>
+    </section>
+
     <section id="view-settings" style="display:none">
       <div class="settings-wrap">
-        <h2 class="settings-title">通知与偏好设置</h2>
         <div class="settings-list" id="settingsCard">
+
+          <div class="settings-section">
+            <h3 class="settings-subtitle">通知</h3>
+            <p class="settings-section-desc">任务状态变更与闸门消息的发送通道</p>
           <div class="setting-row" data-key="notifyEnabled">
             <div class="setting-meta">
               <p class="st">消息通知</p>
               <p class="sd">任务进入闸门或状态变更时发送通知（通道见下方「通知通道」）</p>
             </div>
             <label class="toggle" title="消息通知">
-              <input type="checkbox">
-              <span class="track"><span class="thumb"></span></span>
-            </label>
-          </div>
-          <div class="setting-row" data-key="autoConfirmGates">
-            <div class="setting-meta">
-              <p class="st">闸门自动确认</p>
-              <p class="sd">任务执行中遇到确认项时自动选择推荐方案并继续</p>
-            </div>
-            <label class="toggle" title="闸门自动确认">
               <input type="checkbox">
               <span class="track"><span class="thumb"></span></span>
             </label>
@@ -340,8 +360,8 @@
 
           <div class="setting-subconfig-wrap" id="notifyChannelPanels">
             <div class="setting-subconfig" data-notify-panel="dingtalk" hidden>
-              <div class="setting-subconfig-card is-expanded">
-                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+              <div class="setting-subconfig-card">
+                <button type="button" class="setting-subconfig-head" aria-expanded="false">
                   <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
@@ -416,8 +436,8 @@
             </div>
 
             <div class="setting-subconfig" data-notify-panel="feishu" hidden>
-              <div class="setting-subconfig-card is-expanded">
-                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+              <div class="setting-subconfig-card">
+                <button type="button" class="setting-subconfig-head" aria-expanded="false">
                   <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
@@ -430,8 +450,8 @@
             </div>
 
             <div class="setting-subconfig" data-notify-panel="webhook" hidden>
-              <div class="setting-subconfig-card is-expanded">
-                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+              <div class="setting-subconfig-card">
+                <button type="button" class="setting-subconfig-head" aria-expanded="false">
                   <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
@@ -443,7 +463,11 @@
               </div>
             </div>
           </div>
+          </div>
 
+          <div class="settings-section">
+            <h3 class="settings-subtitle">缺陷与仓库</h3>
+            <p class="settings-section-desc">缺陷列表来源与 GitHub 凭据</p>
           <div class="setting-row" data-key="providers.issue" data-type="select">
             <div class="setting-meta">
               <p class="st">缺陷来源</p>
@@ -454,8 +478,8 @@
 
           <div class="setting-subconfig-wrap" id="issueChannelPanels">
             <div class="setting-subconfig" data-issue-panel="github" hidden>
-              <div class="setting-subconfig-card is-expanded">
-                <button type="button" class="setting-subconfig-head" aria-expanded="true">
+              <div class="setting-subconfig-card">
+                <button type="button" class="setting-subconfig-head" aria-expanded="false">
                   <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
@@ -498,14 +522,20 @@
               </div>
             </div>
           </div>
+          </div>
 
-          <div class="setting-row" data-key="webBaseUrl" data-type="text">
+          <div class="settings-section">
+            <h3 class="settings-subtitle">任务默认</h3>
+            <p class="settings-section-desc">新建任务与 AI 修复的默认行为</p>
+          <div class="setting-row" data-key="autoConfirmGates">
             <div class="setting-meta">
-              <p class="st">Web Base URL</p>
-              <p class="sd">通知消息中的面板链接前缀</p>
+              <p class="st">闸门自动确认</p>
+              <p class="sd">任务执行中遇到确认项时自动选择推荐方案并继续</p>
             </div>
-            <input class="setting-select" type="text" id="setWebUrl" style="min-width:240px"
-              placeholder="http://127.0.0.1:19877">
+            <label class="toggle" title="闸门自动确认">
+              <input type="checkbox">
+              <span class="track"><span class="thumb"></span></span>
+            </label>
           </div>
           <div class="setting-row" data-key="defaultFixWorkflowId" data-type="select">
             <div class="setting-meta">
@@ -531,28 +561,21 @@
               <span class="track"><span class="thumb"></span></span>
             </label>
           </div>
-          <div class="setting-row is-stack">
-            <div class="setting-meta">
-              <p class="st">Agent 身份</p>
-              <p class="sd">可命名的 Agent 配置：提供方、模型、默认技能与系统指令</p>
-            </div>
-            <div id="agentsList" class="agents-list"></div>
-            <button type="button" class="btn-refresh" onclick="openAgentEditor()">新建 Agent</button>
           </div>
-          <div class="setting-row" data-key="defaultAgentId" data-type="select">
+
+          <div class="settings-section">
+            <h3 class="settings-subtitle">高级</h3>
+            <p class="settings-section-desc">一般无需修改</p>
+          <div class="setting-row is-stack" data-key="webBaseUrl" data-type="text">
             <div class="setting-meta">
-              <p class="st">默认 Agent</p>
-              <p class="sd">新建任务时默认选中的 Agent 身份</p>
+              <p class="st">Web Base URL</p>
+              <p class="sd">通知消息中的面板链接前缀</p>
             </div>
-            <div class="setting-dropdown" id="setDefaultAgent" data-value=""></div>
+            <input class="setting-select" type="text" id="setWebUrl" style="min-width:240px"
+              placeholder="http://127.0.0.1:19877">
           </div>
-          <div class="setting-row" data-key="defaultModel" data-type="select">
-            <div class="setting-meta">
-              <p class="st">默认模型</p>
-              <p class="sd">留空则跟随 CLI 默认；列表中「（默认）」为 Codex/Cursor 推荐项</p>
-            </div>
-            <div class="setting-dropdown" id="setModel" data-value=""></div>
           </div>
+
         </div>
       </div>
     </section>

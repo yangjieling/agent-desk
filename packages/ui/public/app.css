@@ -14,6 +14,9 @@
   .nav-item:hover { background: #eef0f3; }
   .nav-item.active { background: #e8f0fe; color: #1a73e8; font-weight: 500; }
   .nav-item .ic { width: 18px; text-align: center; opacity: .85; font-size: 15px; }
+  .nav-group-label { padding: 14px 12px 6px; font-size: 11px; font-weight: 600; letter-spacing: .04em;
+                     text-transform: uppercase; color: #9aa0a6; }
+  .nav-group-label:first-of-type { padding-top: 4px; }
 
   /* 右侧内容区 */
   .main { flex: 1; height: 100vh; overflow-y: auto; padding: 0; display: flex; flex-direction: column; }
@@ -76,6 +79,9 @@
   .settings-title { font-size: 28px; font-weight: 700; color: #202124; margin: 8px 0 8px; letter-spacing: -.02em; }
   .settings-subtitle { font-size: 18px; font-weight: 650; color: #202124; margin: 28px 0 6px; letter-spacing: -.01em; }
   .settings-section-desc { font-size: 13px; color: #80868b; line-height: 1.45; margin: 0 0 4px; }
+  .settings-section:first-child .settings-subtitle { margin-top: 0; }
+  .settings-section + .settings-section { margin-top: 8px; padding-top: 20px; border-top: 1px solid #eef0f3; }
+  .settings-section .setting-row:first-of-type { border-top: none; }
   .setting-subconfig-wrap { margin: 0 0 8px; }
   .setting-subconfig {
     margin: 4px 0 16px 20px;
@@ -908,6 +914,31 @@
   .agent-profile-row .n { font-size: 14px; font-weight: 600; color: #1f2329; }
   .agent-profile-row .sk-ver { font-size: 12px; color: #9aa0a6; margin-top: 2px; }
   .wf-ed-node-top select[data-k="agentProfileId"] { max-width: 180px; font-size: 12px; }
+
+  .agents-page-prefs { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;
+                       padding: 14px 16px; border: 1px solid #e8eaed; border-radius: 12px; background: #fafbfc; }
+  .agents-pref-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  .agents-pref-meta { min-width: 0; flex: 1; }
+  .agents-pref-title { margin: 0; font-size: 13px; font-weight: 600; color: #1f2329; }
+  .agents-pref-hint { margin: 3px 0 0; font-size: 12px; color: #9aa0a6; line-height: 1.45; }
+  .agents-pref-dd { min-width: min(240px, 100%); }
+  .agents-page-list { display: flex; flex-direction: column; gap: 0; }
+  .agent-card { display: flex; align-items: center; gap: 14px; padding: 16px 10px;
+                border-bottom: 1px solid #f0f1f3; }
+  .agent-card:hover { background: #fafbfc; }
+  .agent-card-icon { width: 42px; height: 42px; border-radius: 12px; flex-shrink: 0;
+                     display: flex; align-items: center; justify-content: center;
+                     font-size: 17px; font-weight: 700; color: #fff; text-transform: uppercase; }
+  .agent-card-main { flex: 1; min-width: 0; }
+  .agent-card-name { font-size: 15px; font-weight: 600; color: #1f2329; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .agent-card-badge { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 999px;
+                      background: #e7f0ff; color: #2f6feb; }
+  .agent-card-meta { font-size: 12px; color: #9aa0a6; margin-top: 4px; line-height: 1.45;
+                     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .agent-card-ins { font-size: 12px; color: #6b7280; margin-top: 4px; line-height: 1.45;
+                    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .agent-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .agent-card-actions button { padding: 5px 10px; font-size: 12px; }
 
   /* 新建任务 Composer（对齐 hb-cli） */
   #view-tasks-new { position: relative; display: flex; flex-direction: column;

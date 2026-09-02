@@ -81,9 +81,10 @@ const VIEW_TITLES = {
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "共享上下文为默认；可新建个人模板，缺陷 AI 修复默认走 Fix Pipeline"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
+  agents: ["智能体", "可命名的 Agent 配置：提供方、模型、技能与系统指令"],
   "tasks-new": ["新建任务", ""],
   "tasks-list": ["任务管理", ""],
-  settings: ["通知与偏好设置", ""],
+  settings: ["集成与偏好", "通知、缺陷来源与任务默认行为"],
 };
 
 const SKILL_SOURCE_LABEL = {
@@ -3054,8 +3055,11 @@ function syncSubconfigPanels(attrName, providerId, fallbackId) {
   document.querySelectorAll(`[${attrName}]`).forEach((panel) => {
     const match = panel.getAttribute(attrName) === id;
     panel.hidden = !match;
+    const card = panel.querySelector(".setting-subconfig-card");
     if (match) {
-      setSubconfigExpanded(panel.querySelector(".setting-subconfig-card"), true);
+      setSubconfigExpanded(card, true);
+    } else {
+      setSubconfigExpanded(card, false);
     }
   });
 }
@@ -3220,26 +3224,111 @@ function agentProfileDropdownOptions(profiles, includeEmpty = false) {
   return opts;
 }
 
-async function renderAgentsSettingsList() {
-  const box = document.getElementById("agentsList");
+async function renderAgentsPageList() {
+  const box = document.getElementById("agentsPageList");
   if (!box) return;
   await loadAgentProfiles();
+  let defaultId = "";
+  try {
+    const s = await api("/api/settings");
+    defaultId = (s.defaultAgentId || AGENT_PROFILES[0]?.id || "").trim();
+  } catch {
+    defaultId = AGENT_PROFILES[0]?.id || "";
+  }
   if (!AGENT_PROFILES.length) {
-    box.innerHTML = '<p class="setting-subconfig-desc">暂无 Agent，点击下方新建。</p>';
+    box.innerHTML =
+      '<div class="wf-empty">暂无 Agent。点击「新建 Agent」创建第一个身份配置。</div>';
     return;
   }
-  box.innerHTML = AGENT_PROFILES.map(
-    (a) => `<div class="agent-profile-row">
-      <div>
-        <div class="n">${esc(a.name)}</div>
-        <div class="sk-ver">${esc(a.provider)}${a.model ? ` · ${esc(a.model)}` : ""}${a.defaultSkill && a.defaultSkill !== "default" ? ` · skill:${esc(a.defaultSkill)}` : ""}</div>
+  box.innerHTML = AGENT_PROFILES.map((a, i) => {
+    const isDefault = a.id === defaultId;
+    const initial = esc((a.name || a.provider || "?").trim().charAt(0) || "?");
+    const color = ICON_PALETTE[i % ICON_PALETTE.length];
+    const meta = [
+      AGENT_PROVIDER_BY_ID.get(a.provider) || a.provider,
+      a.model || "CLI 默认模型",
+      a.defaultSkill && a.defaultSkill !== "default" ? `skill: ${a.defaultSkill}` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const ins = (a.instructions || "").trim();
+    return `<div class="agent-card">
+      <div class="agent-card-icon" style="background:${color}">${initial}</div>
+      <div class="agent-card-main">
+        <div class="agent-card-name">
+          <span>${esc(a.name)}</span>
+          ${isDefault ? '<span class="agent-card-badge">默认</span>' : ""}
+        </div>
+        <div class="agent-card-meta">${esc(meta)}</div>
+        ${ins ? `<div class="agent-card-ins">${esc(ins)}</div>` : ""}
       </div>
-      <div class="sk-act" style="display:flex;gap:6px">
+      <div class="agent-card-actions">
         <button type="button" class="btn-refresh" onclick="openAgentEditor('${esc(a.id)}')">编辑</button>
         <button type="button" class="btn-stop" onclick="deleteAgentProfile('${esc(a.id)}')">删除</button>
       </div>
-    </div>`,
-  ).join("");
+    </div>`;
+  }).join("");
+}
+
+async function mountAgentsPageDefaults(state) {
+  const s = state || (await api("/api/settings").catch(() => ({})));
+  const defaultId = (s.defaultAgentId || AGENT_PROFILES[0]?.id || "").trim();
+  const opts = agentProfileDropdownOptions(AGENT_PROFILES);
+  const saveSelect = async (key, nextVal) => {
+    const next = await saveSettingsPatch({ [key]: nextVal });
+    return next;
+  };
+
+  const setDefaultEl = document.getElementById("setDefaultAgent");
+  if (setDefaultEl) {
+    mountSettingDropdown(setDefaultEl, opts, defaultId, async (nextId) => {
+      const next = await saveSettingsPatch({ defaultAgentId: nextId });
+      toast("已更新：默认 Agent");
+      const profile = AGENT_PROFILES.find((a) => a.id === nextId);
+      if (profile) {
+        const modelOpts = await loadAgentModelOptions(profile.provider);
+        mountModelDropdown(
+          document.getElementById("setModel"),
+          modelOpts,
+          profile.model || next.defaultModel || "",
+          async (modelVal) => {
+            await saveSelect("defaultModel", modelVal);
+            toast("已更新：默认模型");
+          },
+        );
+      }
+      await renderAgentsPageList();
+      await refreshTaskAgentPickers(next);
+    });
+  }
+
+  const profile = AGENT_PROFILES.find((a) => a.id === defaultId);
+  const provider = profile?.provider || s.codingAgent || "claude";
+  const modelOpts = await loadAgentModelOptions(provider);
+  const initialModel = profile?.model || s.defaultModel || "";
+  mountModelDropdown(
+    document.getElementById("setModel"),
+    modelOpts,
+    initialModel,
+    async (nextVal) => {
+      await saveSelect("defaultModel", nextVal);
+      toast("已更新：默认模型");
+    },
+  );
+}
+
+async function loadAgentsPage() {
+  if (!AGENT_PROVIDER_BY_ID.size) await refreshAgentProviderCache();
+  await loadAgentProfiles();
+  let state = {};
+  try {
+    state = await api("/api/settings");
+  } catch {
+    state = {};
+  }
+  await mountAgentsPageDefaults(state);
+  await renderAgentsPageList();
+  await refreshTaskAgentPickers(state);
 }
 
 function closeAgentEditor() {
@@ -3320,7 +3409,7 @@ async function saveAgentEditor() {
     toast("Agent 已保存");
     closeAgentEditor();
     await loadAgentProfiles();
-    await renderAgentsSettingsList();
+    await renderAgentsPageList();
     await refreshTaskAgentPickers();
   } catch (e) {
     toast(`保存失败: ${e.message || e}`);
@@ -3334,7 +3423,7 @@ async function deleteAgentProfile(id) {
     await api(`/api/agents/${encodeURIComponent(id)}`, { method: "DELETE" });
     toast("已删除");
     await loadAgentProfiles();
-    await renderAgentsSettingsList();
+    await renderAgentsPageList();
     await refreshTaskAgentPickers();
   } catch (e) {
     toast(`删除失败: ${e.message || e}`);
@@ -3372,28 +3461,6 @@ async function refreshTaskAgentPickers(settings) {
   const taskAgentEl = document.getElementById("t-agent");
   if (taskAgentEl) {
     mountSettingDropdown(taskAgentEl, opts, defaultId, onTaskAgentChange);
-  }
-
-  const setDefaultEl = document.getElementById("setDefaultAgent");
-  if (setDefaultEl) {
-    mountSettingDropdown(setDefaultEl, opts, defaultId, async (nextId) => {
-      const next = await saveSettingsPatch({ defaultAgentId: nextId });
-      toast("已更新：默认 Agent");
-      const profile = AGENT_PROFILES.find((a) => a.id === nextId);
-      if (profile) {
-        const modelOpts = await loadAgentModelOptions(profile.provider);
-        mountModelDropdown(
-          document.getElementById("setModel"),
-          modelOpts,
-          profile.model || next.defaultModel || "",
-          async (modelVal) => {
-            await saveSettingsPatch({ defaultModel: modelVal });
-            toast("已更新：默认模型");
-          },
-        );
-      }
-      await refreshTaskAgentPickers(next);
-    });
   }
 }
 
@@ -3569,31 +3636,6 @@ async function initSettingsUI() {
     state = next;
   };
 
-  const agentOpts = await loadDiscoveredAgentProviders();
-  const agentRow = document.querySelector('.setting-row[data-key="codingAgent"]');
-  const agentDropdown = document.getElementById("setAgent");
-  if (!agentOpts.length && agentDropdown) {
-    agentDropdown.innerHTML =
-      '<button type="button" class="setting-dropdown-btn" disabled>' +
-      '<span class="setting-dropdown-label">未检测到 Agent CLI</span></button>';
-    if (agentRow) {
-      const hint = agentRow.querySelector(".sd");
-      if (hint) {
-        hint.textContent =
-          "请在本机安装 claude / codex / agent，或设置 AD_CLAUDE_BIN 等环境变量后刷新";
-      }
-    }
-  }
-
-  let selectedAgent = state.codingAgent || "";
-  if (!agentOpts.some((o) => o.id === selectedAgent)) {
-    selectedAgent = agentOpts[0]?.id || "";
-    if (selectedAgent && selectedAgent !== state.codingAgent) {
-      await saveSelect("codingAgent", selectedAgent);
-      state.codingAgent = selectedAgent;
-    }
-  }
-
   const syncNotifyChannelPanels = (providerId) => {
     syncSubconfigPanels("data-notify-panel", providerId, "webhook");
   };
@@ -3630,48 +3672,6 @@ async function initSettingsUI() {
       await saveSelect("providers.issue", nextVal);
       syncIssueChannelPanels(nextVal);
       toast("已更新：缺陷来源");
-    },
-  );
-  if (agentOpts.length) {
-    mountSettingDropdown(
-      agentDropdown,
-      agentOpts,
-      selectedAgent || agentOpts[0].id,
-      async (nextVal) => {
-        const prevModel = state.defaultModel || "";
-        await saveSelect("codingAgent", nextVal);
-        toast("已更新：默认编码 Agent");
-        const modelOpts = await loadAgentModelOptions(nextVal);
-        const modelIds = modelOpts.map((o) => o.id);
-        let nextModel = prevModel;
-        if (prevModel && !modelIds.includes(prevModel)) {
-          nextModel = "";
-          await saveSelect("defaultModel", "");
-          toast("已清空与当前 Agent 不兼容的默认模型");
-        }
-        mountModelDropdown(
-          document.getElementById("setModel"),
-          modelOpts,
-          nextModel,
-          async (modelVal) => {
-            await saveSelect("defaultModel", modelVal);
-            toast("已更新：默认模型");
-          },
-        );
-      },
-    );
-  }
-
-  const initialAgent = selectedAgent || agentOpts[0]?.id || "claude";
-  let modelOpts = await loadAgentModelOptions(initialAgent);
-  const initialModel = state.defaultModel || "";
-  mountModelDropdown(
-    document.getElementById("setModel"),
-    modelOpts,
-    initialModel,
-    async (nextVal) => {
-      await saveSelect("defaultModel", nextVal);
-      toast("已更新：默认模型");
     },
   );
 
@@ -3711,9 +3711,6 @@ async function initSettingsUI() {
       toast("已更新：新建流程默认模式");
     },
   );
-
-  await renderAgentsSettingsList();
-  await refreshTaskAgentPickers(state);
 
   card.querySelectorAll(".setting-row").forEach((row) => {
     const key = row.dataset.key;
@@ -3898,6 +3895,7 @@ function refreshCurrentView() {
   if (CURRENT_VIEW === "tasks-list") return loadTasks(true);
   if (CURRENT_VIEW === "workflows") return loadWorkflows();
   if (CURRENT_VIEW === "skills") return loadSkills();
+  if (CURRENT_VIEW === "agents") return loadAgentsPage();
   if (CURRENT_VIEW === "settings") return initSettingsUI();
 }
 
@@ -4341,14 +4339,14 @@ function switchView(view) {
   if (view !== "dashboard") stopDashPolling();
   CURRENT_VIEW = view;
 
-  ["dashboard", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "settings"].forEach((v) => {
+  ["dashboard", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "agents", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
 
   const head = document.getElementById("pageHead");
   if (head) {
-    head.classList.toggle("hidden", view === "settings" || view === "tasks-new");
+    head.classList.toggle("hidden", view === "tasks-new");
     head.classList.toggle("tasks-mode", view === "tasks-list");
     head.classList.toggle("dash-mode", view === "dashboard");
     head.classList.toggle("bugs-mode", view === "bugs");
@@ -4371,10 +4369,13 @@ function switchView(view) {
 
   if (view === "settings") {
     initSettingsUI();
-  } else {
+  }
+  if (view !== "tasks-new") {
     const meta = VIEW_TITLES[view] || ["", ""];
     document.getElementById("ptitle").textContent = meta[0];
     document.getElementById("psub").textContent = meta[1] || "";
+  }
+  if (view !== "settings") {
     if (view === "tasks-new") initTaskNewPage();
     if (view === "tasks-list") {
       setSessionPanelVisible(!!LOG_ID);
@@ -4388,6 +4389,7 @@ function switchView(view) {
     if (view === "bugs") loadBugs({ resetPage: false });
     if (view === "workflows") loadWorkflows();
     if (view === "skills") loadSkills();
+    if (view === "agents") loadAgentsPage();
   }
 
   const u = new URL(location.href);
@@ -4431,7 +4433,7 @@ bindRawDrawerResize();
   const view = (URL_PARAMS.get("view") || "").trim();
   if (
     view &&
-    ["dashboard", "bugs", "workflows", "skills", "tasks-new", "tasks-list", "settings"].includes(view)
+    ["dashboard", "bugs", "workflows", "skills", "agents", "tasks-new", "tasks-list", "settings"].includes(view)
   ) {
     switchView(view);
     return;
