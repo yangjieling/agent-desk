@@ -2079,12 +2079,14 @@ function isWorkspacePickerOpen() {
 function openWorkspacePicker(e, purpose) {
   if (e && e.stopPropagation) e.stopPropagation();
   WS_PICK_PURPOSE = purpose || null;
+  bindFsListNav();
   const mask = document.getElementById("wsMask");
   const btn = document.getElementById("t-workspace-btn");
   if (!mask) return;
   mask.classList.add("show");
   if (btn) btn.setAttribute("aria-expanded", "true");
-  setWsTab(loadRecentDirs().length ? "recent" : "browse");
+  const preferBrowse = purpose && purpose.type === "workflow";
+  setWsTab(preferBrowse ? "browse" : loadRecentDirs().length ? "recent" : "browse");
   const start = getTaskDir() || loadRecentDirs()[0] || "";
   loadFsBrowse(start);
   const filter = document.getElementById("ws-filter");
@@ -4795,6 +4797,7 @@ void refreshAgentProviderCache();
 bindLogModalClose();
 bindRawLogScroll();
 bindRawDrawerResize();
+bindFsListNav();
 
 (function initDeepLink() {
   const logId = URL_PARAMS.get("log") || URL_PARAMS.get("task");
