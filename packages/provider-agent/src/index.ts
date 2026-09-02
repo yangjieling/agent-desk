@@ -50,7 +50,7 @@ export interface AgentBackend {
   extractSessionId(events: AgentEvent[]): string | null;
 }
 
-import { probeInstalledAgentProviders } from "./probe.js";
+import { probeAllAgentProviders, probeInstalledAgentProviders } from "./probe.js";
 
 const registry = new Map<AgentId, AgentBackend>();
 
@@ -68,11 +68,16 @@ export function listAgentBackends(): AgentBackend[] {
   return [...registry.values()];
 }
 
+function backendProbeRows() {
+  return listAgentBackends().map((b) => ({ id: b.id, displayName: b.displayName }));
+}
+
 export function listInstalledAgentProviders(options?: { fresh?: boolean }) {
-  return probeInstalledAgentProviders(
-    listAgentBackends().map((b) => ({ id: b.id, displayName: b.displayName })),
-    options,
-  );
+  return probeInstalledAgentProviders(backendProbeRows(), options);
+}
+
+export function listAgentRuntimes(options?: { fresh?: boolean }) {
+  return probeAllAgentProviders(backendProbeRows(), options);
 }
 
 export * from "./models.js";

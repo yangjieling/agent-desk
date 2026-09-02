@@ -3543,6 +3543,7 @@ async function mountAgentsPageDefaults(state) {
 
 async function loadAgentsPage() {
   if (!AGENT_PROVIDER_BY_ID.size) await refreshAgentProviderCache();
+  await refreshRuntimeStatusUI();
   await loadAgentProfiles();
   let state = {};
   try {
@@ -3641,9 +3642,13 @@ async function openAgentEditor(id) {
   const providers = await loadDiscoveredAgentProviders();
   const sel = document.getElementById("agent-ed-provider");
   if (sel) {
-    sel.innerHTML = providers
-      .map((p) => `<option value="${esc(p.id)}">${esc(agentProviderLabel(p))}</option>`)
-      .join("");
+    if (!providers.length) {
+      sel.innerHTML = '<option value="">（未检测到 CLI）</option>';
+    } else {
+      sel.innerHTML = providers
+        .map((p) => `<option value="${esc(p.id)}">${esc(agentProviderLabel(p))}</option>`)
+        .join("");
+    }
   }
   bindAgentEditorProviderChange();
   const existing = id ? AGENT_PROFILES.find((a) => a.id === id) : null;
@@ -3741,8 +3746,8 @@ function getSelectedAgentProfileId() {
   return (document.getElementById("t-agent")?.dataset.value || "").trim();
 }
 
-async function refreshAgentProviderCache() {
-  const rows = await loadDiscoveredAgentProviders();
+async function refreshAgentProviderCache(fresh = false) {
+  const rows = await loadDiscoveredAgentProviders(fresh);
   AGENT_PROVIDER_BY_ID = new Map(rows.map((r) => [r.id, agentProviderLabel(r)]));
 }
 
@@ -3841,9 +3846,10 @@ async function loadProviderOptions(endpoint, fallback) {
   return fallback;
 }
 
-async function loadDiscoveredAgentProviders() {
+async function loadDiscoveredAgentProviders(fresh = false) {
   try {
-    const rows = await api("/api/agent-providers");
+    const q = fresh ? "?fresh=1" : "";
+    const rows = await api(`/api/agent-providers${q}`);
     if (!Array.isArray(rows)) return [];
     return rows.map((row) => ({
       id: row.id,
@@ -3856,6 +3862,119 @@ async function loadDiscoveredAgentProviders() {
   } catch {
     return [];
   }
+}
+
+async function loadAgentRuntimes(fresh = false) {
+  try {
+    const q = fresh ? "?fresh=1" : "";
+    return await api(`/api/runtimes${q}`);
+  } catch {
+    return { runtimes: [], installedCount: 0, totalCount: 0, probedAt: 0 };
+  }
+}
+
+function formatRuntimeProbedAt(ts) {
+  if (!ts) return "";
+  try {
+    return `上次探测 ${new Date(ts).toLocaleString()}`;
+  } catch {
+    return "";
+  }
+}
+
+function runtimeCardHtml(row) {
+  const installed = !!row.installed;
+  const cls = installed ? "is-installed" : "is-missing";
+  const status = installed ? "已安装" : "未检测到";
+  const version = row.version ? `v${esc(row.version)}` : "";
+  const path = row.path ? esc(row.path) : "";
+  const cmd = row.command ? `<code>${esc(row.command)}</code>` : "";
+  const env = row.envVar
+    ? ` · 可用 <code>${esc(row.envVar)}</code> 覆盖`
+    : "";
+  const metaParts = [status, version, path && `路径 ${path}`, cmd && `命令 ${cmd}${env}`].filter(Boolean);
+  const err = !installed && row.error
+    ? `<div class="runtime-card-error">${esc(row.error)}</div>`
+    : "";
+  return `<div class="runtime-card ${cls}">
+    <span class="runtime-dot" aria-hidden="true"></span>
+    <div class="runtime-card-main">
+      <div class="runtime-card-title">${esc(row.displayName || row.id)}</div>
+      <div class="runtime-card-meta">${metaParts.join(" · ")}</div>
+      ${err}
+    </div>
+  </div>`;
+}
+
+function renderRuntimePanel(panel, data) {
+  if (!panel) return;
+  const rows = Array.isArray(data?.runtimes) ? data.runtimes : [];
+  if (!rows.length) {
+    panel.innerHTML =
+      '<div class="runtime-empty">未注册任何 Agent 后端。请确认 oh web 已加载 provider 包。</div>';
+    return;
+  }
+  panel.innerHTML = rows.map(runtimeCardHtml).join("");
+}
+
+function renderAgentsRuntimeStrip(data) {
+  const strip = document.getElementById("agentsRuntimeStrip");
+  if (!strip) return;
+  const rows = Array.isArray(data?.runtimes) ? data.runtimes : [];
+  const installed = Number(data?.installedCount) || 0;
+  const total = Number(data?.totalCount) || rows.length;
+  if (!rows.length) {
+    strip.hidden = true;
+    return;
+  }
+  strip.hidden = false;
+  if (!installed) {
+    strip.className = "runtime-strip is-warn";
+    strip.innerHTML =
+      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code>）。' +
+      '请安装并登录后再创建任务。可在<a href="#" onclick="showView(\'settings\');return false;">设置 → 本机 Agent 运行时</a>查看详情。';
+    return;
+  }
+  strip.className = "runtime-strip is-ok";
+  const names = rows
+    .filter((r) => r.installed)
+    .map((r) => `${r.displayName || r.id}${r.version ? ` ${r.version}` : ""}`)
+    .join("、");
+  strip.textContent = `本机可用 ${installed}/${total} 个运行时：${names}`;
+}
+
+let runtimeUiBound = false;
+
+async function refreshRuntimeStatusUI(fresh = false) {
+  const panel = document.getElementById("runtimeStatusPanel");
+  const probedEl = document.getElementById("runtimeProbedAt");
+  if (panel && fresh) {
+    panel.innerHTML = '<div class="runtime-loading">正在重新探测…</div>';
+  }
+  const data = await loadAgentRuntimes(fresh);
+  renderRuntimePanel(panel, data);
+  if (probedEl) probedEl.textContent = formatRuntimeProbedAt(data.probedAt);
+  renderAgentsRuntimeStrip(data);
+  return data;
+}
+
+function bindRuntimeStatusUI() {
+  if (runtimeUiBound) return;
+  const btn = document.getElementById("runtimeRefreshBtn");
+  if (!btn) return;
+  runtimeUiBound = true;
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try {
+      await refreshRuntimeStatusUI(true);
+      await refreshAgentProviderCache(true);
+      toast("运行时探测已更新");
+    } catch (e) {
+      toast(`探测失败: ${e.message || e}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
 }
 
 function agentProviderLabel(row) {
@@ -3984,6 +4103,9 @@ async function initSettingsUI() {
       toast("已更新：新建流程默认模式");
     },
   );
+
+  bindRuntimeStatusUI();
+  void refreshRuntimeStatusUI();
 
   card.querySelectorAll(".setting-row").forEach((row) => {
     const key = row.dataset.key;

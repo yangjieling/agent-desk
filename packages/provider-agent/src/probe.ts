@@ -4,6 +4,10 @@ export interface AgentProbeResult {
   id: string;
   displayName: string;
   installed: boolean;
+  /** Default binary name on PATH (before env override). */
+  command?: string;
+  /** Env var that overrides the default binary, e.g. AD_CLAUDE_BIN. */
+  envVar?: string;
   path?: string;
   version?: string;
   error?: string;
@@ -36,14 +40,21 @@ function parseVersion(output: string): string | undefined {
   return match?.[1] || line.slice(0, 80);
 }
 
+function probeMeta(agentId: string): Pick<AgentProbeResult, "command" | "envVar"> {
+  const cfg = BIN_CONFIG[agentId];
+  if (!cfg) return {};
+  return { command: cfg.defaultBin, envVar: cfg.env };
+}
+
 export function probeAgentCli(
   agentId: string,
   displayName: string,
   bin?: string,
 ): AgentProbeResult {
+  const meta = probeMeta(agentId);
   const command = (bin || resolveAgentBin(agentId)).trim();
   if (!command) {
-    return { id: agentId, displayName, installed: false, error: "empty command" };
+    return { id: agentId, displayName, installed: false, ...meta, error: "empty command" };
   }
 
   const r = spawnSync(command, ["--version"], { encoding: "utf8" });
@@ -52,6 +63,7 @@ export function probeAgentCli(
       id: agentId,
       displayName,
       installed: false,
+      ...meta,
       error: r.error?.message || r.stderr?.trim() || `exit ${r.status ?? "unknown"}`,
     };
   }
@@ -61,35 +73,47 @@ export function probeAgentCli(
     id: agentId,
     displayName,
     installed: true,
+    ...meta,
     path: resolveExecutablePath(command) || command,
     version,
   };
 }
 
 const PROBE_CACHE_TTL_MS = 60_000;
-let probeCacheAt = 0;
-let installedProbeCache: AgentProbeResult[] | null = null;
+let allProbeCacheAt = 0;
+let allProbeCache: AgentProbeResult[] | null = null;
 
 export function clearAgentProbeCache(): void {
-  installedProbeCache = null;
-  probeCacheAt = 0;
+  allProbeCache = null;
+  allProbeCacheAt = 0;
+}
+
+function probeAllBackends(
+  backends: Array<{ id: string; displayName: string }>,
+): AgentProbeResult[] {
+  return backends
+    .map((backend) => probeAgentCli(backend.id, backend.displayName))
+    .sort((a, b) => a.displayName.localeCompare(b.displayName));
+}
+
+export function probeAllAgentProviders(
+  backends: Array<{ id: string; displayName: string }>,
+  options?: { fresh?: boolean },
+): AgentProbeResult[] {
+  const now = Date.now();
+  if (!options?.fresh && allProbeCache && now - allProbeCacheAt < PROBE_CACHE_TTL_MS) {
+    return allProbeCache;
+  }
+
+  const results = probeAllBackends(backends);
+  allProbeCache = results;
+  allProbeCacheAt = now;
+  return results;
 }
 
 export function probeInstalledAgentProviders(
   backends: Array<{ id: string; displayName: string }>,
   options?: { fresh?: boolean },
 ): AgentProbeResult[] {
-  const now = Date.now();
-  if (!options?.fresh && installedProbeCache && now - probeCacheAt < PROBE_CACHE_TTL_MS) {
-    return installedProbeCache;
-  }
-
-  const results = backends
-    .map((backend) => probeAgentCli(backend.id, backend.displayName))
-    .filter((r) => r.installed)
-    .sort((a, b) => a.displayName.localeCompare(b.displayName));
-
-  installedProbeCache = results;
-  probeCacheAt = now;
-  return results;
+  return probeAllAgentProviders(backends, options).filter((r) => r.installed);
 }

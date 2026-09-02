@@ -42,7 +42,7 @@
 | 7 | 并发与工作目录锁 | daemon/agent 并发上限；同目录互斥 | 设置项 `workspaceLockEnabled`；同 `projectDir` 仅一个 active 任务 | **已有** | 独立并行 workflow 与互斥冲突时需关闭互斥或换目录 |
 | 8 | 执行可观测性 | 工具调用级时间轴；Token/费用可见 | 有 stdout/stderr 时间轴与原始 JSONL | **已有**（日志）/ **可做 MVP**（用量） | 先解析各 CLI 用量事件再汇总 |
 | 9 | 安全边界说清楚 | 「不假装沙箱」+ 专用用户/容器；任务级 token、独立 workdir | 文档较少；本地用户权限即边界 | **可做 MVP** | 补 `docs/security.md`；可选独立 workdir |
-| 10 | Runtime 发现 | daemon 扫 PATH、注册多 CLI、心跳在线 | 设置里选默认 Agent；启动时假定 CLI 已装 | **可做 MVP** | 启动时探测 + UI 展示可用后端 |
+| 10 | Runtime 发现 | daemon 扫 PATH、注册多 CLI、心跳在线 | 启动探测 + `GET /api/runtimes`；设置页与智能体页展示 CLI 状态 | **已有**（MVP） | 启动日志、`?fresh=1` 重探测；远程 daemon 心跳为长期 |
 
 ---
 
@@ -127,6 +127,8 @@
 
 当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。
 
+任务运行会话区的 UI 优化方案见 [task-session-ui.md](./task-session-ui.md)（待实现，与 Multica 学习可并行）。
+
 ### agent-desk UI 目标
 
 比 Multica **更轻、更贴本地 harness**：任务 / 流程 / 闸门一眼能找到；配置与执行分离；新能力到位后再长 UI，而不是先做满 Multica 式导航再等后端。
@@ -154,6 +156,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-02 | #10 Runtime 发现：启动探测日志、`GET /api/runtimes`、设置页与智能体页展示 CLI 状态 |
 | 2026-09-02 | #6 任务队列与自动重试：bootstrap 队列、设置 UI、失败码与排队状态展示 |
 | 2026-09-02 | #5 待办 / Inbox MVP：侧栏入口、`GET /api/inbox`、闸门快捷回复 |
 | 2026-09-02 | 补充「UI 与信息架构」：能力驱动演进，不必照搬 Multica 布局 |

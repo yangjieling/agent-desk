@@ -145,6 +145,7 @@ More backends: implement `@agent-desk/provider-agent` and register at startup â€
 | Wire GitHub Issues / notify channels | [docs/providers.md](docs/providers.md) |
 | Use or author skills | [docs/skills.md](docs/skills.md) |
 | Learning checklist vs Multica | [docs/learn-from-multica.md](docs/learn-from-multica.md) |
+| Task session UI improvements (planned) | [docs/task-session-ui.md](docs/task-session-ui.md) |
 | See task states and gates | [Architecture â†’ Task lifecycle](#architecture) below |
 | Configure env vars | [Configuration](#configuration) |
 | Develop the monorepo | [Development](#development) |

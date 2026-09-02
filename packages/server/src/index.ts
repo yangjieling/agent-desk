@@ -7,7 +7,7 @@ import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
-import { getAgentBackend, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
+import { getAgentBackend, listAgentRuntimes, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
@@ -158,8 +158,24 @@ function uiPublicDir(): string {
   return path.resolve(here, "../../ui/public");
 }
 
+function logAgentRuntimesAtStartup(): void {
+  const runtimes = listAgentRuntimes({ fresh: true });
+  const installed = runtimes.filter((r) => r.installed);
+  if (!installed.length) {
+    console.warn(
+      "[runtimes] No agent CLI detected on PATH (claude / codex / agent). Install one before running tasks.",
+    );
+    return;
+  }
+  const summary = installed
+    .map((r) => `${r.displayName}${r.version ? ` ${r.version}` : ""}`)
+    .join(", ");
+  console.log(`[runtimes] ${installed.length}/${runtimes.length} available: ${summary}`);
+}
+
 export async function createServer(opts: ServerOptions = {}) {
   registerProviders();
+  logAgentRuntimesAtStartup();
   const dataDir = opts.dataDir ?? defaultDataDir();
   const skillsUserDir = path.join(dataDir, "skills");
   try {
@@ -196,7 +212,19 @@ export async function createServer(opts: ServerOptions = {}) {
     return reply.sendFile("index.html");
   });
 
-  app.get("/api/health", async () => ({ ok: true, version: "0.2.0" }));
+  app.get("/api/health", async () => {
+    const runtimes = listAgentRuntimes();
+    const installed = runtimes.filter((r) => r.installed);
+    return {
+      ok: true,
+      version: "0.2.0",
+      runtimes: {
+        installed: installed.length,
+        total: runtimes.length,
+        providers: installed.map((r) => r.id),
+      },
+    };
+  });
 
   app.get("/api/dashboard", async () => {
     const tasks = db.listTasks(300);
@@ -368,7 +396,22 @@ export async function createServer(opts: ServerOptions = {}) {
     listIssueProviders().map((p) => ({ id: p.id, displayName: p.displayName })),
   );
 
-  app.get("/api/agent-providers", async () => listInstalledAgentProviders());
+  app.get<{ Querystring: { fresh?: string } }>("/api/runtimes", async (req) => {
+    const fresh = req.query.fresh === "1" || req.query.fresh === "true";
+    const runtimes = listAgentRuntimes({ fresh });
+    const installed = runtimes.filter((r) => r.installed);
+    return {
+      runtimes,
+      installedCount: installed.length,
+      totalCount: runtimes.length,
+      probedAt: Date.now(),
+    };
+  });
+
+  app.get<{ Querystring: { fresh?: string } }>("/api/agent-providers", async (req) => {
+    const fresh = req.query.fresh === "1" || req.query.fresh === "true";
+    return listInstalledAgentProviders({ fresh });
+  });
 
   app.get("/api/agents", async () => db.listAgents());
 

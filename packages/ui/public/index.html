@@ -320,6 +320,7 @@
     </section>
 
     <section id="view-agents" style="display:none">
+      <div id="agentsRuntimeStrip" class="runtime-strip" hidden></div>
       <div class="agents-page-prefs">
         <div class="agents-pref-row">
           <div class="agents-pref-meta">
@@ -550,6 +551,18 @@
               </div>
             </div>
           </div>
+          </div>
+
+          <div class="settings-section">
+            <h3 class="settings-subtitle">本机 Agent 运行时</h3>
+            <p class="settings-section-desc">启动时探测 PATH 中的 CLI；创建 Agent 时仅列出已安装的后端</p>
+            <div class="runtime-panel" id="runtimeStatusPanel">
+              <div class="runtime-loading">正在探测本机 CLI…</div>
+            </div>
+            <div class="runtime-toolbar">
+              <button type="button" class="btn-refresh" id="runtimeRefreshBtn">重新探测</button>
+              <span class="runtime-probed-at" id="runtimeProbedAt"></span>
+            </div>
           </div>
 
           <div class="settings-section">
