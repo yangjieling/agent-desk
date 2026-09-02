@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>OH</title>
+<title>agent-desk</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
@@ -197,7 +197,7 @@
     </section>
 
     <section id="view-tasks-new" style="display:none">
-      <button type="button" class="composer-back-top" onclick="switchView('tasks-list')">← 返回任务列表</button>
+      <button type="button" class="composer-back-top" onclick="switchView('tasks-list', { resetFilter: true })">← 返回任务</button>
       <div class="composer-page">
         <div class="composer-hero">
           <h2 class="composer-title">今天要处理什么？</h2>
@@ -288,6 +288,7 @@
       <div id="wf-list"></div>
       <div class="wf-runs-wrap">
         <h3 class="wf-sec-title">最近运行</h3>
+        <p class="wf-sec-desc">每次流程运行对应一个任务；点击「查看任务」进入执行日志与闸门</p>
         <div id="wf-runs"></div>
       </div>
     </section>

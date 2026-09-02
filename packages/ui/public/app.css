@@ -828,7 +828,9 @@
   }
 
   .wf-runs-wrap { margin-top: 28px; }
-  .wf-runs-wrap .wf-sec-title { margin-bottom: 10px; }
+  .wf-runs-wrap .wf-sec-title { margin-bottom: 6px; }
+  .wf-sec-desc { margin: 0 0 10px; font-size: 13px; color: #80868b; line-height: 1.45; }
+  .wf-run-muted { font-size: 12px; color: #9aa0a6; flex-shrink: 0; }
   .wf-run-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px;
                  background: #fff; border: 1px solid #e8eaed; border-radius: 10px; margin-bottom: 8px; }
   .wf-run-item .wr-main { flex: 1; min-width: 0; }
@@ -974,7 +976,7 @@
   .agent-card-actions { display: flex; gap: 6px; flex-shrink: 0; }
   .agent-card-actions button { padding: 5px 10px; font-size: 12px; }
 
-  /* 新建任务 Composer（对齐 hb-cli） */
+  /* 新建任务 Composer */
   #view-tasks-new { position: relative; display: flex; flex-direction: column;
                      justify-content: center; min-height: calc(100vh - 56px); box-sizing: border-box; }
   .composer-back-top { position: absolute; top: 12px; left: 0; z-index: 5; border: none; background: none;

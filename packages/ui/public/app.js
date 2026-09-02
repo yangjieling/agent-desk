@@ -1,4 +1,4 @@
-/* Open Harness UI — hb-cli style, agent-desk API */
+/* agent-desk Web UI */
 const TITLE_MAX = 80;
 const PROMPT_MAX = 8000;
 const TASK_PAGE_SIZE = 15;
@@ -80,11 +80,11 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 const VIEW_TITLES = {
   dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
-  workflows: ["流程编排", "共享上下文为默认；可新建个人模板，缺陷 AI 修复默认走 Fix Pipeline"],
+  workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   agents: ["智能体", "可命名的 Agent 配置：提供方、模型、技能与系统指令"],
-  "tasks-new": ["新建任务", ""],
-  "tasks-list": ["任务管理", ""],
+  "tasks-new": ["新建任务", "创建技能任务或启动流程"],
+  "tasks-list": ["任务管理", "执行日志、闸门确认与工作区"],
   settings: ["集成与偏好", "通知、缺陷来源与任务默认行为"],
 };
 
@@ -863,8 +863,36 @@ function updateAwaitingNavBadge(count) {
   }
 }
 
+function openTaskView(taskId, opts = {}) {
+  if (!taskId) return;
+  const filter = (opts.filter || "").trim();
+  switchView("tasks-list", {
+    taskId,
+    filter: filter || undefined,
+    resetFilter: opts.resetFilter,
+  });
+}
+
+function openWorkflowRunTask(taskId, status) {
+  if (!taskId) return;
+  const st = String(status || "").trim();
+  let filter;
+  if (st === "awaiting") filter = "awaiting";
+  else if (st === "running") filter = "running";
+  else if (st === "failed" || st === "stopped") filter = "failed";
+  openTaskView(taskId, { filter });
+}
+
 function goToAwaitingTasks(taskId) {
-  switchView("tasks-list", { filter: "awaiting", taskId: taskId || "" });
+  const id = (taskId || "").trim();
+  if (id) openTaskView(id, { filter: "awaiting" });
+  else switchView("tasks-list", { filter: "awaiting" });
+}
+
+function syncPageTitle(view) {
+  const meta = VIEW_TITLES[view] || ["", ""];
+  const page = (meta[0] || "").trim();
+  document.title = page ? `${page} · agent-desk` : "agent-desk";
 }
 
 function isLogTaskActive(task) {
@@ -2168,7 +2196,7 @@ function explainWorkflowStartError(err, wfId) {
   const msg = String((err && err.message) || err || "").trim();
   const low = msg.toLowerCase();
   if (/not_found|not found|workflow not found/i.test(msg)) {
-    return `流程「${wfId}」不存在或未加载。请到「设置 → 缺陷 AI 修复流程」检查，或先同步系统模板。`;
+    return `流程「${wfId}」不存在或未加载。请到「设置 → 任务默认 → 缺陷 AI 修复流程」检查，或先同步系统模板。`;
   }
   if (/skill|技能/.test(low) || /unknown skill|skill not/.test(low)) {
     return `流程依赖的技能缺失或无法解析：${msg || "请到「技能」页同步内置技能"}`;
@@ -2222,7 +2250,7 @@ async function confirmWorkspacePath(path) {
         prompt: purpose.prompt,
         issueCode: purpose.issueCode,
       });
-      toast("流程已启动");
+      toast("流程已启动，正在打开任务…");
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
     } catch (e) {
@@ -2410,7 +2438,7 @@ async function createTask() {
       pushRecentDir(projectDir);
       const issueEl = document.getElementById("t-issue-code");
       if (issueEl) issueEl.value = "";
-      toast("流程已启动");
+      toast("流程已启动，正在打开任务…");
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
     } else {
@@ -2546,9 +2574,10 @@ function renderWorkflowRuns() {
         })
         .join("");
       const taskId = esc(r.parentTaskId || "");
+      const status = esc(r.status || "");
       const openBtn = taskId
-        ? `<button type="button" class="btn-outline" onclick="openIssueTask('${taskId}')">查看</button>`
-        : "";
+        ? `<button type="button" class="btn-outline" onclick="openWorkflowRunTask('${taskId}', '${status}')">查看任务</button>`
+        : `<span class="wf-run-muted">无关联任务</span>`;
       return `<div class="wf-run-item">
         <div class="wr-main">
           <div class="wr-title">${title} · ${st}</div>
@@ -3970,7 +3999,7 @@ function showStoppedPage() {
     'h1{margin:0 0 10px;font-size:22px}p{color:#80868b;font-size:14px}code{background:#f5f6f8;padding:2px 7px;border-radius:6px}' +
     "</style></head><body><div class=\"card\"><h1>本地服务已停止</h1>" +
     "<p>本地面板已安全退出，可以关闭此浏览器标签页。</p>" +
-    "<p style=\"margin-top:16px;font-size:12px;color:#9aa0a6\">下次使用请重新执行 <code>oh web</code></p>" +
+    "<p style=\"margin-top:16px;font-size:12px;color:#9aa0a6\">下次使用请重新执行 <code>oh web</code> 启动 agent-desk</p>" +
     "</div></body></html>",
   );
   document.close();
@@ -4107,8 +4136,7 @@ function relatedTaskForIssue(code) {
 }
 
 function openIssueTask(taskId) {
-  if (!taskId) return;
-  switchView("tasks-list", { taskId });
+  openTaskView(taskId);
 }
 
 function severityBadge(sev) {
@@ -4372,7 +4400,7 @@ async function startTaskFromIssue(code) {
         prompt,
         issueCode: issue.code || code,
       });
-      toast(`已启动流程 ${wfId}`);
+      toast(`已启动流程 ${wfId}，正在打开任务…`);
       switchView("tasks-list");
       if (run.parentTaskId) showLog(run.parentTaskId);
       return;
@@ -4480,11 +4508,12 @@ function switchView(view, opts = {}) {
   if (view === "settings") {
     initSettingsUI();
   }
+  const meta = VIEW_TITLES[view] || ["", ""];
   if (view !== "tasks-new") {
-    const meta = VIEW_TITLES[view] || ["", ""];
     document.getElementById("ptitle").textContent = meta[0];
     document.getElementById("psub").textContent = meta[1] || "";
   }
+  syncPageTitle(view);
   if (view !== "settings") {
     if (view === "tasks-new") initTaskNewPage();
     if (view === "tasks-list") {
