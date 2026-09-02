@@ -1927,36 +1927,70 @@ function isRawDrawerOpen() {
   return LOG_VIEW_MODE === "raw";
 }
 
-function bindLogModalClose() {
-  if (document.body.dataset.logModalBound) return;
-  document.body.dataset.logModalBound = "1";
+/** Top-most first. Register new modal masks here for Escape dismiss. */
+const MODAL_DISMISS_LAYERS = [
+  {
+    id: "wfEditMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeWorkflowEditor(),
+  },
+  {
+    id: "agentEditMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeAgentEditor(),
+    closeDropdownsInRoot: true,
+  },
+  {
+    id: "skillMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeSkillDetail(),
+  },
+  {
+    id: "wsMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeWorkspacePicker(),
+  },
+];
+
+function handleEscapeDismiss() {
+  for (const layer of MODAL_DISMISS_LAYERS) {
+    const el = document.getElementById(layer.id);
+    if (!el || !layer.isOpen(el)) continue;
+    if (layer.closeDropdownsInRoot && el.querySelector(".setting-dropdown.open")) {
+      closeAllSettingDropdowns();
+      return true;
+    }
+    layer.close();
+    return true;
+  }
+  if (isRawDrawerOpen()) {
+    closeRawDrawer();
+    return true;
+  }
+  if (isLogOpen()) {
+    closeLog();
+    return true;
+  }
+  if (document.querySelector(".setting-dropdown.open")) {
+    closeAllSettingDropdowns();
+    return true;
+  }
+  return false;
+}
+
+/** Escape for registered modals. Backdrop: mask onclick + onModalMaskClick(closeFn). */
+function bindModalDismiss() {
+  if (document.body.dataset.modalDismissBound) return;
+  document.body.dataset.modalDismissBound = "1";
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    const wfMask = document.getElementById("wfEditMask");
-    if (wfMask && wfMask.classList.contains("show")) {
-      e.preventDefault();
-      closeWorkflowEditor();
-      return;
-    }
-    const agentMask = document.getElementById("agentEditMask");
-    if (agentMask && agentMask.classList.contains("show")) {
-      e.preventDefault();
-      if (agentMask.querySelector(".setting-dropdown.open")) {
-        closeAllSettingDropdowns();
-        return;
-      }
-      closeAgentEditor();
-      return;
-    }
-    if (isRawDrawerOpen()) {
-      e.preventDefault();
-      closeRawDrawer();
-      return;
-    }
-    if (!isLogOpen()) return;
-    e.preventDefault();
-    closeLog();
+    if (handleEscapeDismiss()) e.preventDefault();
   });
+}
+
+function onModalMaskClick(e, closeFn) {
+  if (e.target !== e.currentTarget) return;
+  closeFn();
 }
 
 function onTaskTypeChange() {
@@ -2105,7 +2139,7 @@ function closeWorkspacePicker() {
 }
 
 function onWsMaskClick(e) {
-  if (e.target === e.currentTarget) closeWorkspacePicker();
+  onModalMaskClick(e, closeWorkspacePicker);
 }
 
 function setWsTab(tab) {
@@ -2425,15 +2459,6 @@ function bindTaskNewFormOnce() {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault();
         createTask();
-      }
-    });
-  }
-  if (!document.body.dataset.wsEscBound) {
-    document.body.dataset.wsEscBound = "1";
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && isWorkspacePickerOpen()) {
-        e.preventDefault();
-        closeWorkspacePicker();
       }
     });
   }
@@ -2836,7 +2861,7 @@ function wfEditorRemoveNode(idx) {
 }
 
 function onWfEditMaskClick(e) {
-  if (e.target === e.currentTarget) closeWorkflowEditor();
+  onModalMaskClick(e, closeWorkflowEditor);
 }
 
 function closeWorkflowEditor() {
@@ -3094,7 +3119,7 @@ function closeSkillDetail() {
 }
 
 function onSkillMaskClick(e) {
-  if (e.target === e.currentTarget) closeSkillDetail();
+  onModalMaskClick(e, closeSkillDetail);
 }
 
 async function showSkillDetail(id) {
@@ -3297,9 +3322,6 @@ function bindSettingDropdownOutsideClose() {
   document.addEventListener("click", (e) => {
     if (e.target.closest(".setting-dropdown")) return;
     closeAllSettingDropdowns();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeAllSettingDropdowns();
   });
 }
 
@@ -3565,9 +3587,10 @@ function bindAgentInstructionsEditor() {
 }
 
 function onAgentEditMaskClick(e) {
-  if (e.target !== e.currentTarget) return;
-  closeAllSettingDropdowns();
-  closeAgentEditor();
+  onModalMaskClick(e, () => {
+    closeAllSettingDropdowns();
+    closeAgentEditor();
+  });
 }
 
 async function fillAgentSkillOptions(selectedId) {
@@ -4794,7 +4817,7 @@ document.addEventListener("visibilitychange", () => {
 loadHealth();
 initSettingsUI();
 void refreshAgentProviderCache();
-bindLogModalClose();
+bindModalDismiss();
 bindRawLogScroll();
 bindRawDrawerResize();
 bindFsListNav();
