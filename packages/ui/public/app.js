@@ -1871,6 +1871,16 @@ function bindLogModalClose() {
       closeWorkflowEditor();
       return;
     }
+    const agentMask = document.getElementById("agentEditMask");
+    if (agentMask && agentMask.classList.contains("show")) {
+      e.preventDefault();
+      if (agentMask.querySelector(".setting-dropdown.open")) {
+        closeAllSettingDropdowns();
+        return;
+      }
+      closeAgentEditor();
+      return;
+    }
     if (isRawDrawerOpen()) {
       e.preventDefault();
       closeRawDrawer();
@@ -3457,6 +3467,7 @@ async function loadAgentsPage() {
 function closeAgentEditor() {
   const mask = document.getElementById("agentEditMask");
   if (mask) mask.classList.remove("show");
+  closeAllSettingDropdowns();
   AGENT_EDIT = null;
 }
 
@@ -3485,7 +3496,52 @@ function bindAgentInstructionsEditor() {
 }
 
 function onAgentEditMaskClick(e) {
-  if (e.target === e.currentTarget) closeAgentEditor();
+  if (e.target !== e.currentTarget) return;
+  closeAllSettingDropdowns();
+  closeAgentEditor();
+}
+
+async function fillAgentSkillOptions(selectedId) {
+  const sel = document.getElementById("agent-ed-skill");
+  if (!sel) return;
+  let rows = [];
+  try {
+    rows = await api("/api/skills");
+  } catch {
+    rows = [];
+  }
+  const opts = [{ id: "default", label: "default（无技能包）" }].concat(
+    (Array.isArray(rows) ? rows : []).map((s) => {
+      const id = String(s.id || "").trim();
+      if (!id || id === "default") return null;
+      const desc = String(s.description || "").trim();
+      const src = String(s.source || "").trim();
+      const label = desc ? `${id} · ${desc}` : src ? `${id} (${src})` : id;
+      return { id, label };
+    }).filter(Boolean),
+  );
+  const current = (selectedId || "default").trim() || "default";
+  if (!opts.some((o) => o.id === current)) {
+    opts.push({ id: current, label: current });
+  }
+  sel.innerHTML = opts.map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join("");
+  sel.value = current;
+}
+
+async function mountAgentEditorModelDropdown(providerId, currentModel) {
+  const root = document.getElementById("agent-ed-model");
+  if (!root) return;
+  const modelOpts = await loadAgentModelOptions(providerId || "claude");
+  mountModelDropdown(root, modelOpts, currentModel || "", () => {});
+}
+
+function bindAgentEditorProviderChange() {
+  const sel = document.getElementById("agent-ed-provider");
+  if (!sel || sel.dataset.agentEdProviderBound) return;
+  sel.dataset.agentEdProviderBound = "1";
+  sel.addEventListener("change", async () => {
+    await mountAgentEditorModelDropdown(sel.value, "");
+  });
 }
 
 async function openAgentEditor(id) {
@@ -3497,13 +3553,15 @@ async function openAgentEditor(id) {
       .map((p) => `<option value="${esc(p.id)}">${esc(agentProviderLabel(p))}</option>`)
       .join("");
   }
+  bindAgentEditorProviderChange();
   const existing = id ? AGENT_PROFILES.find((a) => a.id === id) : null;
   AGENT_EDIT = { id: existing?.id || "", isNew: !existing };
   document.getElementById("agentEditTitle").textContent = existing ? "编辑 Agent" : "新建 Agent";
   document.getElementById("agent-ed-name").value = existing?.name || "";
-  if (sel) sel.value = existing?.provider || providers[0]?.id || "claude";
-  document.getElementById("agent-ed-model").value = existing?.model || "";
-  document.getElementById("agent-ed-skill").value = existing?.defaultSkill || "default";
+  const provider = existing?.provider || providers[0]?.id || "claude";
+  if (sel) sel.value = provider;
+  await mountAgentEditorModelDropdown(provider, existing?.model || "");
+  await fillAgentSkillOptions(existing?.defaultSkill || "default");
   document.getElementById("agent-ed-instructions").value = existing?.instructions || "";
   bindAgentInstructionsEditor();
   syncAgentInstructionsUi();
@@ -3514,7 +3572,7 @@ async function saveAgentEditor() {
   if (!AGENT_EDIT) return;
   const name = (document.getElementById("agent-ed-name").value || "").trim();
   const provider = (document.getElementById("agent-ed-provider").value || "").trim();
-  const model = (document.getElementById("agent-ed-model").value || "").trim();
+  const model = (document.getElementById("agent-ed-model")?.dataset.value || "").trim();
   const defaultSkill = (document.getElementById("agent-ed-skill").value || "default").trim() || "default";
   const instructions = (document.getElementById("agent-ed-instructions").value || "").trim();
   if (!name) return toast("请填写 Agent 名称");

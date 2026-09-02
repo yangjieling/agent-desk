@@ -701,12 +701,20 @@
     </div>
     <div class="wf-edit-body agent-edit-body">
       <div class="agent-edit-grid">
-        <label class="wf-field wf-field-span2">名称<input id="agent-ed-name" type="text" placeholder="例如: 修复专家" maxlength="80"></label>
-        <label class="wf-field">提供方
-          <select id="agent-ed-provider"></select>
+        <label class="wf-field wf-field-span2">
+          <span class="wf-field-label">名称</span>
+          <input id="agent-ed-name" type="text" placeholder="例如: 修复专家" maxlength="80">
         </label>
-        <label class="wf-field">模型（可选）<input id="agent-ed-model" type="text" placeholder="留空则跟随 CLI 默认"></label>
-        <label class="wf-field wf-field-span2">默认技能<input id="agent-ed-skill" type="text" placeholder="default" maxlength="80"></label>
+        <div class="agent-edit-inline-pair">
+          <span class="wf-field-label" id="agent-ed-provider-label">提供方</span>
+          <span class="wf-field-label" id="agent-ed-model-label">模型（可选）</span>
+          <select id="agent-ed-provider" class="agent-edit-control" aria-labelledby="agent-ed-provider-label"></select>
+          <div class="setting-dropdown agent-ed-model-dd agent-edit-control" id="agent-ed-model" data-value="" role="combobox" aria-labelledby="agent-ed-model-label"></div>
+        </div>
+        <label class="wf-field wf-field-span2">
+          <span class="wf-field-label">默认技能</span>
+          <select id="agent-ed-skill"></select>
+        </label>
       </div>
       <div class="agent-instructions-block">
         <div class="agent-instructions-head">
