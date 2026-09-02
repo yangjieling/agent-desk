@@ -1631,8 +1631,16 @@ async function sendReply(preset) {
   await dispatchReply(reply, getReplyModel());
 }
 
+function isImeComposingKeyEvent(e) {
+  if (e.isComposing) return true;
+  // Candidate selection in some IMEs (e.g. macOS Pinyin) uses keyCode 229.
+  if (e.keyCode === 229) return true;
+  return false;
+}
+
 function onReplyKeyDown(e) {
   if (e.key === "Enter" && !e.shiftKey) {
+    if (isImeComposingKeyEvent(e)) return;
     e.preventDefault();
     sendReply();
   }
