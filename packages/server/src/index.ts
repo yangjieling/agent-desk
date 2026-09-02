@@ -629,7 +629,8 @@ export async function createServer(opts: ServerOptions = {}) {
     db.syncWorkItemStatus(item.id);
     const refreshed = db.getWorkItem(item.id) ?? item;
     const tasks = db.listTasksForWorkItem(item.id, 200);
-    return { workItem: refreshed, tasks };
+    const events = db.listWorkItemEvents(item.id, 200);
+    return { workItem: refreshed, tasks, events };
   });
 
   app.get<{ Params: { id: string } }>("/api/work-items/:id/tasks", async (req, reply) => {
@@ -637,6 +638,31 @@ export async function createServer(opts: ServerOptions = {}) {
     if (!item) return reply.code(404).send({ error: "not_found" });
     return db.listTasksForWorkItem(item.id, 200);
   });
+
+  app.get<{ Params: { id: string } }>("/api/work-items/:id/events", async (req, reply) => {
+    const item = db.getWorkItem(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    return db.listWorkItemEvents(item.id, 200);
+  });
+
+  app.post<{ Params: { id: string }; Body: { body?: string } }>(
+    "/api/work-items/:id/events",
+    async (req, reply) => {
+      const item = db.getWorkItem(req.params.id);
+      if (!item) return reply.code(404).send({ error: "not_found" });
+      const body = String(req.body?.body || "").trim();
+      if (!body) return reply.code(400).send({ error: "body_required" });
+      if (body.length > 4000) return reply.code(400).send({ error: "body_too_long" });
+      const event = db.addWorkItemEvent({
+        workItemId: item.id,
+        kind: "note",
+        author: "user",
+        body,
+      });
+      if (!event) return reply.code(400).send({ error: "create_failed" });
+      return event;
+    },
+  );
 
   app.get<{ Params: { code: string }; Querystring: { provider?: string; title?: string; projectDir?: string } }>(
     "/api/issues/:code/work-item",
@@ -667,7 +693,8 @@ export async function createServer(opts: ServerOptions = {}) {
       db.syncWorkItemStatus(workItem.id);
       const refreshed = db.getWorkItem(workItem.id) ?? workItem;
       const tasks = db.listTasksForWorkItem(workItem.id, 200);
-      return { workItem: refreshed, tasks };
+      const events = db.listWorkItemEvents(workItem.id, 200);
+      return { workItem: refreshed, tasks, events };
     },
   );
 
@@ -828,6 +855,9 @@ export async function createServer(opts: ServerOptions = {}) {
   async function handleResume(taskId: string, replyText: string, model?: string) {
     const task = db.getTask(taskId);
     if (!task) return { ok: false as const, error: "not_found" as const };
+    if (isTaskRunning(task.id) || task.status === "running") {
+      return { ok: false as const, error: "already_running" as const, task };
+    }
     const updated = await resumeTask(
       runnerOpts,
       taskId,
@@ -850,7 +880,12 @@ export async function createServer(opts: ServerOptions = {}) {
       const model =
         typeof req.body.model === "string" ? req.body.model.trim() : undefined;
       const result = await handleResume(req.params.id, req.body.reply ?? "继续", model);
-      if (!result.ok) return reply.code(404).send({ error: "not_found" });
+      if (!result.ok) {
+        if (result.error === "already_running") {
+          return reply.code(409).send({ error: "already_running", task: result.task });
+        }
+        return reply.code(404).send({ error: "not_found" });
+      }
       return result.task;
     },
   );
@@ -862,6 +897,18 @@ export async function createServer(opts: ServerOptions = {}) {
       const replyText = (req.query.reply ?? "继续").trim() || "继续";
       const result = await handleResume(req.params.id, replyText);
       if (!result.ok) {
+        if (result.error === "already_running") {
+          return reply
+            .code(409)
+            .type("text/html; charset=utf-8")
+            .send(
+              htmlPage(
+                "任务进行中",
+                `<h1>任务已在运行</h1><p>请勿重复提交回复。<code>${escHtml(req.params.id)}</code></p>
+                 <p><a href="/?task=${encodeURIComponent(req.params.id)}">打开面板</a></p>`,
+              ),
+            );
+        }
         return reply
           .code(404)
           .type("text/html; charset=utf-8")

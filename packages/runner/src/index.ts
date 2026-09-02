@@ -165,7 +165,7 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
       opts.db.touchWorkItem(workItem.id, { status: "in_progress" });
     }
   }
-  return {
+  const task: Task = {
     id: newTaskId(),
     taskType: "skill",
     status: "created",
@@ -197,6 +197,17 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     updatedAt: now,
     lastActivityAt: now,
   };
+  if (opts && workItemId) {
+    opts.db.addWorkItemEvent({
+      workItemId,
+      kind: "run_linked",
+      author: "system",
+      body: `发起执行：${task.title}`,
+      taskId: task.id,
+      createdAt: now,
+    });
+  }
+  return task;
 }
 
 function promptPath(taskId: string): string {
@@ -591,7 +602,25 @@ export async function resumeTask(
   const task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
 
+  const recordGateReply = (text: string, aborted: boolean) => {
+    const workItemId = (task.workItemId || "").trim();
+    if (!workItemId) return;
+    // Only persist human gate decisions (and abort from awaiting), not plain "continue" resumes.
+    if (task.status !== "awaiting" && !aborted) return;
+    const gate = parseGate(task.result || "");
+    const heading = gate?.heading || "闸门";
+    const prefix = aborted ? "中止" : "确认";
+    opts.db.addWorkItemEvent({
+      workItemId,
+      kind: "gate_reply",
+      author: "user",
+      body: `${prefix}「${heading}」：${text}`,
+      taskId: task.id,
+    });
+  };
+
   if (isAbortReply(reply)) {
+    recordGateReply(reply, true);
     stopTask(taskId, "abort_reply");
     const updated = opts.db.updateTask(taskId, {
       status: "stopped",
@@ -607,6 +636,8 @@ export async function resumeTask(
   const prompt = reply.trim() === "继续" || reply.trim().toLowerCase() === "continue"
     ? "Continue from where we left off."
     : reply;
+
+  recordGateReply(prompt, false);
 
   let nextPrompt = clipPrompt(`${task.prompt}\n\n---\nUser reply:\n${prompt}`);
   if (isDangerousCommandApproval(prompt)) {

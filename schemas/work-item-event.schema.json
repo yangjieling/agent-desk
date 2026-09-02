@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/work-item-event.json",
+  "title": "WorkItemEvent",
+  "type": "object",
+  "required": ["id", "workItemId", "kind", "body", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^we_" },
+    "workItemId": { "type": "string", "pattern": "^wi_" },
+    "kind": { "enum": ["note", "gate_reply", "run_linked", "system"] },
+    "author": { "type": "string" },
+    "body": { "type": "string" },
+    "taskId": { "type": "string" },
+    "createdAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

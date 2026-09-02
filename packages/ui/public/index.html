@@ -807,6 +807,16 @@
     </div>
     <div class="work-item-body">
       <p class="work-item-desc" id="workItemDesc" hidden></p>
+      <h4 class="work-item-runs-title">讨论与决策</h4>
+      <div id="workItemEvents" class="work-item-events">
+        <div class="work-item-loading">加载中…</div>
+      </div>
+      <div class="work-item-note-row">
+        <textarea id="workItemNoteInput" rows="2" maxlength="4000"
+          placeholder="记下决策、上下文或下一步… Enter 发送，Shift+Enter 换行"
+          onkeydown="onWorkItemNoteKeyDown(event)"></textarea>
+        <button type="button" class="dlg-ok" id="workItemNoteBtn" onclick="submitWorkItemNote()">添加</button>
+      </div>
       <h4 class="work-item-runs-title">执行记录</h4>
       <div id="workItemRuns" class="work-item-runs">
         <div class="work-item-loading">加载中…</div>

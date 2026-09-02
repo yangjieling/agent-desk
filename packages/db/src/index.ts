@@ -6,6 +6,7 @@ import {
   DEFAULT_SETTINGS,
   clipTitle,
   newAgentId,
+  newWorkItemEventId,
   newWorkItemId,
   normalizeIssueCode,
   type AgentProfile,
@@ -13,6 +14,8 @@ import {
   type Task,
   type TaskStatus,
   type WorkItem,
+  type WorkItemEvent,
+  type WorkItemEventKind,
   type WorkItemStatus,
 } from "@agent-desk/core";
 
@@ -97,6 +100,18 @@ function rowToWorkItem(row: Record<string, unknown>): WorkItem {
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     lastActivityAt: Number(row.last_activity_at),
+  };
+}
+
+function rowToWorkItemEvent(row: Record<string, unknown>): WorkItemEvent {
+  return {
+    id: String(row.id),
+    workItemId: String(row.work_item_id ?? ""),
+    kind: (String(row.kind ?? "note") || "note") as WorkItemEventKind,
+    author: String(row.author ?? "user"),
+    body: String(row.body ?? ""),
+    taskId: String(row.task_id ?? ""),
+    createdAt: Number(row.created_at),
   };
 }
 
@@ -199,6 +214,17 @@ export class AgentDeskDb {
       );
       CREATE INDEX IF NOT EXISTS idx_work_items_issue ON work_items(issue_provider, issue_code_norm);
       CREATE INDEX IF NOT EXISTS idx_work_items_updated ON work_items(updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS work_item_events (
+        id TEXT PRIMARY KEY,
+        work_item_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        author TEXT NOT NULL DEFAULT 'user',
+        body TEXT NOT NULL DEFAULT '',
+        task_id TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_work_item_events_wi ON work_item_events(work_item_id, created_at DESC);
     `);
     this.backfillWorkItemsFromTasks();
     this.ensureDefaultAgents();
@@ -563,6 +589,59 @@ export class AgentDeskDb {
         updatedAt: Date.now(),
       });
     }
+  }
+
+  listWorkItemEvents(workItemId: string, limit = 200): WorkItemEvent[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM work_item_events WHERE work_item_id = @workItemId
+         ORDER BY created_at ASC LIMIT @limit`,
+      )
+      .all({ workItemId, limit }) as Record<string, unknown>[];
+    return rows.map(rowToWorkItemEvent);
+  }
+
+  addWorkItemEvent(input: {
+    workItemId: string;
+    kind: WorkItemEventKind;
+    body: string;
+    author?: string;
+    taskId?: string;
+    createdAt?: number;
+  }): WorkItemEvent | null {
+    const workItemId = (input.workItemId || "").trim();
+    if (!workItemId || !this.getWorkItem(workItemId)) return null;
+    const body = String(input.body || "").trim();
+    if (!body) return null;
+    const now = input.createdAt ?? Date.now();
+    const event: WorkItemEvent = {
+      id: newWorkItemEventId(),
+      workItemId,
+      kind: input.kind,
+      author: (input.author || "user").trim() || "user",
+      body,
+      taskId: String(input.taskId || "").trim(),
+      createdAt: now,
+    };
+    this.db
+      .prepare(
+        `INSERT INTO work_item_events (
+          id, work_item_id, kind, author, body, task_id, created_at
+        ) VALUES (
+          @id, @workItemId, @kind, @author, @body, @taskId, @createdAt
+        )`,
+      )
+      .run({
+        id: event.id,
+        workItemId: event.workItemId,
+        kind: event.kind,
+        author: event.author,
+        body: event.body,
+        taskId: event.taskId,
+        createdAt: event.createdAt,
+      });
+    this.touchWorkItem(workItemId);
+    return event;
   }
 
   private backfillWorkItemsFromTasks(): void {

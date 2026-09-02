@@ -60,6 +60,8 @@ let LOG_CHOICES_KEY = "";
 let LOG_VIEW_MODE = "timeline"; // timeline | raw
 let LOG_RENDER_SIG = "";
 let LOG_PENDING_USER = "";
+/** True while a reply is in-flight (before status becomes running). */
+let LOG_REPLY_SENDING = false;
 let LOG_SCROLL_TO_BOTTOM = false;
 let LOG_TASK_STATUS = "";
 /** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
@@ -83,6 +85,15 @@ const WORK_ITEM_STATUS_LABEL = {
   done: "已完成",
   cancelled: "已取消",
 };
+
+const WORK_ITEM_EVENT_KIND_LABEL = {
+  note: "备注",
+  gate_reply: "闸门",
+  run_linked: "执行",
+  system: "系统",
+};
+
+let WORK_ITEM_MODAL_ID = "";
 
 const FAILURE_CODE_LABEL = {
   workspace_busy: "工作区占用",
@@ -1572,23 +1583,29 @@ function updateReplyComposerState(running, canChat) {
   const rb = document.getElementById("replyBox");
   const input = document.getElementById("replyInput");
   const sendBtn = document.getElementById("logSendBtn");
-  const show = canChat && !running;
+  const busy = running || LOG_REPLY_SENDING;
+  const show = canChat && !busy;
   if (rb) rb.classList.toggle("show", show);
   if (input) {
-    input.disabled = running;
-    input.placeholder = "继续本次会话，Enter 发送，Shift+Enter 换行…";
-    if (!running && show) fitReplyInputHeight(input);
+    input.disabled = busy;
+    input.placeholder = LOG_REPLY_SENDING
+      ? "正在发送，请稍候…"
+      : "继续本次会话，Enter 发送，Shift+Enter 换行…";
+    if (!busy && show) fitReplyInputHeight(input);
   }
-  if (sendBtn) sendBtn.disabled = running;
+  if (sendBtn) sendBtn.disabled = busy;
   document.querySelectorAll(".reply-chip, .lg-choice").forEach((btn) => {
-    btn.disabled = running;
+    btn.disabled = busy;
   });
 }
 
 async function dispatchReply(reply, model) {
   if (!LOG_ID || !reply) return;
+  if (LOG_REPLY_SENDING || LOG_TASK_STATUS === "running") return;
+  LOG_REPLY_SENDING = true;
   LOG_PENDING_USER = reply;
   LOG_RENDER_SIG = "";
+  updateReplyComposerState(true, false);
   try {
     const cur = TASKS.find((t) => t.id === LOG_ID);
     const previewTimeline = timelineForDisplay((cur && cur.result) || "", false, cur && cur.prompt);
@@ -1606,6 +1623,8 @@ async function dispatchReply(reply, model) {
       method: "POST",
       body: JSON.stringify({ reply, model: model || getReplyModel() }),
     });
+    // Optimistically lock until stream/poll reports running (or terminal).
+    LOG_TASK_STATUS = "running";
     toast("已发送");
     await loadTasks();
     await pollLog();
@@ -1615,11 +1634,18 @@ async function dispatchReply(reply, model) {
     updateLogActivityFooter(false, []);
     toast(`发送失败: ${e.message || e}`);
     await pollLog();
+  } finally {
+    LOG_REPLY_SENDING = false;
+    const cur = TASKS.find((t) => t.id === LOG_ID);
+    const st = (cur && cur.status) || LOG_TASK_STATUS || "";
+    const running = st === "running" || st === "queued" || st === "created";
+    const canChat = !running && ["awaiting", "done", "failed", "stopped"].includes(st);
+    updateReplyComposerState(st === "running", canChat);
   }
 }
 
 async function sendReply(preset) {
-  if (!LOG_ID || LOG_TASK_STATUS === "running") return;
+  if (!LOG_ID || LOG_TASK_STATUS === "running" || LOG_REPLY_SENDING) return;
   const input = document.getElementById("replyInput");
   const reply = (preset || input.value || "").trim();
   if (!reply) return;
@@ -1827,6 +1853,7 @@ function showLog(id) {
     LOG_CHOICES_KEY = "";
     LOG_RENDER_SIG = "";
     LOG_PENDING_USER = "";
+    LOG_REPLY_SENDING = false;
     LOG_REPLY_MODEL_KEY = "";
     LOG_TASK_STATUS = "";
     LOG_RESULT = "";
@@ -1920,6 +1947,7 @@ function closeLog() {
   LOG_ID = null;
   LOG_RENDER_SIG = "";
   LOG_PENDING_USER = "";
+  LOG_REPLY_SENDING = false;
   LOG_TASK_STATUS = "";
   LOG_VIEW_MODE = "timeline";
   LOG_RESULT = "";
@@ -4520,8 +4548,10 @@ async function openWorkItemByIssue(code) {
   if (!c) return;
   const mask = document.getElementById("workItemMask");
   const runs = document.getElementById("workItemRuns");
+  const eventsEl = document.getElementById("workItemEvents");
   if (mask) mask.classList.add("show");
   if (runs) runs.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  if (eventsEl) eventsEl.innerHTML = '<div class="work-item-loading">加载中…</div>';
   document.getElementById("workItemTitle").textContent = "工作项";
   document.getElementById("workItemMeta").innerHTML = "";
   const descEl = document.getElementById("workItemDesc");
@@ -4529,11 +4559,15 @@ async function openWorkItemByIssue(code) {
     descEl.hidden = true;
     descEl.textContent = "";
   }
+  const noteInput = document.getElementById("workItemNoteInput");
+  if (noteInput) noteInput.value = "";
+  WORK_ITEM_MODAL_ID = "";
   try {
     const data = await api(`/api/issues/${encodeURIComponent(c)}/work-item`);
     renderWorkItemModal(data);
   } catch (e) {
     if (runs) runs.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
+    if (eventsEl) eventsEl.innerHTML = "";
   }
 }
 
@@ -4542,20 +4576,65 @@ async function openWorkItemById(id) {
   if (!wid) return;
   const mask = document.getElementById("workItemMask");
   const runs = document.getElementById("workItemRuns");
+  const eventsEl = document.getElementById("workItemEvents");
   if (mask) mask.classList.add("show");
   if (runs) runs.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  if (eventsEl) eventsEl.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  WORK_ITEM_MODAL_ID = wid;
   try {
     const data = await api(`/api/work-items/${encodeURIComponent(wid)}`);
     renderWorkItemModal(data);
   } catch (e) {
     if (runs) runs.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
+    if (eventsEl) eventsEl.innerHTML = "";
   }
+}
+
+function renderWorkItemEvents(events) {
+  const box = document.getElementById("workItemEvents");
+  if (!box) return;
+  const list = Array.isArray(events) ? events : [];
+  if (!list.length) {
+    box.innerHTML =
+      '<div class="work-item-empty">暂无讨论。闸门确认会自动写入；也可手动添加备注。</div>';
+    return;
+  }
+  box.innerHTML = list
+    .map((ev) => {
+      const kind = String(ev.kind || "note");
+      const kindCls =
+        kind === "gate_reply" ? "is-gate" : kind === "run_linked" || kind === "system" ? "is-system" : "";
+      const kindLabel = WORK_ITEM_EVENT_KIND_LABEL[kind] || kind;
+      const when = fmtTime(ev.createdAt);
+      const taskBtn = ev.taskId
+        ? `<button type="button" class="work-item-event-task" data-task="${esc(ev.taskId)}">查看任务</button>`
+        : "";
+      return `<div class="work-item-event ${kindCls}">
+        <div class="work-item-event-head">
+          <span class="work-item-event-kind">${esc(kindLabel)}</span>
+          <span>${esc(when)}</span>
+        </div>
+        <div class="work-item-event-body">${esc(ev.body || "")}</div>
+        ${taskBtn}
+      </div>`;
+    })
+    .join("");
+  box.querySelectorAll(".work-item-event-task").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeWorkItemModal();
+      openTaskView(btn.dataset.task);
+    });
+  });
+  box.scrollTop = box.scrollHeight;
 }
 
 function renderWorkItemModal(data) {
   const item = data?.workItem;
   const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+  const events = Array.isArray(data?.events) ? data.events : [];
   if (!item) return;
+  WORK_ITEM_MODAL_ID = item.id || "";
   const titleEl = document.getElementById("workItemTitle");
   const metaEl = document.getElementById("workItemMeta");
   const descEl = document.getElementById("workItemDesc");
@@ -4569,6 +4648,7 @@ function renderWorkItemModal(data) {
     const proj = shortPath(item.projectDir);
     if (proj && proj !== "-") chips.push(`<span class="log-meta-chip">${esc(proj)}</span>`);
     chips.push(`<span class="log-meta-chip">${tasks.length} 次执行</span>`);
+    if (events.length) chips.push(`<span class="log-meta-chip">${events.length} 条讨论</span>`);
     metaEl.innerHTML = chips.join("");
   }
   if (descEl) {
@@ -4581,6 +4661,7 @@ function renderWorkItemModal(data) {
       descEl.textContent = "";
     }
   }
+  renderWorkItemEvents(events);
   if (!runsEl) return;
   if (!tasks.length) {
     runsEl.innerHTML = '<div class="work-item-empty">尚无执行记录。可从缺陷列表发起 AI 修复。</div>';
@@ -4619,10 +4700,43 @@ function renderWorkItemModal(data) {
 function closeWorkItemModal() {
   const mask = document.getElementById("workItemMask");
   if (mask) mask.classList.remove("show");
+  WORK_ITEM_MODAL_ID = "";
 }
 
 function onWorkItemMaskClick(e) {
   if (e.target.id === "workItemMask") closeWorkItemModal();
+}
+
+function onWorkItemNoteKeyDown(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    if (typeof isImeComposingKeyEvent === "function" && isImeComposingKeyEvent(e)) return;
+    e.preventDefault();
+    void submitWorkItemNote();
+  }
+}
+
+async function submitWorkItemNote() {
+  const id = WORK_ITEM_MODAL_ID;
+  const input = document.getElementById("workItemNoteInput");
+  if (!id || !input) return;
+  const body = (input.value || "").trim();
+  if (!body) return toast("请填写备注内容");
+  const btn = document.getElementById("workItemNoteBtn");
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/api/work-items/${encodeURIComponent(id)}/events`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
+    input.value = "";
+    const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+    renderWorkItemModal(data);
+    toast("备注已添加");
+  } catch (e) {
+    toast(`添加失败: ${e.message || e}`);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function openIssueTask(taskId) {

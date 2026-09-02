@@ -49,6 +49,21 @@ export interface WorkItem {
   lastActivityAt: number;
 }
 
+/** Shared memory on a work item (gate decisions, notes, run linkage). */
+export type WorkItemEventKind = "note" | "gate_reply" | "run_linked" | "system";
+
+export interface WorkItemEvent {
+  id: string;
+  workItemId: string;
+  kind: WorkItemEventKind;
+  /** user | agent | system */
+  author: string;
+  body: string;
+  /** Optional linked task id for gate / run events. */
+  taskId: string;
+  createdAt: number;
+}
+
 export interface Task {
   id: string;
   taskType: TaskType;

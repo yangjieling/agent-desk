@@ -159,6 +159,16 @@ export function createWorkflowTask(
     lastActivityAt: now,
   };
   db.upsertTask(task);
+  if (workItemId) {
+    db.addWorkItemEvent({
+      workItemId,
+      kind: "run_linked",
+      author: "system",
+      body: `发起流程：${task.title}`,
+      taskId: task.id,
+      createdAt: now,
+    });
+  }
   return task;
 }
 
