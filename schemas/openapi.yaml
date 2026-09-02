@@ -1,0 +1,1937 @@
+openapi: 3.1.0
+info:
+  title: agent-desk Local API
+  version: 0.2.0
+  license:
+    name: Apache-2.0
+  description: |
+    Local-first HTTP API for the agent-desk harness (`oh web`).
+
+    **Scope (MVP):** documents the existing Fastify surface on localhost.
+    There is no cloud multi-tenant auth — the process OS user is the trust
+    boundary (see `docs/security.md`).
+
+    **Not Multica Public API:** no PAT/OAuth, no Idempotency-Key ledger, no
+    plugin scopes. Those can be layered later if needed.
+
+    Interactive docs: `GET /api/docs` (Swagger UI). Raw spec: `GET /openapi.yaml`.
+
+    Related JSON Schemas in this directory: `task.schema.json`, `agent.schema.json`,
+    `work-item.schema.json`, `workflow.schema.json`, `autopilot.schema.json`, etc.
+servers:
+  - url: http://127.0.0.1:19877
+    description: Default `oh web` listen address (override with AD_HOST / AD_PORT)
+tags:
+  - name: Health
+  - name: Dashboard
+  - name: Inbox
+  - name: Agents
+  - name: Tasks
+  - name: WorkItems
+  - name: Workflows
+  - name: WorkflowRuns
+  - name: Autopilots
+  - name: Skills
+  - name: Issues
+  - name: Settings
+  - name: Runtimes
+  - name: Filesystem
+  - name: System
+  - name: Meta
+
+paths:
+  /openapi.yaml:
+    get:
+      tags: [Meta]
+      operationId: getOpenApiYaml
+      summary: OpenAPI document (YAML)
+      responses:
+        "200":
+          description: OpenAPI 3.1 YAML
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /api/openapi.yaml:
+    get:
+      tags: [Meta]
+      operationId: getOpenApiYamlAlias
+      summary: OpenAPI document (alias under /api)
+      responses:
+        "200":
+          description: OpenAPI 3.1 YAML
+          content:
+            application/yaml:
+              schema:
+                type: string
+  /api/docs:
+    get:
+      tags: [Meta]
+      operationId: getApiDocs
+      summary: Swagger UI for this API
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Liveness and installed agent runtimes
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /api/dashboard:
+    get:
+      tags: [Dashboard]
+      operationId: getDashboard
+      summary: Overview counts and recent items
+      responses:
+        "200":
+          description: Dashboard payload
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/inbox:
+    get:
+      tags: [Inbox]
+      operationId: getInbox
+      summary: Aggregate gate awaits and work items awaiting acceptance
+      responses:
+        "200":
+          description: Inbox list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InboxResponse"
+
+  /api/fs/browse:
+    get:
+      tags: [Filesystem]
+      operationId: browseFilesystem
+      summary: Browse local directories for the project-dir picker
+      parameters:
+        - name: path
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Directory listing
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/fs/mkdir:
+    post:
+      tags: [Filesystem]
+      operationId: mkdirFilesystem
+      summary: Create a directory under an allowed browse root
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                name:
+                  type: string
+      responses:
+        "200":
+          description: Created path info
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/settings:
+    get:
+      tags: [Settings]
+      operationId: getSettings
+      summary: Read persisted settings (secrets masked by default)
+      parameters:
+        - name: revealSecrets
+          in: query
+          schema:
+            type: string
+            enum: ["1", "true"]
+      responses:
+        "200":
+          description: Settings object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+    put:
+      tags: [Settings]
+      operationId: putSettings
+      summary: Update settings (blank/masked secrets keep previous values)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Settings"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settings"
+
+  /api/issue-providers:
+    get:
+      tags: [Issues]
+      operationId: listIssueProviders
+      summary: Registered issue backends
+      responses:
+        "200":
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderInfo"
+
+  /api/notify-providers:
+    get:
+      tags: [Settings]
+      operationId: listNotifyProviders
+      summary: Registered notify backends
+      responses:
+        "200":
+          description: Provider list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProviderInfo"
+
+  /api/runtimes:
+    get:
+      tags: [Runtimes]
+      operationId: listRuntimes
+      summary: Probe agent CLIs on PATH
+      parameters:
+        - $ref: "#/components/parameters/FreshQuery"
+      responses:
+        "200":
+          description: Runtime statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentRuntime"
+
+  /api/agent-providers:
+    get:
+      tags: [Runtimes]
+      operationId: listInstalledAgentProviders
+      summary: Agent backends that are installed/available
+      parameters:
+        - $ref: "#/components/parameters/FreshQuery"
+      responses:
+        "200":
+          description: Installed providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/agent-models:
+    get:
+      tags: [Agents]
+      operationId: listAgentModels
+      summary: Models advertised by an agent backend
+      parameters:
+        - name: agent
+          in: query
+          description: Provider id (e.g. claude, codex, cursor)
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Model list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/agents:
+    get:
+      tags: [Agents]
+      operationId: listAgents
+      summary: List named agent profiles
+      responses:
+        "200":
+          description: Agents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AgentProfile"
+    post:
+      tags: [Agents]
+      operationId: createAgent
+      summary: Create an agent profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentProfileWrite"
+      responses:
+        "200":
+          description: Created agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfile"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/agents/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AgentId"
+    get:
+      tags: [Agents]
+      operationId: getAgent
+      summary: Get one agent profile
+      responses:
+        "200":
+          description: Agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfile"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Agents]
+      operationId: updateAgent
+      summary: Update an agent profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AgentProfileWrite"
+      responses:
+        "200":
+          description: Updated agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentProfile"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Agents]
+      operationId: deleteAgent
+      summary: Delete an agent profile
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/skills:
+    get:
+      tags: [Skills]
+      operationId: listSkills
+      summary: List skill summaries
+      parameters:
+        - name: cwd
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+
+  /api/skills/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Skills]
+      operationId: getSkill
+      summary: Resolve a skill pack
+      parameters:
+        - name: cwd
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill detail
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Skills]
+      operationId: deleteSkill
+      summary: Uninstall a user skill
+      responses:
+        "200":
+          description: Uninstall result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/skills/sync:
+    post:
+      tags: [Skills]
+      operationId: syncSkills
+      summary: Sync bundled skills and seed user skills
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+      responses:
+        "200":
+          description: Sync + seed result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+
+  /api/issues:
+    get:
+      tags: [Issues]
+      operationId: listIssues
+      summary: List issues from the configured issue provider
+      parameters:
+        - name: state
+          in: query
+          schema:
+            type: string
+        - name: label
+          in: query
+          schema:
+            oneOf:
+              - type: string
+              - type: array
+                items:
+                  type: string
+        - name: limit
+          in: query
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Issues
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Issue"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/issues/{code}:
+    get:
+      tags: [Issues]
+      operationId: getIssue
+      summary: Get one issue by code
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Issue
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Issue"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/issues/{code}/work-item:
+    get:
+      tags: [WorkItems]
+      operationId: resolveIssueWorkItem
+      summary: Resolve or create the local work item for an issue
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: title
+          in: query
+          schema:
+            type: string
+        - name: projectDir
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Work item detail bundle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkItemDetail"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/github/resolve-workspace:
+    post:
+      tags: [Issues]
+      operationId: resolveGitHubWorkspace
+      summary: Ensure local clone / workspace for GitHub issue provider
+      responses:
+        "200":
+          description: Workspace info
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/work-items:
+    get:
+      tags: [WorkItems]
+      operationId: listWorkItems
+      summary: List local work items (newest first, capped)
+      responses:
+        "200":
+          description: Work items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkItem"
+
+  /api/work-items/{id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    get:
+      tags: [WorkItems]
+      operationId: getWorkItem
+      summary: Work item with tasks, events, and optional issue snapshot
+      responses:
+        "200":
+          description: Detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkItemDetail"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/work-items/{id}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    get:
+      tags: [WorkItems]
+      operationId: listWorkItemTasks
+      summary: Tasks linked to a work item
+      responses:
+        "200":
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/work-items/{id}/events:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    get:
+      tags: [WorkItems]
+      operationId: listWorkItemEvents
+      summary: Event / comment timeline
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkItemEvent"
+        "404":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [WorkItems]
+      operationId: createWorkItemNote
+      summary: Add a manual note on a work item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body:
+                  type: string
+                  maxLength: 4000
+      responses:
+        "200":
+          description: Created event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkItemEvent"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/work-items/{id}/accept:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    post:
+      tags: [WorkItems]
+      operationId: acceptWorkItem
+      summary: Accept a work item in in_review
+      responses:
+        "200":
+          description: Accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  workItem:
+                    $ref: "#/components/schemas/WorkItem"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /api/work-items/{id}/reject:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    post:
+      tags: [WorkItems]
+      operationId: rejectWorkItem
+      summary: Reject acceptance and reopen
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                note:
+                  type: string
+                  maxLength: 2000
+      responses:
+        "200":
+          description: Rejected / reopened
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  workItem:
+                    $ref: "#/components/schemas/WorkItem"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /api/tasks:
+    get:
+      tags: [Tasks]
+      operationId: listTasks
+      summary: List tasks
+      responses:
+        "200":
+          description: Tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      tags: [Tasks]
+      operationId: createTask
+      summary: Create a skill task and enqueue start
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskRequest"
+      responses:
+        "200":
+          description: Created task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/tasks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Tasks]
+      operationId: getTask
+      summary: Get a task (may include usage when parseable from Claude logs)
+      responses:
+        "200":
+          description: Task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Tasks]
+      operationId: deleteTask
+      summary: Stop and delete a task
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/tasks/{id}/log:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Tasks]
+      operationId: getTaskLog
+      summary: Incremental log chunk
+      parameters:
+        - name: offset
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Log slice
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskLogChunk"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/tasks/{id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Tasks]
+      operationId: streamTask
+      summary: Server-Sent Events for live task updates
+      parameters:
+        - name: offset
+          in: query
+          description: Byte offset into result log for append catch-up
+          schema:
+            type: string
+      responses:
+        "200":
+          description: text/event-stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/tasks/{id}/start:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    post:
+      tags: [Tasks]
+      operationId: startTask
+      summary: Start or restart a startable task
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /api/tasks/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    post:
+      tags: [Tasks]
+      operationId: resumeTask
+      summary: Resume after a gate (or continue a stopped task)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reply:
+                  type: string
+                  description: Gate choice text / continue message
+                model:
+                  type: string
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+    get:
+      tags: [Tasks]
+      operationId: resumeTaskDeepLink
+      summary: HTML deep-link resume (notify / browser)
+      parameters:
+        - name: reply
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: HTML confirmation page
+          content:
+            text/html:
+              schema:
+                type: string
+        "404":
+          description: HTML not found
+          content:
+            text/html:
+              schema:
+                type: string
+        "409":
+          description: HTML already running
+          content:
+            text/html:
+              schema:
+                type: string
+
+  /api/tasks/{id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    post:
+      tags: [Tasks]
+      operationId: stopTask
+      summary: Stop a running or queued task
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/workflows:
+    get:
+      tags: [Workflows]
+      operationId: listWorkflows
+      summary: List system + user workflows
+      responses:
+        "200":
+          description: Workflows
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Workflow"
+    post:
+      tags: [Workflows]
+      operationId: createWorkflow
+      summary: Create a user workflow
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowWrite"
+      responses:
+        "200":
+          description: Saved workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/workflows/{id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    get:
+      tags: [Workflows]
+      operationId: getWorkflow
+      summary: Get a workflow
+      responses:
+        "200":
+          description: Workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Workflows]
+      operationId: updateWorkflow
+      summary: Update a user workflow (system workflows forbidden)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WorkflowWrite"
+      responses:
+        "200":
+          description: Saved workflow
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Workflow"
+        "400":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Workflows]
+      operationId: deleteWorkflow
+      summary: Delete a user workflow
+      responses:
+        "200":
+          description: Delete result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/workflows/{id}/run:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowId"
+    post:
+      tags: [Workflows]
+      operationId: runWorkflow
+      summary: Start a workflow run
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                prompt:
+                  type: string
+                projectDir:
+                  type: string
+                issueCode:
+                  type: string
+                agentProfileId:
+                  type: string
+      responses:
+        "200":
+          description: Workflow run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRun"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/workflow-runs:
+    get:
+      tags: [WorkflowRuns]
+      operationId: listWorkflowRuns
+      summary: List workflow runs
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/WorkflowRun"
+
+  /api/workflow-runs/{id}:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowRunId"
+    get:
+      tags: [WorkflowRuns]
+      operationId: getWorkflowRun
+      summary: Get a workflow run
+      responses:
+        "200":
+          description: Run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRun"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/workflow-runs/{id}/continue:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowRunId"
+    post:
+      tags: [WorkflowRuns]
+      operationId: continueWorkflowRun
+      summary: Continue a paused / gated workflow run
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRun"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/workflow-runs/{id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowRunId"
+    post:
+      tags: [WorkflowRuns]
+      operationId: stopWorkflowRun
+      summary: Stop a workflow run
+      responses:
+        "200":
+          description: Updated run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRun"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots:
+    get:
+      tags: [Autopilots]
+      operationId: listAutopilots
+      summary: List autopilot rules (includes lastRun summary)
+      responses:
+        "200":
+          description: Autopilots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutopilotSummary"
+    post:
+      tags: [Autopilots]
+      operationId: createAutopilot
+      summary: Create an autopilot rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutopilotWrite"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopilotSummary"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots/cron/preview:
+    post:
+      tags: [Autopilots]
+      operationId: previewAutopilotCron
+      summary: Preview next cron fire times
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expression:
+                  type: string
+                count:
+                  type: integer
+                  minimum: 1
+                  maximum: 12
+      responses:
+        "200":
+          description: Preview
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  expression:
+                    type: string
+                  next:
+                    type: array
+                    items:
+                      type: integer
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots/{id}:
+    parameters:
+      - $ref: "#/components/parameters/AutopilotId"
+    get:
+      tags: [Autopilots]
+      operationId: getAutopilot
+      summary: Get one autopilot
+      responses:
+        "200":
+          description: Autopilot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopilotSummary"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Autopilots]
+      operationId: updateAutopilot
+      summary: Update an autopilot
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutopilotWrite"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopilotSummary"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Autopilots]
+      operationId: deleteAutopilot
+      summary: Archive/delete an autopilot
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots/{id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/AutopilotId"
+    post:
+      tags: [Autopilots]
+      operationId: pauseAutopilot
+      summary: Pause scheduling
+      responses:
+        "200":
+          description: Paused
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopilotSummary"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots/{id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/AutopilotId"
+    post:
+      tags: [Autopilots]
+      operationId: resumeAutopilot
+      summary: Resume scheduling
+      responses:
+        "200":
+          description: Active again
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopilotSummary"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots/{id}/run:
+    parameters:
+      - $ref: "#/components/parameters/AutopilotId"
+    post:
+      tags: [Autopilots]
+      operationId: runAutopilotNow
+      summary: Fire immediately (manual source)
+      responses:
+        "200":
+          description: Dispatch result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  run:
+                    $ref: "#/components/schemas/AutopilotRun"
+                  autopilot:
+                    $ref: "#/components/schemas/AutopilotSummary"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+
+  /api/autopilots/{id}/runs:
+    parameters:
+      - $ref: "#/components/parameters/AutopilotId"
+    get:
+      tags: [Autopilots]
+      operationId: listAutopilotRuns
+      summary: Recent runs for an autopilot
+      responses:
+        "200":
+          description: Runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AutopilotRun"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/shutdown:
+    post:
+      tags: [System]
+      operationId: shutdownServer
+      summary: Gracefully stop the local server process
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+
+components:
+  parameters:
+    FreshQuery:
+      name: fresh
+      in: query
+      description: Force re-probe (`1` or `true`)
+      schema:
+        type: string
+    AgentId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^a_"
+    TaskId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^t_"
+    WorkItemId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^wi_"
+    WorkflowId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    WorkflowRunId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    AutopilotId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^ap_"
+
+  responses:
+    Ok:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [ok]
+            properties:
+              ok:
+                type: boolean
+                const: true
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorBody"
+
+  schemas:
+    ErrorBody:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        hint:
+          type: string
+        status:
+          type: string
+        task:
+          $ref: "#/components/schemas/Task"
+
+    HealthResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        version:
+          type: string
+        runtimes:
+          type: object
+          properties:
+            installed:
+              type: integer
+            total:
+              type: integer
+            providers:
+              type: array
+              items:
+                type: string
+
+    ProviderInfo:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+
+    AgentRuntime:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        installed:
+          type: boolean
+        version:
+          type: string
+        path:
+          type: string
+        error:
+          type: string
+
+    AgentProfile:
+      type: object
+      required: [id, name, provider, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^a_"
+        name:
+          type: string
+          maxLength: 80
+        provider:
+          type: string
+        model:
+          type: string
+        defaultSkill:
+          type: string
+        instructions:
+          type: string
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+
+    AgentProfileWrite:
+      type: object
+      properties:
+        name:
+          type: string
+        provider:
+          type: string
+        model:
+          type: string
+        defaultSkill:
+          type: string
+        instructions:
+          type: string
+
+    Task:
+      type: object
+      required: [id, status, taskType, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^t_"
+        taskType:
+          type: string
+          enum: [skill, workflow]
+        status:
+          type: string
+          enum: [created, queued, running, awaiting, done, failed, stopped]
+        skill:
+          type: string
+        workflowId:
+          type: string
+        workflowRunId:
+          type: string
+        workflowName:
+          type: string
+        workflowMode:
+          type: string
+          enum: [shared, independent]
+        workflowStep:
+          type: integer
+        workflowStepTotal:
+          type: integer
+        parentTaskId:
+          type: string
+        workflowNodeIndex:
+          type: [integer, "null"]
+        projectDir:
+          type: string
+        workItemId:
+          type: string
+        issueCode:
+          type: string
+        title:
+          type: string
+        prompt:
+          type: string
+        agentProfileId:
+          type: string
+        codingAgent:
+          type: string
+        model:
+          type: string
+        sessionId:
+          type: string
+        result:
+          type: string
+        gateNotifyHash:
+          type: string
+        retryCount:
+          type: integer
+        failureCode:
+          type: string
+        failureMessage:
+          type: string
+        nextRetryAt:
+          type: integer
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+        lastActivityAt:
+          type: integer
+        usage:
+          type: object
+          description: Optional Claude usage parsed from result JSONL
+          additionalProperties: true
+
+    CreateTaskRequest:
+      type: object
+      required: [prompt]
+      properties:
+        title:
+          type: string
+        prompt:
+          type: string
+        projectDir:
+          type: string
+        issueCode:
+          type: string
+        workItemId:
+          type: string
+        skill:
+          type: string
+        agentProfileId:
+          type: string
+        codingAgent:
+          type: string
+        model:
+          type: string
+
+    TaskLogChunk:
+      type: object
+      properties:
+        offset:
+          type: integer
+        length:
+          type: integer
+        chunk:
+          type: string
+        status:
+          type: string
+
+    WorkItem:
+      type: object
+      required: [id, title, status, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^wi_"
+        title:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [open, in_progress, in_review, done, cancelled]
+        projectDir:
+          type: string
+        issueProvider:
+          type: string
+        issueCode:
+          type: string
+        agentProfileId:
+          type: string
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+        lastActivityAt:
+          type: integer
+
+    WorkItemEvent:
+      type: object
+      required: [id, workItemId, kind, body, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: "^we_"
+        workItemId:
+          type: string
+        kind:
+          type: string
+          enum: [note, gate_reply, run_linked, system]
+        author:
+          type: string
+        body:
+          type: string
+        taskId:
+          type: string
+        createdAt:
+          type: integer
+
+    WorkItemDetail:
+      type: object
+      properties:
+        workItem:
+          $ref: "#/components/schemas/WorkItem"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkItemEvent"
+        issue:
+          oneOf:
+            - $ref: "#/components/schemas/Issue"
+            - type: "null"
+
+    Issue:
+      type: object
+      properties:
+        code:
+          type: string
+        title:
+          type: string
+        status:
+          type: string
+        severity:
+          type: string
+        description:
+          type: string
+        projectDir:
+          type: string
+        url:
+          type: string
+        labels:
+          type: array
+          items:
+            type: string
+        updatedAt:
+          type: integer
+
+    InboxResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        count:
+          type: integer
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+                enum: [gate, acceptance]
+              taskId:
+                type: string
+              workItemId:
+                type: string
+              title:
+                type: string
+              status:
+                type: string
+              gateHeading:
+                type: [string, "null"]
+              gateName:
+                type: [string, "null"]
+              choices:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+              skill:
+                type: string
+              workflowName:
+                type: string
+              issueCode:
+                type: string
+              projectDir:
+                type: string
+              agentProfileId:
+                type: string
+              updatedAt:
+                type: integer
+              lastActivityAt:
+                type: integer
+
+    WorkflowNode:
+      type: object
+      required: [id, skill, title]
+      properties:
+        id:
+          type: string
+        skill:
+          type: string
+        title:
+          type: string
+        prompt:
+          type: string
+        agentProfileId:
+          type: string
+        requireGate:
+          type: boolean
+        onFailure:
+          type: string
+          enum: [stop, continue, retry]
+
+    Workflow:
+      type: object
+      required: [id, name, mode, nodes]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        mode:
+          type: string
+          enum: [shared, independent]
+        source:
+          type: string
+          enum: [system, user]
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowNode"
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+
+    WorkflowWrite:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        mode:
+          type: string
+          enum: [shared, independent]
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/WorkflowNode"
+
+    WorkflowRun:
+      type: object
+      description: Workflow execution record (see workflow engine store)
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        workflowId:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+
+    Autopilot:
+      type: object
+      required: [id, name, status, action, cronExpression, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^ap_"
+        name:
+          type: string
+        runbook:
+          type: string
+        status:
+          type: string
+          enum: [active, paused, archived]
+        action:
+          type: string
+          enum: [skill_task, workflow_run]
+        executionMode:
+          type: string
+          enum: [run_only, create_work_item]
+        skill:
+          type: string
+        workflowId:
+          type: string
+        projectDir:
+          type: string
+        agentProfileId:
+          type: string
+        model:
+          type: string
+        titleTemplate:
+          type: string
+        cronExpression:
+          type: string
+        timezone:
+          type: string
+        nextRunAt:
+          type: integer
+        lastRunAt:
+          type: integer
+        concurrencyPolicy:
+          type: string
+          enum: [skip, allow]
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+
+    AutopilotSummary:
+      allOf:
+        - $ref: "#/components/schemas/Autopilot"
+        - type: object
+          properties:
+            lastRun:
+              oneOf:
+                - $ref: "#/components/schemas/AutopilotRun"
+                - type: "null"
+
+    AutopilotWrite:
+      type: object
+      properties:
+        name:
+          type: string
+        runbook:
+          type: string
+        status:
+          type: string
+          enum: [active, paused, archived]
+        action:
+          type: string
+          enum: [skill_task, workflow_run]
+        executionMode:
+          type: string
+          enum: [run_only, create_work_item]
+        skill:
+          type: string
+        workflowId:
+          type: string
+        projectDir:
+          type: string
+        agentProfileId:
+          type: string
+        model:
+          type: string
+        titleTemplate:
+          type: string
+        cronExpression:
+          type: string
+        timezone:
+          type: string
+        concurrencyPolicy:
+          type: string
+          enum: [skip, allow]
+
+    AutopilotRun:
+      type: object
+      required: [id, autopilotId, source, status, createdAt]
+      properties:
+        id:
+          type: string
+          pattern: "^ar_"
+        autopilotId:
+          type: string
+        source:
+          type: string
+          enum: [schedule, manual]
+        status:
+          type: string
+          enum: [pending, running, skipped, completed, failed]
+        taskId:
+          type: string
+        workflowRunId:
+          type: string
+        workItemId:
+          type: string
+        plannedAt:
+          type: integer
+        triggeredAt:
+          type: integer
+        completedAt:
+          type: integer
+        failureReason:
+          type: string
+        createdAt:
+          type: integer
+
+    Settings:
+      type: object
+      description: >
+        Persisted settings under ~/.agent-desk. Full field list lives in
+        settings.schema.json; secrets are masked in GET unless revealSecrets.
+      additionalProperties: true

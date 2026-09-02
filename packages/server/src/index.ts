@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import fastifyStatic from "@fastify/static";
+import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
@@ -164,6 +165,38 @@ function uiPublicDir(): string {
   return path.resolve(here, "../../ui/public");
 }
 
+/** Monorepo `schemas/openapi.yaml` (from packages/server/dist → ../../../schemas). */
+function openApiSpecPath(): string {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  return path.resolve(here, "../../../schemas/openapi.yaml");
+}
+
+function swaggerUiHtml(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>agent-desk API</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" />
+  <style>body{margin:0} .topbar{display:none}</style>
+</head>
+<body>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "/openapi.yaml",
+      dom_id: "#swagger-ui",
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis],
+      layout: "BaseLayout"
+    });
+  </script>
+</body>
+</html>`;
+}
+
 function logAgentRuntimesAtStartup(): void {
   const runtimes = listAgentRuntimes({ fresh: true });
   const installed = runtimes.filter((r) => r.installed);
@@ -216,6 +249,34 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.get("/", async (_req, reply) => {
     return reply.sendFile("index.html");
+  });
+
+  app.get("/openapi.yaml", async (_req, reply) => {
+    try {
+      const yaml = await readFile(openApiSpecPath(), "utf8");
+      return reply.type("application/yaml; charset=utf-8").send(yaml);
+    } catch (e) {
+      return reply.code(404).send({
+        error: "openapi_missing",
+        hint: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  app.get("/api/openapi.yaml", async (_req, reply) => {
+    try {
+      const yaml = await readFile(openApiSpecPath(), "utf8");
+      return reply.type("application/yaml; charset=utf-8").send(yaml);
+    } catch (e) {
+      return reply.code(404).send({
+        error: "openapi_missing",
+        hint: e instanceof Error ? e.message : String(e),
+      });
+    }
+  });
+
+  app.get("/api/docs", async (_req, reply) => {
+    return reply.type("text/html; charset=utf-8").send(swaggerUiHtml());
   });
 
   app.get("/api/health", async () => {
