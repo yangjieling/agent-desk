@@ -38,7 +38,7 @@
 
 | # | 主题 | Multica 要点 | agent-desk 现状 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| 6 | 任务队列与重试 | `queued → running → failed`、自动重试、取消、离线等待 | workflow 节点有 `onFailure: retry`；全局队列/重试不完整 | **可做 MVP** | 统一 runner 级重试与失败原因码 |
+| 6 | 任务队列与重试 | `queued → running → failed`、自动重试、取消、离线等待 | runner 级自动重试 + 工作区排队；失败原因码；设置页可配 | **已有**（MVP） | workflow 步骤 `onFailure: retry/continue` 已接入共享模式 |
 | 7 | 并发与工作目录锁 | daemon/agent 并发上限；同目录互斥 | 设置项 `workspaceLockEnabled`；同 `projectDir` 仅一个 active 任务 | **已有** | 独立并行 workflow 与互斥冲突时需关闭互斥或换目录 |
 | 8 | 执行可观测性 | 工具调用级时间轴；Token/费用可见 | 有 stdout/stderr 时间轴与原始 JSONL | **已有**（日志）/ **可做 MVP**（用量） | 先解析各 CLI 用量事件再汇总 |
 | 9 | 安全边界说清楚 | 「不假装沙箱」+ 专用用户/容器；任务级 token、独立 workdir | 文档较少；本地用户权限即边界 | **可做 MVP** | 补 `docs/security.md`；可选独立 workdir |
@@ -154,6 +154,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-02 | #6 任务队列与自动重试：bootstrap 队列、设置 UI、失败码与排队状态展示 |
 | 2026-09-02 | #5 待办 / Inbox MVP：侧栏入口、`GET /api/inbox`、闸门快捷回复 |
 | 2026-09-02 | 补充「UI 与信息架构」：能力驱动演进，不必照搬 Multica 布局 |
 | 2026-09-02 | #2 Agent 身份、#7 工作区互斥 MVP 落地 |

@@ -69,11 +69,20 @@ let LOG_WF_CACHE = null;
 
 const STATUS_LABEL = {
   created: "待执行",
+  queued: "排队中",
   running: "运行中",
   awaiting: "待确认",
   done: "已完成",
   failed: "失败",
   stopped: "已停止",
+};
+
+const FAILURE_CODE_LABEL = {
+  workspace_busy: "工作区占用",
+  spawn_error: "启动失败",
+  exit_nonzero: "异常退出",
+  backend_unavailable: "CLI 不可用",
+  start_error: "启动错误",
 };
 
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
@@ -175,7 +184,24 @@ function taskPhase(t) {
 }
 
 function taskPhaseLabel(t) {
+  if (t.status === "queued") {
+    const retry = Number(t.retryCount || t.retry_count || 0);
+    if (retry > 0) return `排队重试 (${retry})`;
+    return STATUS_LABEL.queued;
+  }
   return STATUS_LABEL[t.status] || t.status || "-";
+}
+
+function taskRetryHint(t) {
+  const code = String(t.failureCode || t.failure_code || "").trim();
+  const msg = String(t.failureMessage || t.failure_message || "").trim();
+  const nextAt = Number(t.nextRetryAt || t.next_retry_at || 0);
+  const parts = [];
+  if (code) parts.push(FAILURE_CODE_LABEL[code] || code);
+  if (t.status === "queued" && nextAt > Date.now()) {
+    parts.push(`${Math.max(1, Math.ceil((nextAt - Date.now()) / 1000))}s 后重试`);
+  } else if (msg) parts.push(msg);
+  return parts.join(" · ");
 }
 
 function taskListSignature(tasks) {
@@ -188,6 +214,9 @@ function taskListSignature(tasks) {
         tField(t, "workflowStepTotal", "workflow_step_total"),
         t.updatedAt || t.updated_at || "",
         t.lastActivityAt || t.last_activity_at || "",
+        t.retryCount || t.retry_count || 0,
+        t.failureCode || t.failure_code || "",
+        t.nextRetryAt || t.next_retry_at || 0,
       ].join(":"),
     )
     .sort()
@@ -195,7 +224,7 @@ function taskListSignature(tasks) {
 }
 
 function hasActiveTasks(tasks) {
-  return (tasks || []).some((t) => ["running", "awaiting", "created"].includes(t.status || ""));
+  return (tasks || []).some((t) => ["running", "awaiting", "created", "queued"].includes(t.status || ""));
 }
 
 function buildTaskGroups(tasks) {
@@ -458,6 +487,16 @@ function renderLogMeta(task) {
   }
   const proj = shortPath(tField(task, "projectDir", "project_dir"));
   if (proj && proj !== "-") chips.push(`<span class="log-meta-chip" title="${esc(tField(task, "projectDir", "project_dir"))}">${esc(proj)}</span>`);
+  const retryCount = Number(tField(task, "retryCount", "retry_count") || 0);
+  if (retryCount > 0) chips.push(`<span class="log-meta-chip">重试 ${retryCount}</span>`);
+  const failureCode = String(tField(task, "failureCode", "failure_code") || "").trim();
+  if (failureCode) {
+    chips.push(`<span class="log-meta-chip log-meta-fail" title="${esc(tField(task, "failureMessage", "failure_message"))}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`);
+  }
+  const retryHint = taskRetryHint(task);
+  if (retryHint && (st === "queued" || st === "failed")) {
+    chips.push(`<span class="log-meta-chip">${esc(retryHint)}</span>`);
+  }
   el.innerHTML = chips.join("");
 }
 
@@ -936,6 +975,12 @@ async function pollTasksQuiet() {
       if (now === "awaiting" && was === "running") {
         toast(`「${t.title || t.id}」等待确认，请前往待办处理`);
       }
+      if (now === "queued" && was === "failed") {
+        toast(`「${t.title || t.id}」已加入重试队列`);
+      }
+      if (now === "running" && was === "queued") {
+        toast(`「${t.title || t.id}」开始重试`);
+      }
       if (LOG_ID === t.id && now !== was) {
         void pollLog();
       }
@@ -1028,6 +1073,7 @@ function renderListRow(t, opts = {}) {
   const act = esc(fmtTime(t.lastActivityAt || t.last_activity_at || t.updatedAt || t.updated_at));
   const running = t.status === "running";
   const awaiting = t.status === "awaiting";
+  const queued = t.status === "queued";
   const canContinue = canContinueTask(t);
   const hasSession = !!(tField(t, "sessionId", "session_id") || "").trim();
   const needsFreshStart =
@@ -1040,6 +1086,8 @@ function renderListRow(t, opts = {}) {
   const total = Number(tField(t, "workflowStepTotal", "workflow_step_total") || 0);
   if (!isChild && wfName && total > 0) metaParts.push(`${esc(wfName)} · ${step}/${total}`);
   else if (!isChild && wfName) metaParts.push(esc(wfName));
+  const retryHint = taskRetryHint(t);
+  if (retryHint) metaParts.push(`<span class="tr-retry-hint">${esc(retryHint)}</span>`);
   metaParts.push(`活动 ${act}`);
   let ops = "";
   if (awaiting) {
@@ -1047,6 +1095,8 @@ function renderListRow(t, opts = {}) {
     ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "停止" });
   } else if (running) {
     ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "停止" });
+  } else if (queued) {
+    ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "取消" });
   } else if (needsFreshStart) {
     ops += taskIconBtn({ act: "start", id, kind: "play", label: "运行" });
   } else if (canContinue) {
@@ -3915,10 +3965,11 @@ async function initSettingsUI() {
     if (!key) return;
     if (row.dataset.type === "select") return;
 
-    if (row.dataset.type === "text" || row.dataset.type === "secret") {
+    if (row.dataset.type === "text" || row.dataset.type === "secret" || row.dataset.type === "number") {
       const input = row.querySelector("input");
       if (!input) return;
       const isSecret = row.dataset.type === "secret";
+      const isNumber = row.dataset.type === "number";
       const loaded = settingsGet(state, key);
       const loadedStr = loaded == null ? "" : String(loaded);
       const hasStoredSecret = isSecret && !!loadedStr;
@@ -3984,7 +4035,17 @@ async function initSettingsUI() {
       const commit = async () => {
         const prev = settingsGet(state, key);
         const prevStr = prev == null ? "" : String(prev);
-        const nextVal = (input.value || "").trim();
+        let nextVal = (input.value || "").trim();
+        if (isNumber) {
+          const n = Number(nextVal);
+          if (!Number.isFinite(n)) {
+            setSettingRowStatus(row, "error", "请输入数字");
+            return;
+          }
+          if (key === "maxRetries") nextVal = String(Math.min(10, Math.max(0, Math.round(n))));
+          else if (key === "retryDelaySec") nextVal = String(Math.max(5, Math.round(n)));
+          else nextVal = String(n);
+        }
         if (isSecret) {
           if (!nextVal || nextVal === SETTINGS_SECRET_MASK) {
             input.value =
@@ -4008,7 +4069,8 @@ async function initSettingsUI() {
         }
         setSettingRowStatus(row, "saving");
         try {
-          const next = await saveSettingsPatch(settingsPatchForKey(key, nextVal));
+          const patchVal = isNumber ? Number(nextVal) : nextVal;
+          const next = await saveSettingsPatch(settingsPatchForKey(key, patchVal));
           state = next;
           const saved = settingsGet(next, key);
           const savedStr = saved == null ? "" : String(saved);

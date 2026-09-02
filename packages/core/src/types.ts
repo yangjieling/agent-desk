@@ -1,10 +1,19 @@
 export type TaskStatus =
   | "created"
+  | "queued"
   | "running"
   | "awaiting"
   | "done"
   | "failed"
   | "stopped";
+
+export type TaskFailureCode =
+  | ""
+  | "workspace_busy"
+  | "spawn_error"
+  | "exit_nonzero"
+  | "backend_unavailable"
+  | "start_error";
 
 export type TaskType = "skill" | "workflow";
 
@@ -46,6 +55,12 @@ export interface Task {
   sessionId: string;
   result: string;
   gateNotifyHash: string;
+  /** Completed auto-retry attempts (not including the first run). */
+  retryCount: number;
+  failureCode: TaskFailureCode;
+  failureMessage: string;
+  /** When > 0, queued task should not start before this timestamp. */
+  nextRetryAt: number;
   createdAt: number;
   updatedAt: number;
   lastActivityAt: number;
@@ -60,7 +75,7 @@ export interface WorkflowNode {
   agentProfileId?: string;
   /** When true, step prompt insists on emitting a human gate before finishing. */
   requireGate?: boolean;
-  /** v1: only "stop" is honored by the engine; others are reserved. */
+  /** On step failure: stop run, skip to next step, or retry the step. */
   onFailure?: "stop" | "continue" | "retry";
 }
 
@@ -96,6 +111,12 @@ export interface Settings {
   defaultModel: string;
   /** When true, only one active task per project directory at a time. */
   workspaceLockEnabled: boolean;
+  /** Auto-retry failed tasks up to maxRetries with retryDelaySec between attempts. */
+  autoRetryEnabled: boolean;
+  maxRetries: number;
+  retryDelaySec: number;
+  /** When workspace is busy, queue the task instead of failing immediately. */
+  queueWhenWorkspaceBusy: boolean;
   idleTimeoutSec: number;
   awaitingIdleTimeoutSec: number;
   webBaseUrl: string;
@@ -184,6 +205,10 @@ export const DEFAULT_SETTINGS: Settings = {
   codingAgent: "claude",
   defaultModel: "",
   workspaceLockEnabled: true,
+  autoRetryEnabled: true,
+  maxRetries: 2,
+  retryDelaySec: 30,
+  queueWhenWorkspaceBusy: true,
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,
   webBaseUrl: "http://127.0.0.1:19877",
@@ -222,6 +247,7 @@ export type WorkflowRunStatus =
 export type WorkflowRunNodeStatus =
   | "pending"
   | "running"
+  | "queued"
   | "awaiting"
   | "done"
   | "failed"

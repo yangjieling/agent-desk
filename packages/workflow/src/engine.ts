@@ -131,6 +131,10 @@ export function createWorkflowTask(
     sessionId: "",
     result: "",
     gateNotifyHash: "",
+    retryCount: 0,
+    failureCode: "",
+    failureMessage: "",
+    nextRetryAt: 0,
     createdAt: now,
     updatedAt: now,
     lastActivityAt: now,
@@ -155,8 +159,14 @@ async function waitForTaskEnd(db: AgentDeskDb, taskId: string, timeoutMs = 3_600
   while (Date.now() < deadline) {
     const task = db.getTask(taskId);
     if (!task) throw new Error(`Task not found: ${taskId}`);
-    if (!isTaskRunning(taskId)) {
-      if (["awaiting", "done", "failed", "stopped"].includes(task.status)) return task;
+    if (isTaskRunning(taskId)) {
+      await sleep(800);
+      continue;
+    }
+    if (["awaiting", "done", "failed", "stopped"].includes(task.status)) return task;
+    if (task.status === "queued" || task.status === "created") {
+      await sleep(800);
+      continue;
     }
     await sleep(800);
   }
@@ -183,6 +193,12 @@ function syncIndependentRun(dataDir: string, db: AgentDeskDb, run: WorkflowRun):
     }
     const task = db.getTask(tid);
     const st = task?.status ?? "failed";
+    if (st === "queued" || st === "created") {
+      anyRunning = true;
+      statuses.push(st);
+      if (node.status !== st) run = updateRunNode(dataDir, run, i, { status: st as WorkflowRunNode["status"] });
+      continue;
+    }
     statuses.push(st);
     if (st === "awaiting" && !awaitingId) awaitingId = tid;
     if (st !== node.status || (task?.result && task.result !== node.result)) {
@@ -307,6 +323,62 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
       return;
     }
     if (task.status === "failed") {
+      const onFailure = wfNode.onFailure || "stop";
+      if (onFailure === "continue") {
+        run = updateRunNode(dataDir, run, i, { status: "failed", result: task.result });
+        sharedContext = appendSharedContext(
+          sharedContext,
+          node,
+          `[步骤失败] ${task.failureMessage || (task.result || "").slice(-500)}`,
+        );
+        run.sharedContext = sharedContext;
+        run.currentIndex = i + 1;
+        run = persistRun(dataDir, opts.db, run);
+        continue;
+      }
+      if (onFailure === "retry") {
+        opts.db.updateTask(parentId, {
+          status: "created",
+          failureCode: "",
+          failureMessage: "",
+          nextRetryAt: 0,
+        });
+        await startTask(opts, parentId);
+        try {
+          task = await waitForTaskEnd(opts.db, parentId);
+        } catch {
+          run = updateRunNode(dataDir, run, i, { status: "failed" });
+          run.status = "failed";
+          persistRun(dataDir, opts.db, run);
+          return;
+        }
+        run = updateRunNode(dataDir, run, i, {
+          status: task.status as WorkflowRunNode["status"],
+          result: task.result,
+        });
+        if (task.status === "awaiting") {
+          run.status = "awaiting";
+          run.awaitingTaskId = parentId;
+          persistRun(dataDir, opts.db, run);
+          return;
+        }
+        if (task.status === "stopped") {
+          run.status = "stopped";
+          persistRun(dataDir, opts.db, run);
+          return;
+        }
+        if (task.status === "failed") {
+          run.status = "failed";
+          persistRun(dataDir, opts.db, run);
+          return;
+        }
+        sharedContext = appendSharedContext(sharedContext, node, task.result);
+        run.sharedContext = sharedContext;
+        run = updateRunNode(dataDir, run, i, { status: "done" });
+        run.currentIndex = i + 1;
+        run = persistRun(dataDir, opts.db, run);
+        continue;
+      }
       run.status = "failed";
       persistRun(dataDir, opts.db, run);
       return;

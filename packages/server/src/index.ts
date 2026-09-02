@@ -23,9 +23,11 @@ import { listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider, setNotifyWebhookSettingsSource } from "@agent-desk/provider-notify-webhook";
 import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import {
+  bootstrapTaskQueue,
   createTask,
   enqueueStartTask,
   isTaskRunning,
+  processWorkspaceQueue,
   resumeTask,
   startTask,
   stopTask,
@@ -181,6 +183,7 @@ export async function createServer(opts: ServerOptions = {}) {
   const settings = db.getSettings();
   const runnerOpts = { db, settings, dataDir };
   registerWorkflowHooks(dataDir, runnerOpts);
+  bootstrapTaskQueue(runnerOpts, startTask);
 
   const app = Fastify({ logger: true });
 
@@ -199,7 +202,7 @@ export async function createServer(opts: ServerOptions = {}) {
     const tasks = db.listTasks(300);
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const awaiting = tasks.filter((t) => t.status === "awaiting");
-    const active = tasks.filter((t) => t.status === "running" || t.status === "created");
+    const active = tasks.filter((t) => t.status === "running" || t.status === "created" || t.status === "queued");
     const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
     const failedRecent = tasks.filter((t) => t.status === "failed").slice(0, 12);
 
@@ -713,8 +716,15 @@ export async function createServer(opts: ServerOptions = {}) {
     if (isTaskRunning(task.id) || task.status === "running") {
       return reply.code(409).send({ error: "already_running", task });
     }
-    if (!["created", "failed", "stopped"].includes(task.status)) {
+    if (!["created", "failed", "stopped", "queued"].includes(task.status)) {
       return reply.code(409).send({ error: "not_startable", status: task.status, task });
+    }
+    if (task.status === "queued") {
+      db.updateTask(task.id, {
+        status: "created",
+        nextRetryAt: 0,
+        failureMessage: "",
+      });
     }
     const updated = await startTask(runnerOpts, task.id);
     return updated;
@@ -785,6 +795,7 @@ export async function createServer(opts: ServerOptions = {}) {
   app.post<{ Params: { id: string } }>("/api/tasks/:id/stop", async (req, reply) => {
     const task = db.getTask(req.params.id);
     if (!task) return reply.code(404).send({ error: "not_found" });
+    const projectDir = task.projectDir;
     stopTask(req.params.id);
     if (task.workflowRunId) {
       try {
@@ -793,7 +804,14 @@ export async function createServer(opts: ServerOptions = {}) {
         // ignore
       }
     } else {
-      db.updateTask(req.params.id, { status: "stopped" });
+      db.updateTask(req.params.id, {
+        status: "stopped",
+        nextRetryAt: 0,
+        failureMessage: task.status === "queued" && task.retryCount > 0 ? "已取消自动重试" : task.failureMessage,
+      });
+      if (projectDir) {
+        void processWorkspaceQueue(runnerOpts, projectDir, startTask);
+      }
     }
     return db.getTask(req.params.id);
   });

@@ -55,6 +55,10 @@ function rowToTask(row: Record<string, unknown>): Task {
     sessionId: String(row.session_id ?? ""),
     result: String(row.result ?? ""),
     gateNotifyHash: String(row.gate_notify_hash ?? ""),
+    retryCount: Number(row.retry_count ?? 0),
+    failureCode: (String(row.failure_code ?? "") || "") as Task["failureCode"],
+    failureMessage: String(row.failure_message ?? ""),
+    nextRetryAt: Number(row.next_retry_at ?? 0),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     lastActivityAt: Number(row.last_activity_at),
@@ -139,6 +143,10 @@ export class AgentDeskDb {
     `);
     this.ensureTaskColumn("model", "TEXT");
     this.ensureTaskColumn("agent_profile_id", "TEXT");
+    this.ensureTaskColumn("retry_count", "INTEGER DEFAULT 0");
+    this.ensureTaskColumn("failure_code", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("failure_message", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("next_retry_at", "INTEGER DEFAULT 0");
     this.ensureDefaultAgents();
   }
 
@@ -285,12 +293,14 @@ export class AgentDeskDb {
           id, task_type, status, skill, workflow_id, workflow_run_id, workflow_name,
           workflow_mode, workflow_step, workflow_step_total, parent_task_id,
           workflow_node_index, project_dir, issue_code, title, prompt, agent_profile_id, coding_agent, model,
-          session_id, result, gate_notify_hash, created_at, updated_at, last_activity_at
+          session_id, result, gate_notify_hash, retry_count, failure_code, failure_message, next_retry_at,
+          created_at, updated_at, last_activity_at
         ) VALUES (
           @id, @taskType, @status, @skill, @workflowId, @workflowRunId, @workflowName,
           @workflowMode, @workflowStep, @workflowStepTotal, @parentTaskId,
           @workflowNodeIndex, @projectDir, @issueCode, @title, @prompt, @agentProfileId, @codingAgent, @model,
-          @sessionId, @result, @gateNotifyHash, @createdAt, @updatedAt, @lastActivityAt
+          @sessionId, @result, @gateNotifyHash, @retryCount, @failureCode, @failureMessage, @nextRetryAt,
+          @createdAt, @updatedAt, @lastActivityAt
         )
         ON CONFLICT(id) DO UPDATE SET
           task_type=excluded.task_type, status=excluded.status, skill=excluded.skill,
@@ -301,6 +311,8 @@ export class AgentDeskDb {
           project_dir=excluded.project_dir, issue_code=excluded.issue_code, title=excluded.title,
           prompt=excluded.prompt, agent_profile_id=excluded.agent_profile_id, coding_agent=excluded.coding_agent, model=excluded.model,
           session_id=excluded.session_id, result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
+          retry_count=excluded.retry_count, failure_code=excluded.failure_code,
+          failure_message=excluded.failure_message, next_retry_at=excluded.next_retry_at,
           updated_at=excluded.updated_at, last_activity_at=excluded.last_activity_at`,
       )
       .run({
@@ -326,6 +338,10 @@ export class AgentDeskDb {
         sessionId: task.sessionId,
         result: task.result,
         gateNotifyHash: task.gateNotifyHash,
+        retryCount: task.retryCount,
+        failureCode: task.failureCode,
+        failureMessage: task.failureMessage,
+        nextRetryAt: task.nextRetryAt,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
         lastActivityAt: task.lastActivityAt,

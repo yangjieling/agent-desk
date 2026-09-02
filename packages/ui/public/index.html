@@ -132,6 +132,7 @@
               <button class="chip active" data-filter="all">全部</button>
               <button class="chip" data-filter="created">待执行</button>
               <button class="chip" data-filter="running">运行中</button>
+              <button class="chip" data-filter="queued">排队中</button>
               <button class="chip" data-filter="awaiting">待确认</button>
               <button class="chip" data-filter="failed">失败</button>
               <button class="chip" data-filter="done">已完成</button>
@@ -588,6 +589,40 @@
               <input type="checkbox" checked>
               <span class="track"><span class="thumb"></span></span>
             </label>
+          </div>
+          <div class="setting-row" data-key="queueWhenWorkspaceBusy">
+            <div class="setting-meta">
+              <p class="st">工作区排队</p>
+              <p class="sd">目录被占用时将新任务排队等待，而不是立即失败</p>
+            </div>
+            <label class="toggle" title="工作区排队">
+              <input type="checkbox" checked>
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="autoRetryEnabled">
+            <div class="setting-meta">
+              <p class="st">失败自动重试</p>
+              <p class="sd">任务失败（非闸门）后按下方次数与间隔自动重试</p>
+            </div>
+            <label class="toggle" title="失败自动重试">
+              <input type="checkbox" checked>
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="maxRetries" data-type="number">
+            <div class="setting-meta">
+              <p class="st">最大重试次数</p>
+              <p class="sd">不含首次运行；0 表示不重试</p>
+            </div>
+            <input class="setting-select setting-number" type="number" min="0" max="10" step="1" value="2">
+          </div>
+          <div class="setting-row" data-key="retryDelaySec" data-type="number">
+            <div class="setting-meta">
+              <p class="st">重试间隔（秒）</p>
+              <p class="sd">每次自动重试前的等待时间，最少 5 秒</p>
+            </div>
+            <input class="setting-select setting-number" type="number" min="5" max="3600" step="5" value="30">
           </div>
           </div>
           </div>

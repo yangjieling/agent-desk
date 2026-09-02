@@ -428,7 +428,9 @@
   .log-meta-chip { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: #f3f4f6; color: #5f6368;
                    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .log-meta-chip.status-running, .log-meta-chip.status-awaiting { background: #e7f0ff; color: #2f6feb; }
+  .log-meta-chip.status-queued { background: #f3f0ff; color: #6b4fd6; }
   .log-meta-chip.status-done { background: #e6f4ea; color: #1e7e34; }
+  .log-meta-chip.log-meta-fail { background: #fdecea; color: #c0392b; }
   .log-meta-chip.status-failed, .log-meta-chip.status-stopped { background: #fdecea; color: #c0392b; }
   .log-head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .log-icon-btn {
@@ -999,6 +1001,9 @@
   .st-created { background: #eef2fb; color: #2f6feb; }
   .st-running { background: #fff4e5; color: #f0a020; }
   .st-awaiting { background: #e7f0ff; color: #1a73e8; }
+  .st-queued { background: #f3f0ff; color: #6b4fd6; }
+  .tr-retry-hint { color: #b8730a; }
+  .setting-number { width: 96px; min-width: 96px; text-align: center; }
   .st-done { background: #e6f4ea; color: #1e7e34; }
   .st-failed { background: #fdeaea; color: #e35b5b; }
   .st-stopped { background: #eef0f3; color: #5f6368; }

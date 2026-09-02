@@ -22,6 +22,7 @@ import {
   resolveTaskStatusAfterRun,
   type Settings,
   type Task,
+  type TaskFailureCode,
 } from "@agent-desk/core";
 import type { AgentDeskDb } from "@agent-desk/db";
 import { getAgentBackend } from "@agent-desk/provider-agent";
@@ -37,7 +38,15 @@ import {
   formatLogTimestamp,
 } from "./log-format.js";
 import { publishTaskUpdate } from "./task-events.js";
+import {
+  clearRetryTimer,
+  failureCodeFromError,
+  maybeScheduleAutoRetry,
+  processWorkspaceQueue,
+} from "./queue.js";
 
+export { bootstrapTaskQueue } from "./queue.js";
+export { processWorkspaceQueue } from "./queue.js";
 export { subscribeTaskUpdates, type TaskStreamUpdate } from "./task-events.js";
 
 export interface CreateTaskInput {
@@ -159,6 +168,10 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     sessionId: "",
     result: "",
     gateNotifyHash: "",
+    retryCount: 0,
+    failureCode: "",
+    failureMessage: "",
+    nextRetryAt: 0,
     createdAt: now,
     updatedAt: now,
     lastActivityAt: now,
@@ -184,10 +197,39 @@ function errMessage(err: unknown): string {
   return String(err ?? "unknown error");
 }
 
+async function markTaskQueued(
+  opts: RunnerOptions,
+  taskId: string,
+  code: TaskFailureCode,
+  message: string,
+): Promise<Task> {
+  const prev = opts.db.getTask(taskId);
+  const stamp = `\n\n${formatLogTimestamp()} [queued] ${message}`;
+  const result = prev?.result?.trim()
+    ? `${prev.result.trim()}${stamp}`
+    : `${formatLogTimestamp()} [queued] ${message}`;
+  const updated = opts.db.updateTask(taskId, {
+    status: "queued",
+    failureCode: code,
+    failureMessage: message,
+    nextRetryAt: 0,
+    result,
+    lastActivityAt: Date.now(),
+  });
+  const task = updated ?? prev;
+  if (task) {
+    resetPublishedResultLen(task.id, (task.result ?? "").length);
+    publishTaskUpdate({ task, resultAppend: undefined });
+  }
+  if (!task) throw new Error(`Task not found after queue: ${taskId}`);
+  return task;
+}
+
 async function markTaskFailed(
   opts: RunnerOptions,
   taskId: string,
   err: unknown,
+  code: TaskFailureCode = "start_error",
 ): Promise<Task> {
   const prev = opts.db.getTask(taskId);
   const msg = errMessage(err);
@@ -197,6 +239,9 @@ async function markTaskFailed(
     : `${formatLogTimestamp()} [start error] ${msg}`;
   const updated = opts.db.updateTask(taskId, {
     status: "failed",
+    failureCode: code,
+    failureMessage: msg,
+    nextRetryAt: 0,
     result,
     lastActivityAt: Date.now(),
   });
@@ -204,8 +249,11 @@ async function markTaskFailed(
   if (task) {
     resetPublishedResultLen(task.id, (task.result ?? "").length);
     publishTaskUpdate({ task, resultAppend: undefined });
-    await maybeNotifyTaskUpdate(task, resolveSettings(opts));
-    await emitTaskComplete(task);
+    const retried = await maybeScheduleAutoRetry(opts, task, startTask);
+    if (retried.status === "failed") {
+      await maybeNotifyTaskUpdate(retried, resolveSettings(opts));
+    }
+    await emitTaskComplete(retried);
   }
   if (!task) throw new Error(`Task not found after fail: ${taskId}`);
   return task;
@@ -303,10 +351,19 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     if (settings.workspaceLockEnabled !== false) {
       const busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
       if (busy > 0) {
+        if (settings.queueWhenWorkspaceBusy !== false) {
+          return markTaskQueued(
+            opts,
+            taskId,
+            "workspace_busy",
+            `工作区正被其他任务占用，已加入队列：${cwd}`,
+          );
+        }
         return markTaskFailed(
           opts,
           taskId,
           new Error(`工作区正被其他任务占用：${cwd}。请等待完成或停止后再试。`),
+          "workspace_busy",
         );
       }
     }
@@ -341,7 +398,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })
       : backend.buildExecCommand(execParams);
 
-    const runningTask = opts.db.updateTask(taskId, { status: "running" });
+    const runningTask = opts.db.updateTask(taskId, {
+      status: "running",
+      failureCode: "",
+      failureMessage: "",
+      nextRetryAt: 0,
+    });
     notifyTaskUpdate(opts, runningTask ?? taskId, true);
 
     const child = spawn(args[0], args.slice(1), {
@@ -428,7 +490,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       settled = true;
       running.delete(taskId);
       console.error(`[agent-desk] task ${taskId} spawn error:`, errMessage(err));
-      void markTaskFailed(opts, taskId, err);
+      void markTaskFailed(opts, taskId, err, failureCodeFromError(err));
     });
 
     child.on("close", async (code) => {
@@ -440,21 +502,38 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       const sessionId = backend.extractSessionId(events) ?? taskSessionId;
       const status = resolveTaskStatusAfterRun(output, code ?? 1, controller.signal.aborted);
 
-      const updated = opts.db.updateTask(taskId, {
+      const patch: Partial<Task> = {
         status,
         sessionId,
         result: output,
-      });
+      };
+      if (status === "failed") {
+        patch.failureCode = "exit_nonzero";
+        patch.failureMessage = `进程退出码 ${code ?? 1}`;
+        patch.nextRetryAt = 0;
+      }
+
+      const updated = opts.db.updateTask(taskId, patch);
       if (updated) {
         notifyTaskUpdate(opts, updated, true);
         if (status === "awaiting") {
           const sent = await maybeNotifyGate(updated, settings);
           if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
+        } else if (status === "failed") {
+          const retried = await maybeScheduleAutoRetry(opts, updated, startTask);
+          if (retried.status === "failed") {
+            await maybeNotifyTaskUpdate(retried, settings);
+          }
+          await maybeReleaseTaskWorkspace(opts, retried, retried.status);
+          await emitTaskComplete(retried);
+          await processWorkspaceQueue(opts, retried.projectDir, startTask);
+          return;
         } else {
           await maybeNotifyTaskUpdate(updated, settings);
         }
         await maybeReleaseTaskWorkspace(opts, updated, status);
         await emitTaskComplete(updated);
+        await processWorkspaceQueue(opts, updated.projectDir, startTask);
       }
     });
 
@@ -462,7 +541,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
   } catch (err) {
     running.delete(taskId);
     console.error(`[agent-desk] task ${taskId} start failed:`, errMessage(err));
-    return markTaskFailed(opts, taskId, err);
+    return markTaskFailed(opts, taskId, err, failureCodeFromError(err));
   }
 }
 
@@ -474,6 +553,7 @@ export function enqueueStartTask(opts: RunnerOptions, taskId: string): void {
 }
 
 export function stopTask(taskId: string, reason = "user_stop"): boolean {
+  clearRetryTimer(taskId);
   const controller = running.get(taskId);
   if (!controller) return false;
   controller.abort(reason);

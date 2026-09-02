@@ -22,6 +22,29 @@
       "default": true,
       "description": "When true, only one active task per project directory"
     },
+    "autoRetryEnabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically retry failed tasks"
+    },
+    "maxRetries": {
+      "type": "integer",
+      "default": 2,
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Maximum auto-retry attempts per task"
+    },
+    "retryDelaySec": {
+      "type": "integer",
+      "default": 30,
+      "minimum": 5,
+      "description": "Seconds to wait before each auto-retry"
+    },
+    "queueWhenWorkspaceBusy": {
+      "type": "boolean",
+      "default": true,
+      "description": "Queue tasks when the workspace directory is busy"
+    },
     "idleTimeoutSec": { "type": "integer", "default": 3600 },
     "awaitingIdleTimeoutSec": { "type": "integer", "default": 86400 },
     "webBaseUrl": { "type": "string", "default": "http://127.0.0.1:19877" },
