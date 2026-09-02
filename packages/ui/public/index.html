@@ -171,6 +171,13 @@
                 </button>
               </div>
             </div>
+            <details class="log-task-detail" id="logTaskDetail" hidden>
+              <summary>
+                <span class="log-task-detail-label">任务描述</span>
+                <span class="log-task-detail-peek" id="logTaskDetailPeek"></span>
+              </summary>
+              <div class="log-task-detail-body" id="logTaskDetailBody"></div>
+            </details>
             <div class="log-wf-steps" id="logWfSteps" hidden></div>
             <div class="log-gate-card" id="logGateCard" hidden></div>
             <div class="log-scroll" id="logScroll">
@@ -806,20 +813,29 @@
       <button class="mc" type="button" onclick="closeWorkItemModal()">×</button>
     </div>
     <div class="work-item-body">
-      <p class="work-item-desc" id="workItemDesc" hidden></p>
-      <h4 class="work-item-runs-title">讨论与决策</h4>
-      <div id="workItemEvents" class="work-item-events">
+      <div class="work-item-detail" id="workItemDetail" hidden></div>
+      <div class="work-item-sec-head" id="workItemTasksHead" hidden>
+        <h4 class="work-item-runs-title">任务</h4>
+        <p class="work-item-sec-hint">基于本工作项发起的 Agent 执行；点击进入会话可查看完整任务描述</p>
+      </div>
+      <div id="workItemTasks" class="work-item-tasks" hidden></div>
+      <div class="work-item-sec-head">
+        <h4 class="work-item-runs-title">讨论与决策</h4>
+        <p class="work-item-sec-hint">备注与闸门确认按时间排列；闸门回复会自动写入</p>
+      </div>
+      <div id="workItemTimeline" class="work-item-timeline">
         <div class="work-item-loading">加载中…</div>
       </div>
       <div class="work-item-note-row">
         <textarea id="workItemNoteInput" rows="2" maxlength="4000"
           placeholder="记下决策、上下文或下一步… Enter 发送，Shift+Enter 换行"
           onkeydown="onWorkItemNoteKeyDown(event)"></textarea>
-        <button type="button" class="dlg-ok" id="workItemNoteBtn" onclick="submitWorkItemNote()">添加</button>
-      </div>
-      <h4 class="work-item-runs-title">执行记录</h4>
-      <div id="workItemRuns" class="work-item-runs">
-        <div class="work-item-loading">加载中…</div>
+        <button type="button" class="log-icon-btn log-icon-send work-item-note-send" id="workItemNoteBtn"
+          title="添加备注" aria-label="添加备注" onclick="submitWorkItemNote()">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4.5 11.2L19.2 4.6a.8.8 0 011.1 1L13.8 19.6a.9.9 0 01-1.6.1l-2.6-5.3-5.3-2.6a.9.9 0 01.2-1.6z" fill="currentColor"/>
+          </svg>
+        </button>
       </div>
     </div>
   </div>

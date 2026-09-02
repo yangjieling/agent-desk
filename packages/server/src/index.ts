@@ -623,6 +623,56 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.get("/api/work-items", async () => db.listWorkItems(200));
 
+  async function loadIssueSnapshot(item: {
+    issueCode?: string;
+    issueProvider?: string;
+    description?: string;
+  }): Promise<{
+    code: string;
+    title: string;
+    status: string;
+    severity: string;
+    description: string;
+    projectDir: string;
+    url?: string;
+    labels?: string[];
+    updatedAt: number;
+  } | null> {
+    const code = String(item.issueCode || "").trim();
+    if (!code) return null;
+    const settings = db.getSettings();
+    const providerId = (item.issueProvider || settings.providers.issue || "manual").trim();
+    try {
+      const provider = getIssueProvider(providerId);
+      const issue = await provider.getIssue(code);
+      if (!issue) return null;
+      // Backfill empty local description once for detail view persistence.
+      if (!String(item.description || "").trim() && String(issue.description || "").trim()) {
+        const current = db.findWorkItemByIssue(providerId, code);
+        if (current && !String(current.description || "").trim()) {
+          db.upsertWorkItem({
+            ...current,
+            description: String(issue.description || "").trim().slice(0, 8000),
+            updatedAt: Date.now(),
+          });
+        }
+      }
+      return {
+        code: issue.code,
+        title: issue.title,
+        status: issue.status,
+        severity: issue.severity,
+        description: issue.description || "",
+        projectDir: issue.projectDir || "",
+        url: issue.url,
+        labels: issue.labels,
+        updatedAt: issue.updatedAt,
+      };
+    } catch {
+      return null;
+    }
+  }
+
   app.get<{ Params: { id: string } }>("/api/work-items/:id", async (req, reply) => {
     const item = db.getWorkItem(req.params.id);
     if (!item) return reply.code(404).send({ error: "not_found" });
@@ -630,7 +680,8 @@ export async function createServer(opts: ServerOptions = {}) {
     const refreshed = db.getWorkItem(item.id) ?? item;
     const tasks = db.listTasksForWorkItem(item.id, 200);
     const events = db.listWorkItemEvents(item.id, 200);
-    return { workItem: refreshed, tasks, events };
+    const issue = await loadIssueSnapshot(refreshed);
+    return { workItem: refreshed, tasks, events, issue };
   });
 
   app.get<{ Params: { id: string } }>("/api/work-items/:id/tasks", async (req, reply) => {
@@ -673,28 +724,48 @@ export async function createServer(opts: ServerOptions = {}) {
       const issueProvider = (req.query.provider || settings.providers.issue || "manual").trim();
       let title = String(req.query.title || "").trim();
       let projectDir = String(req.query.projectDir || "").trim();
-      if (!title || !projectDir) {
-        try {
-          const provider = getIssueProvider(issueProvider);
-          const issue = await provider.getIssue(code);
-          if (issue) {
-            if (!title) title = issue.title;
-            if (!projectDir) projectDir = issue.projectDir;
-          }
-        } catch {
-          /* optional enrichment */
+      let description = "";
+      let issueSnap: Awaited<ReturnType<typeof loadIssueSnapshot>> = null;
+      try {
+        const provider = getIssueProvider(issueProvider);
+        const issue = await provider.getIssue(code);
+        if (issue) {
+          if (!title) title = issue.title;
+          if (!projectDir) projectDir = issue.projectDir;
+          description = String(issue.description || "").trim();
+          issueSnap = {
+            code: issue.code,
+            title: issue.title,
+            status: issue.status,
+            severity: issue.severity,
+            description: issue.description || "",
+            projectDir: issue.projectDir || "",
+            url: issue.url,
+            labels: issue.labels,
+            updatedAt: issue.updatedAt,
+          };
         }
+      } catch {
+        /* optional enrichment */
       }
       const workItem = db.resolveOrCreateWorkItem(
-        { issueCode: code, issueProvider, title, projectDir },
+        { issueCode: code, issueProvider, title, projectDir, description },
         settings,
       );
       if (!workItem) return reply.code(400).send({ error: "work_item_unresolvable" });
+      if (description && !String(workItem.description || "").trim()) {
+        db.upsertWorkItem({
+          ...workItem,
+          description: description.slice(0, 8000),
+          updatedAt: Date.now(),
+        });
+      }
       db.syncWorkItemStatus(workItem.id);
       const refreshed = db.getWorkItem(workItem.id) ?? workItem;
       const tasks = db.listTasksForWorkItem(workItem.id, 200);
       const events = db.listWorkItemEvents(workItem.id, 200);
-      return { workItem: refreshed, tasks, events };
+      const issue = issueSnap || (await loadIssueSnapshot(refreshed));
+      return { workItem: refreshed, tasks, events, issue };
     },
   );
 

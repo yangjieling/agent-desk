@@ -94,6 +94,7 @@ const WORK_ITEM_EVENT_KIND_LABEL = {
 };
 
 let WORK_ITEM_MODAL_ID = "";
+let WORK_ITEM_NOTE_SENDING = false;
 
 const FAILURE_CODE_LABEL = {
   workspace_busy: "工作区占用",
@@ -516,6 +517,33 @@ function renderLogMeta(task) {
     chips.push(`<span class="log-meta-chip">${esc(retryHint)}</span>`);
   }
   el.innerHTML = chips.join("");
+}
+
+/** Creation-time task description (prompt), without later User reply appendices. */
+function taskDescriptionFromPrompt(prompt) {
+  const raw = String(prompt || "");
+  const cut = raw.split(/\n---\nUser reply:\n/)[0] || "";
+  return cut.trim();
+}
+
+function renderLogTaskDetail(task) {
+  const box = document.getElementById("logTaskDetail");
+  const peekEl = document.getElementById("logTaskDetailPeek");
+  const bodyEl = document.getElementById("logTaskDetailBody");
+  if (!box || !bodyEl) return;
+  const desc = taskDescriptionFromPrompt(task && task.prompt);
+  if (!desc) {
+    box.hidden = true;
+    bodyEl.textContent = "";
+    bodyEl.classList.add("is-empty");
+    if (peekEl) peekEl.textContent = "";
+    return;
+  }
+  const peek = desc.replace(/\s+/g, " ");
+  if (peekEl) peekEl.textContent = peek.length > 96 ? `${peek.slice(0, 96)}…` : peek;
+  bodyEl.textContent = desc;
+  bodyEl.classList.remove("is-empty");
+  box.hidden = false;
 }
 
 function renderLogBodyHtml(type, bodyText) {
@@ -1729,12 +1757,14 @@ async function renderLogTask(d, opts = {}) {
       rawTitle.textContent = name ? `${name} · 原始日志` : "原始日志";
     }
     renderLogMeta(d);
+    renderLogTaskDetail(d);
     void ensureReplyModelDropdown(d);
     renderLogGateCard(gate, awaiting);
     applyLogViewMode();
   } else if (sig !== LOG_RENDER_SIG) {
     setLogTitleEl(d.status, d.title || LOG_TITLE);
     renderLogMeta(d);
+    renderLogTaskDetail(d);
     renderLogGateCard(gate, awaiting);
   }
 
@@ -1957,6 +1987,7 @@ function closeLog() {
   updateLogActivityFooter(false, []);
   closeLogStream();
   clearLogWorkflowSteps();
+  renderLogTaskDetail(null);
   setSessionPanelVisible(false);
   applyLogViewMode();
   if (CURRENT_VIEW === "tasks-list") renderTasks();
@@ -4543,87 +4574,249 @@ function executionCountForIssue(code) {
   return tasksForIssue(code).length;
 }
 
+function resetWorkItemModalShell(loadingText) {
+  const mask = document.getElementById("workItemMask");
+  const timeline = document.getElementById("workItemTimeline");
+  const detail = document.getElementById("workItemDetail");
+  const tasks = document.getElementById("workItemTasks");
+  const tasksHead = document.getElementById("workItemTasksHead");
+  const noteInput = document.getElementById("workItemNoteInput");
+  if (mask) mask.classList.add("show");
+  if (timeline) timeline.innerHTML = `<div class="work-item-loading">${loadingText || "加载中…"}</div>`;
+  if (detail) {
+    detail.hidden = true;
+    detail.innerHTML = "";
+  }
+  if (tasks) {
+    tasks.hidden = true;
+    tasks.innerHTML = "";
+  }
+  if (tasksHead) tasksHead.hidden = true;
+  if (noteInput) noteInput.value = "";
+}
+
 async function openWorkItemByIssue(code) {
   const c = String(code || "").trim();
   if (!c) return;
-  const mask = document.getElementById("workItemMask");
-  const runs = document.getElementById("workItemRuns");
-  const eventsEl = document.getElementById("workItemEvents");
-  if (mask) mask.classList.add("show");
-  if (runs) runs.innerHTML = '<div class="work-item-loading">加载中…</div>';
-  if (eventsEl) eventsEl.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  resetWorkItemModalShell();
   document.getElementById("workItemTitle").textContent = "工作项";
   document.getElementById("workItemMeta").innerHTML = "";
-  const descEl = document.getElementById("workItemDesc");
-  if (descEl) {
-    descEl.hidden = true;
-    descEl.textContent = "";
-  }
-  const noteInput = document.getElementById("workItemNoteInput");
-  if (noteInput) noteInput.value = "";
   WORK_ITEM_MODAL_ID = "";
   try {
     const data = await api(`/api/issues/${encodeURIComponent(c)}/work-item`);
     renderWorkItemModal(data);
   } catch (e) {
-    if (runs) runs.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
-    if (eventsEl) eventsEl.innerHTML = "";
+    const timeline = document.getElementById("workItemTimeline");
+    if (timeline) {
+      timeline.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
+    }
   }
 }
 
 async function openWorkItemById(id) {
   const wid = String(id || "").trim();
   if (!wid) return;
-  const mask = document.getElementById("workItemMask");
-  const runs = document.getElementById("workItemRuns");
-  const eventsEl = document.getElementById("workItemEvents");
-  if (mask) mask.classList.add("show");
-  if (runs) runs.innerHTML = '<div class="work-item-loading">加载中…</div>';
-  if (eventsEl) eventsEl.innerHTML = '<div class="work-item-loading">加载中…</div>';
+  resetWorkItemModalShell();
   WORK_ITEM_MODAL_ID = wid;
   try {
     const data = await api(`/api/work-items/${encodeURIComponent(wid)}`);
     renderWorkItemModal(data);
   } catch (e) {
-    if (runs) runs.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
-    if (eventsEl) eventsEl.innerHTML = "";
+    const timeline = document.getElementById("workItemTimeline");
+    if (timeline) {
+      timeline.innerHTML = `<div class="work-item-empty">${esc(e.message || "加载失败")}</div>`;
+    }
   }
 }
 
-function renderWorkItemEvents(events) {
-  const box = document.getElementById("workItemEvents");
+function clipWorkItemText(text, max) {
+  const s = String(text || "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  const n = Math.max(40, Number(max) || 180);
+  return s.length > n ? `${s.slice(0, n)}…` : s;
+}
+
+function openWorkItemTask(taskId) {
+  if (!taskId) return;
+  closeWorkItemModal();
+  openTaskView(taskId);
+}
+
+function renderWorkItemDetail(item, issue) {
+  const box = document.getElementById("workItemDetail");
   if (!box) return;
-  const list = Array.isArray(events) ? events : [];
+  const code = String(item.issueCode || (issue && issue.code) || "").trim();
+  const url = (issue && issue.url) || "";
+  const rows = [];
+  if (issue && issue.status) rows.push(["缺陷状态", esc(issue.status)]);
+  if (issue && issue.severity) rows.push(["严重程度", esc(issue.severity)]);
+  const proj = shortPath(item.projectDir || (issue && issue.projectDir) || "");
+  if (proj && proj !== "-") {
+    rows.push(["工作区", `<span title="${esc(item.projectDir || "")}">${esc(proj)}</span>`]);
+  }
+  if (issue && Array.isArray(issue.labels) && issue.labels.length) {
+    rows.push(["标签", esc(issue.labels.join(", "))]);
+  }
+  const bodyRaw = String((issue && issue.description) || item.description || "").trim();
+  const bodyEmpty = !bodyRaw;
+  const body = bodyRaw || "暂无 Issue 描述。";
+  const summaryBits = [];
+  summaryBits.push(`<span class="work-item-issue-label">来源 Issue</span>`);
+  if (code) {
+    summaryBits.push(
+      url
+        ? `<a class="work-item-issue-link" href="${esc(url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(code)}</a>`
+        : `<span class="work-item-issue-link">${esc(code)}</span>`,
+    );
+  }
+  if (issue && issue.status) {
+    summaryBits.push(`<span class="work-item-issue-meta">· ${esc(issue.status)}</span>`);
+  } else if (issue && issue.severity) {
+    summaryBits.push(`<span class="work-item-issue-meta">· ${esc(issue.severity)}</span>`);
+  }
+  box.innerHTML =
+    `<details class="work-item-issue-source">` +
+    `<summary>${summaryBits.join(" ")}</summary>` +
+    `<div class="work-item-issue-panel">` +
+    (rows.length
+      ? `<div class="work-item-detail-grid">${rows
+          .map(([k, v]) => `<span class="k">${k}</span><span class="v">${v}</span>`)
+          .join("")}</div>`
+      : "") +
+    `<div class="work-item-detail-body${bodyEmpty ? " is-empty" : ""}">${esc(body)}</div>` +
+    `</div></details>`;
+  box.hidden = false;
+}
+
+function renderWorkItemTasks(tasks) {
+  const box = document.getElementById("workItemTasks");
+  const head = document.getElementById("workItemTasksHead");
+  if (!box) return;
+  const list = (tasks || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.lastActivityAt || b.updatedAt || b.createdAt || 0) -
+        Number(a.lastActivityAt || a.updatedAt || a.createdAt || 0),
+    );
   if (!list.length) {
-    box.innerHTML =
-      '<div class="work-item-empty">暂无讨论。闸门确认会自动写入；也可手动添加备注。</div>';
+    box.hidden = true;
+    box.innerHTML = "";
+    if (head) head.hidden = true;
     return;
   }
+  if (head) head.hidden = false;
+  box.hidden = false;
   box.innerHTML = list
-    .map((ev) => {
-      const kind = String(ev.kind || "note");
-      const kindCls =
-        kind === "gate_reply" ? "is-gate" : kind === "run_linked" || kind === "system" ? "is-system" : "";
-      const kindLabel = WORK_ITEM_EVENT_KIND_LABEL[kind] || kind;
-      const when = fmtTime(ev.createdAt);
-      const taskBtn = ev.taskId
-        ? `<button type="button" class="work-item-event-task" data-task="${esc(ev.taskId)}">查看任务</button>`
-        : "";
-      return `<div class="work-item-event ${kindCls}">
-        <div class="work-item-event-head">
-          <span class="work-item-event-kind">${esc(kindLabel)}</span>
-          <span>${esc(when)}</span>
+    .map((t) => {
+      const st = String(t.status || "");
+      const chips = [];
+      const skill = String(tField(t, "skill", "skill") || "").trim();
+      if (skill) chips.push(`<span class="log-meta-chip">技能 ${esc(skill)}</span>`);
+      const wf = String(tField(t, "workflowName", "workflow_name") || "").trim();
+      const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
+      const total = Number(tField(t, "workflowStepTotal", "workflow_step_total") || 0);
+      if (wf) {
+        chips.push(
+          `<span class="log-meta-chip">${esc(wf)}${total > 0 ? ` · ${step}/${total}` : ""}</span>`,
+        );
+      }
+      const agentChip = typeof agentChipLabelForTask === "function" ? agentChipLabelForTask(t) : "";
+      if (agentChip) chips.push(`<span class="log-meta-chip">${esc(agentChip)}</span>`);
+      const model = String(tField(t, "model", "model") || "").trim();
+      if (model) chips.push(`<span class="log-meta-chip">${esc(model)}</span>`);
+      const retryCount = Number(tField(t, "retryCount", "retry_count") || 0);
+      if (retryCount > 0) chips.push(`<span class="log-meta-chip">重试 ${retryCount}</span>`);
+      const failureCode = String(tField(t, "failureCode", "failure_code") || "").trim();
+      if (failureCode) {
+        chips.push(
+          `<span class="log-meta-chip log-meta-fail" title="${esc(
+            tField(t, "failureMessage", "failure_message"),
+          )}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`,
+        );
+      }
+      const when = fmtTime(t.lastActivityAt || t.updatedAt || t.createdAt);
+      return `<div class="work-item-task" data-task="${esc(t.id)}" role="button" tabindex="0" title="打开会话查看任务描述">
+        <div class="work-item-task-main">
+          <div class="work-item-task-title">${esc(t.title || t.id)}</div>
+          ${chips.length ? `<div class="work-item-task-chips">${chips.join("")}</div>` : ""}
+          <div class="work-item-task-when">${esc(when)}</div>
         </div>
-        <div class="work-item-event-body">${esc(ev.body || "")}</div>
-        ${taskBtn}
+        <span class="work-item-task-status log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st)}</span>
       </div>`;
     })
     .join("");
+
+  box.querySelectorAll(".work-item-task").forEach((row) => {
+    const go = () => openWorkItemTask(row.dataset.task);
+    row.addEventListener("click", go);
+    row.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        go();
+      }
+    });
+  });
+}
+
+function buildWorkItemDiscussionItems(tasks, events) {
+  const runIds = new Set((tasks || []).map((t) => t.id));
+  return (events || [])
+    .filter((ev) => {
+      const kind = String(ev.kind || "");
+      if (kind === "run_linked" && runIds.has(ev.taskId)) return false;
+      return true;
+    })
+    .slice()
+    .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
+}
+
+function renderWorkItemTimeline(tasks, events) {
+  const box = document.getElementById("workItemTimeline");
+  if (!box) return;
+  const items = buildWorkItemDiscussionItems(tasks, events);
+  if (!items.length) {
+    box.innerHTML =
+      `<div class="work-item-empty">` +
+      `<strong>还没有讨论记录</strong>` +
+      `<p class="work-item-empty-sub">闸门确认会自动写入；也可以在下方记下决策或下一步。</p>` +
+      `</div>`;
+    return;
+  }
+  box.innerHTML = items
+    .map((ev) => {
+      const kind = String(ev.kind || "note");
+      const kindCls =
+        kind === "gate_reply"
+          ? "is-gate"
+          : kind === "run_linked"
+            ? "is-run"
+            : kind === "system"
+              ? "is-system"
+              : "is-note";
+      const kindLabel = WORK_ITEM_EVENT_KIND_LABEL[kind] || kind;
+      const when = fmtTime(ev.createdAt);
+      const taskBtn = ev.taskId
+        ? `<button type="button" class="work-item-event-task" data-task="${esc(ev.taskId)}">查看相关任务</button>`
+        : "";
+      return `<div class="work-item-event ${kindCls}">
+        <span class="work-item-event-rail" aria-hidden="true"></span>
+        <div class="work-item-event-main">
+          <div class="work-item-event-head">
+            <span class="work-item-event-kind">${esc(kindLabel)}</span>
+            <span>${esc(when)}</span>
+          </div>
+          <div class="work-item-event-body">${esc(ev.body || "")}</div>
+          ${taskBtn}
+        </div>
+      </div>`;
+    })
+    .join("");
+
   box.querySelectorAll(".work-item-event-task").forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
-      closeWorkItemModal();
-      openTaskView(btn.dataset.task);
+      openWorkItemTask(btn.dataset.task);
     });
   });
   box.scrollTop = box.scrollHeight;
@@ -4633,74 +4826,37 @@ function renderWorkItemModal(data) {
   const item = data?.workItem;
   const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
   const events = Array.isArray(data?.events) ? data.events : [];
+  const issue = data?.issue || null;
   if (!item) return;
   WORK_ITEM_MODAL_ID = item.id || "";
   const titleEl = document.getElementById("workItemTitle");
   const metaEl = document.getElementById("workItemMeta");
-  const descEl = document.getElementById("workItemDesc");
-  const runsEl = document.getElementById("workItemRuns");
   if (titleEl) titleEl.textContent = item.title || item.issueCode || "工作项";
   if (metaEl) {
     const chips = [];
     const st = item.status || "open";
     chips.push(`<span class="log-meta-chip">${esc(WORK_ITEM_STATUS_LABEL[st] || st)}</span>`);
     if (item.issueCode) chips.push(`<span class="log-meta-chip bug-code">${esc(item.issueCode)}</span>`);
-    const proj = shortPath(item.projectDir);
-    if (proj && proj !== "-") chips.push(`<span class="log-meta-chip">${esc(proj)}</span>`);
-    chips.push(`<span class="log-meta-chip">${tasks.length} 次执行</span>`);
-    if (events.length) chips.push(`<span class="log-meta-chip">${events.length} 条讨论</span>`);
+    const proj = shortPath(item.projectDir || "");
+    if (proj && proj !== "-") {
+      chips.push(`<span class="log-meta-chip" title="${esc(item.projectDir || "")}">${esc(proj)}</span>`);
+    }
+    chips.push(`<span class="log-meta-chip">${tasks.length} 个任务</span>`);
+    const discussionCount = events.filter((e) => e.kind !== "run_linked").length;
+    if (discussionCount) chips.push(`<span class="log-meta-chip">${discussionCount} 条讨论</span>`);
     metaEl.innerHTML = chips.join("");
   }
-  if (descEl) {
-    const desc = String(item.description || "").trim();
-    if (desc) {
-      descEl.hidden = false;
-      descEl.textContent = desc;
-    } else {
-      descEl.hidden = true;
-      descEl.textContent = "";
-    }
-  }
-  renderWorkItemEvents(events);
-  if (!runsEl) return;
-  if (!tasks.length) {
-    runsEl.innerHTML = '<div class="work-item-empty">尚无执行记录。可从缺陷列表发起 AI 修复。</div>';
-    return;
-  }
-  runsEl.innerHTML = tasks
-    .map((t) => {
-      const st = String(t.status || "");
-      const when = fmtTime(t.lastActivityAt || t.updatedAt);
-      const wf = (t.workflowName || t.workflow_name || "").trim();
-      const meta = [STATUS_LABEL[st] || st, when, wf].filter(Boolean).join(" · ");
-      return `<div class="work-item-run" data-task="${esc(t.id)}" role="button" tabindex="0">
-        <div class="work-item-run-main">
-          <div class="work-item-run-title">${esc(t.title || t.id)}</div>
-          <div class="work-item-run-meta">${esc(meta)}</div>
-        </div>
-        <span class="work-item-run-status log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st)}</span>
-      </div>`;
-    })
-    .join("");
-  runsEl.querySelectorAll(".work-item-run").forEach((row) => {
-    const open = () => {
-      closeWorkItemModal();
-      openTaskView(row.dataset.task);
-    };
-    row.addEventListener("click", open);
-    row.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        open();
-      }
-    });
-  });
+  renderWorkItemDetail(item, issue);
+  renderWorkItemTasks(tasks);
+  renderWorkItemTimeline(tasks, events);
 }
 
 function closeWorkItemModal() {
   const mask = document.getElementById("workItemMask");
   if (mask) mask.classList.remove("show");
   WORK_ITEM_MODAL_ID = "";
+  WORK_ITEM_NOTE_SENDING = false;
+  setWorkItemNoteSending(false);
 }
 
 function onWorkItemMaskClick(e) {
@@ -4710,19 +4866,36 @@ function onWorkItemMaskClick(e) {
 function onWorkItemNoteKeyDown(e) {
   if (e.key === "Enter" && !e.shiftKey) {
     if (typeof isImeComposingKeyEvent === "function" && isImeComposingKeyEvent(e)) return;
+    if (WORK_ITEM_NOTE_SENDING) return;
     e.preventDefault();
     void submitWorkItemNote();
+  }
+}
+
+function setWorkItemNoteSending(busy) {
+  const input = document.getElementById("workItemNoteInput");
+  const btn = document.getElementById("workItemNoteBtn");
+  if (input) {
+    input.disabled = !!busy;
+    input.placeholder = busy
+      ? "正在添加备注…"
+      : "记下决策、上下文或下一步… Enter 发送，Shift+Enter 换行";
+  }
+  if (btn) {
+    btn.disabled = !!busy;
+    btn.setAttribute("aria-busy", busy ? "true" : "false");
+    btn.title = busy ? "添加中…" : "添加备注";
   }
 }
 
 async function submitWorkItemNote() {
   const id = WORK_ITEM_MODAL_ID;
   const input = document.getElementById("workItemNoteInput");
-  if (!id || !input) return;
+  if (!id || !input || WORK_ITEM_NOTE_SENDING) return;
   const body = (input.value || "").trim();
   if (!body) return toast("请填写备注内容");
-  const btn = document.getElementById("workItemNoteBtn");
-  if (btn) btn.disabled = true;
+  WORK_ITEM_NOTE_SENDING = true;
+  setWorkItemNoteSending(true);
   try {
     await api(`/api/work-items/${encodeURIComponent(id)}/events`, {
       method: "POST",
@@ -4735,7 +4908,8 @@ async function submitWorkItemNote() {
   } catch (e) {
     toast(`添加失败: ${e.message || e}`);
   } finally {
-    if (btn) btn.disabled = false;
+    WORK_ITEM_NOTE_SENDING = false;
+    setWorkItemNoteSending(false);
   }
 }
 
