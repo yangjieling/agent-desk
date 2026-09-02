@@ -960,6 +960,11 @@ function openInboxTask(taskId) {
   openTaskView(taskId, { filter: "awaiting" });
 }
 
+/** Open a finished task from Inbox acceptance cards (not gate awaiting). */
+function openInboxResultTask(taskId) {
+  openTaskView(taskId, { filter: "done" });
+}
+
 function openInboxTaskWithReply(taskId, reply) {
   if (!taskId) return;
   DEEP_LINK_REPLY = String(reply || "").trim();
@@ -4767,7 +4772,7 @@ function renderInboxAcceptanceItem(item) {
   const title = esc(item.title || item.workItemId || "-");
   const sub = esc(inboxItemSub(item));
   const openBtn = tid
-    ? `<button type="button" class="btn-outline" onclick="openInboxTask('${tid}')">查看结果</button>`
+    ? `<button type="button" class="btn-outline" onclick="openInboxResultTask('${tid}')">查看结果</button>`
     : wid
       ? `<button type="button" class="btn-outline" onclick="openWorkItemById('${wid}')">工作项</button>`
       : "";
