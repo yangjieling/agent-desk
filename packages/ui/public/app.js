@@ -106,6 +106,9 @@ const WORK_ITEM_EVENT_KIND_LABEL = {
 
 let WORK_ITEM_MODAL_ID = "";
 let WORK_ITEM_NOTE_SENDING = false;
+/** Cached tasks for work-item modal re-render (past-runs toggle). */
+let WORK_ITEM_TASKS_CACHE = [];
+let WORK_ITEM_SHOW_PAST = false;
 
 const FAILURE_CODE_LABEL = {
   workspace_busy: "工作区占用",
@@ -5374,6 +5377,33 @@ function executionCountForIssue(code) {
   return tasksForIssue(code).length;
 }
 
+/** Compact live chip for defect rows (running / awaiting only). */
+function bugLiveRunChip(related) {
+  if (!related) return "";
+  const st = String(related.status || "");
+  if (st === "running") {
+    return `<span class="bug-live is-running" title="关联任务运行中">运行中</span>`;
+  }
+  if (st === "awaiting") {
+    return `<span class="bug-live is-awaiting" title="关联任务待确认">待确认</span>`;
+  }
+  return "";
+}
+
+function isActiveWorkItemTask(t) {
+  return ["created", "preparing", "queued", "running", "awaiting"].includes(String(t.status || ""));
+}
+
+function sortWorkItemTasksByActivity(tasks) {
+  return (tasks || [])
+    .slice()
+    .sort(
+      (a, b) =>
+        Number(b.lastActivityAt || b.updatedAt || b.createdAt || 0) -
+        Number(a.lastActivityAt || a.updatedAt || a.createdAt || 0),
+    );
+}
+
 function resetWorkItemModalShell(loadingText) {
   const mask = document.getElementById("workItemMask");
   const timeline = document.getElementById("workItemTimeline");
@@ -5398,6 +5428,8 @@ function resetWorkItemModalShell(loadingText) {
     reviewBar.innerHTML = "";
   }
   if (noteInput) noteInput.value = "";
+  WORK_ITEM_TASKS_CACHE = [];
+  WORK_ITEM_SHOW_PAST = false;
 }
 
 async function openWorkItemByIssue(code) {
@@ -5493,66 +5525,56 @@ function renderWorkItemDetail(item, issue) {
   box.hidden = false;
 }
 
-function renderWorkItemTasks(tasks) {
-  const box = document.getElementById("workItemTasks");
-  const head = document.getElementById("workItemTasksHead");
-  if (!box) return;
-  const list = (tasks || [])
-    .slice()
-    .sort(
-      (a, b) =>
-        Number(b.lastActivityAt || b.updatedAt || b.createdAt || 0) -
-        Number(a.lastActivityAt || a.updatedAt || a.createdAt || 0),
+function renderWorkItemTaskRow(t) {
+  const st = String(t.status || "");
+  const chips = [];
+  const skill = String(tField(t, "skill", "skill") || "").trim();
+  if (skill) chips.push(`<span class="log-meta-chip">技能 ${esc(skill)}</span>`);
+  const wf = String(tField(t, "workflowName", "workflow_name") || "").trim();
+  const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
+  const total = Number(tField(t, "workflowStepTotal", "workflow_step_total") || 0);
+  if (wf) {
+    chips.push(
+      `<span class="log-meta-chip">${esc(wf)}${total > 0 ? ` · ${step}/${total}` : ""}</span>`,
     );
-  if (!list.length) {
-    box.hidden = true;
-    box.innerHTML = "";
-    if (head) head.hidden = true;
-    return;
   }
-  if (head) head.hidden = false;
-  box.hidden = false;
-  box.innerHTML = list
-    .map((t) => {
-      const st = String(t.status || "");
-      const chips = [];
-      const skill = String(tField(t, "skill", "skill") || "").trim();
-      if (skill) chips.push(`<span class="log-meta-chip">技能 ${esc(skill)}</span>`);
-      const wf = String(tField(t, "workflowName", "workflow_name") || "").trim();
-      const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
-      const total = Number(tField(t, "workflowStepTotal", "workflow_step_total") || 0);
-      if (wf) {
-        chips.push(
-          `<span class="log-meta-chip">${esc(wf)}${total > 0 ? ` · ${step}/${total}` : ""}</span>`,
-        );
-      }
-      const agentChip = typeof agentChipLabelForTask === "function" ? agentChipLabelForTask(t) : "";
-      if (agentChip) chips.push(`<span class="log-meta-chip">${esc(agentChip)}</span>`);
-      const model = String(tField(t, "model", "model") || "").trim();
-      if (model) chips.push(`<span class="log-meta-chip">${esc(model)}</span>`);
-      const retryCount = Number(tField(t, "retryCount", "retry_count") || 0);
-      if (retryCount > 0) chips.push(`<span class="log-meta-chip">重试 ${retryCount}</span>`);
-      const failureCode = String(tField(t, "failureCode", "failure_code") || "").trim();
-      if (failureCode) {
-        chips.push(
-          `<span class="log-meta-chip log-meta-fail" title="${esc(
-            tField(t, "failureMessage", "failure_message"),
-          )}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`,
-        );
-      }
-      const when = fmtTime(t.lastActivityAt || t.updatedAt || t.createdAt);
-      return `<div class="work-item-task" data-task="${esc(t.id)}" role="button" tabindex="0" title="打开会话查看任务描述">
-        <div class="work-item-task-main">
-          <div class="work-item-task-title">${esc(t.title || t.id)}</div>
-          ${chips.length ? `<div class="work-item-task-chips">${chips.join("")}</div>` : ""}
-          <div class="work-item-task-when">${esc(when)}</div>
-        </div>
-        <span class="work-item-task-status log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st)}</span>
-      </div>`;
-    })
-    .join("");
+  const agentChip = typeof agentChipLabelForTask === "function" ? agentChipLabelForTask(t) : "";
+  if (agentChip) chips.push(`<span class="log-meta-chip">${esc(agentChip)}</span>`);
+  const model = String(tField(t, "model", "model") || "").trim();
+  if (model) chips.push(`<span class="log-meta-chip">${esc(model)}</span>`);
+  const retryCount = Number(tField(t, "retryCount", "retry_count") || 0);
+  if (retryCount > 0) chips.push(`<span class="log-meta-chip">重试 ${retryCount}</span>`);
+  const failureCode = String(tField(t, "failureCode", "failure_code") || "").trim();
+  if (failureCode) {
+    chips.push(
+      `<span class="log-meta-chip log-meta-fail" title="${esc(
+        tField(t, "failureMessage", "failure_message"),
+      )}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`,
+    );
+  }
+  const when = fmtTime(t.lastActivityAt || t.updatedAt || t.createdAt);
+  const live =
+    st === "running"
+      ? '<span class="bug-live is-running work-item-task-live">运行中</span>'
+      : st === "awaiting"
+        ? '<span class="bug-live is-awaiting work-item-task-live">待确认</span>'
+        : "";
+  return `<div class="work-item-task" data-task="${esc(t.id)}" role="button" tabindex="0" title="打开会话查看任务描述">
+    <div class="work-item-task-main">
+      <div class="work-item-task-title-row">
+        <div class="work-item-task-title">${esc(t.title || t.id)}</div>
+        ${live}
+      </div>
+      ${chips.length ? `<div class="work-item-task-chips">${chips.join("")}</div>` : ""}
+      <div class="work-item-task-when">${esc(when)}</div>
+    </div>
+    <span class="work-item-task-status log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st)}</span>
+  </div>`;
+}
 
-  box.querySelectorAll(".work-item-task").forEach((row) => {
+function bindWorkItemTaskRows(root) {
+  if (!root) return;
+  root.querySelectorAll(".work-item-task").forEach((row) => {
     const go = () => openWorkItemTask(row.dataset.task);
     row.addEventListener("click", go);
     row.addEventListener("keydown", (e) => {
@@ -5562,6 +5584,53 @@ function renderWorkItemTasks(tasks) {
       }
     });
   });
+}
+
+function renderWorkItemTasks(tasks) {
+  const box = document.getElementById("workItemTasks");
+  const head = document.getElementById("workItemTasksHead");
+  if (!box) return;
+  if (tasks) WORK_ITEM_TASKS_CACHE = Array.isArray(tasks) ? tasks : [];
+  const list = sortWorkItemTasksByActivity(WORK_ITEM_TASKS_CACHE);
+  if (!list.length) {
+    box.hidden = true;
+    box.innerHTML = "";
+    if (head) head.hidden = true;
+    return;
+  }
+  if (head) head.hidden = false;
+  box.hidden = false;
+
+  const active = list.filter(isActiveWorkItemTask);
+  const past = list.filter((t) => !isActiveWorkItemTask(t));
+  const parts = [];
+  if (active.length) {
+    parts.push(`<div class="work-item-task-group">${active.map(renderWorkItemTaskRow).join("")}</div>`);
+  } else if (past.length && !WORK_ITEM_SHOW_PAST) {
+    parts.push('<div class="work-item-task-empty">暂无进行中的执行</div>');
+  }
+  if (past.length) {
+    const label = WORK_ITEM_SHOW_PAST
+      ? `收起历史执行 (${past.length})`
+      : `显示历史执行 (${past.length})`;
+    parts.push(
+      `<button type="button" class="work-item-past-toggle" id="workItemPastToggle">${esc(label)}</button>`,
+    );
+    if (WORK_ITEM_SHOW_PAST) {
+      parts.push(`<div class="work-item-task-group is-past">${past.map(renderWorkItemTaskRow).join("")}</div>`);
+    }
+  }
+  box.innerHTML = parts.join("");
+  bindWorkItemTaskRows(box);
+  const toggle = document.getElementById("workItemPastToggle");
+  if (toggle) {
+    toggle.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      WORK_ITEM_SHOW_PAST = !WORK_ITEM_SHOW_PAST;
+      renderWorkItemTasks();
+    });
+  }
 }
 
 function buildWorkItemDiscussionItems(tasks, events) {
@@ -5698,6 +5767,8 @@ function closeWorkItemModal() {
   if (mask) mask.classList.remove("show");
   WORK_ITEM_MODAL_ID = "";
   WORK_ITEM_NOTE_SENDING = false;
+  WORK_ITEM_TASKS_CACHE = [];
+  WORK_ITEM_SHOW_PAST = false;
   setWorkItemNoteSending(false);
 }
 
@@ -5841,6 +5912,7 @@ function renderBugs() {
       const execCount = executionCountForIssue(b.code);
       const related = relatedTaskForIssue(b.code);
       const busy = related && ["running", "awaiting", "created", "preparing", "queued"].includes(String(related.status || ""));
+      const liveChip = bugLiveRunChip(related);
       let ops = `<span class="bug-ops">`;
       if (busy) {
         ops +=
@@ -5862,7 +5934,7 @@ function renderBugs() {
         `<td>${link}</td>` +
         `<td>${statusBadge(b.status)}</td>` +
         `<td>${severityBadge(b.severity)}</td>` +
-        `<td><span class="bug-title" title="${title}">${title}</span></td>` +
+        `<td><div class="bug-title-row"><span class="bug-title" title="${title}">${title}</span>${liveChip}</div></td>` +
         `<td>${relatedCell}</td>` +
         `<td>${when}</td>` +
         `<td>${ops}</td>` +

@@ -157,7 +157,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
-| 2026-09-03 | 工作面 UI：**W-1·W-2·W-3** 已落地；见 [work-surfaces-ui.md](./work-surfaces-ui.md) |
+| 2026-09-03 | 工作面 UI：**W-1–W-4** 已落地；见 [work-surfaces-ui.md](./work-surfaces-ui.md) |
 | 2026-09-03 | #19 GitLab Issues MVP：`@agent-desk/provider-issue-gitlab`；设置页 / CLI / `/api/issues`；无自动 clone |
 | 2026-09-03 | 任务会话 UI：P0–P3 必做项已落地（含转录密度）；见 [task-session-ui.md](./task-session-ui.md) |
 | 2026-09-02 | #18 OpenAPI MVP：`schemas/openapi.yaml` 覆盖本机 Fastify API；`GET /openapi.yaml`、`/api/openapi.yaml`、`/api/docs`（Swagger UI） |
