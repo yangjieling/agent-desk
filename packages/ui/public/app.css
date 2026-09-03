@@ -419,7 +419,27 @@
   .log-head-main { min-width: 0; flex: 1; }
   .modal-head .mt { font-weight: 600; font-size: 15px; display: block;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .log-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .log-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+  .log-meta-primary { display: flex; flex-wrap: wrap; gap: 6px; }
+  .log-meta-more {
+    position: relative; font-size: 11px; color: #5f6368;
+  }
+  .log-meta-more > summary {
+    list-style: none; cursor: pointer; user-select: none;
+    padding: 2px 8px; border-radius: 999px; background: #f3f4f6; color: #5f6368;
+    border: 1px solid transparent;
+  }
+  .log-meta-more > summary::-webkit-details-marker { display: none; }
+  .log-meta-more > summary::after { content: " ▾"; opacity: .7; }
+  .log-meta-more[open] > summary {
+    background: #e7f0ff; color: #1a73e8; border-color: #c9daf8;
+  }
+  .log-meta-more-chips {
+    position: absolute; z-index: 5; left: 0; top: calc(100% + 6px);
+    display: flex; flex-wrap: wrap; gap: 6px; min-width: 220px; max-width: min(420px, 70vw);
+    padding: 10px; border-radius: 10px; background: #fff;
+    border: 1px solid #e5e7eb; box-shadow: 0 8px 24px rgba(15,17,21,.12);
+  }
   .log-live-badge {
     display: inline-flex; align-items: center; gap: 6px; margin-top: 6px;
     font-size: 11px; color: #2f6feb; line-height: 1;
@@ -467,7 +487,10 @@
   .log-wf-step.running, .log-wf-step.awaiting { background: #e7f0ff; color: #2f6feb; border-color: #c9daf8; }
   .log-wf-step.failed, .log-wf-step.stopped { background: #fdecea; color: #c0392b; }
   .log-wf-step.pending { background: #f5f6f8; color: #9aa0a6; }
-  .log-wf-step.current { font-weight: 600; }
+  .log-wf-step.current {
+    font-weight: 600;
+    box-shadow: 0 0 0 2px rgba(47, 111, 235, 0.18);
+  }
   .log-task-detail {
     flex-shrink: 0; margin: 0; border-bottom: 1px solid #eef0f3; background: #fafbfc;
   }
@@ -505,12 +528,19 @@
   .log-scroll { flex: 1; min-height: 0; overflow: auto; background: #f7f8fa; }
   .log-timeline { padding: 14px 18px 18px; display: flex; flex-direction: column; gap: 10px; }
   .log-timeline[hidden] { display: none !important; }
-  .log-thinking { padding: 0 18px 14px; }
+  .log-session-footer {
+    flex-shrink: 0; padding: 8px 18px 10px; border-top: 1px solid #e8eaed; background: #fff;
+  }
+  .log-session-footer[hidden] { display: none !important; }
+  .log-thinking { padding: 0; }
   .log-thinking[hidden] { display: none !important; }
   .log-thinking-inner {
     display: flex; align-items: flex-start; gap: 12px; padding: 10px 14px;
     border-radius: 12px; background: #fff; border: 1px solid #d7e3fc;
     box-shadow: 0 1px 3px rgba(47,111,235,.08);
+  }
+  .log-thinking.is-error .log-thinking-inner {
+    border-color: #f3c6cb; box-shadow: 0 1px 3px rgba(192,57,43,.08);
   }
   .log-thinking-copy { min-width: 0; flex: 1; }
   .log-thinking-title { font-size: 13px; font-weight: 600; color: #202124; line-height: 1.45; }
@@ -518,6 +548,12 @@
     margin-top: 4px; font-size: 12px; color: #5f6368; line-height: 1.4;
     display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
   }
+  .log-thinking-actions { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .log-thinking-action {
+    border: 1px solid #c9daf8; background: #e7f0ff; color: #1a73e8;
+    border-radius: 8px; padding: 4px 10px; font-size: 12px; cursor: pointer;
+  }
+  .log-thinking-action:hover { background: #dce9ff; }
   .log-thinking-live {
     display: inline-flex; align-items: center; gap: 4px; color: #2f6feb; font-weight: 600;
   }
@@ -526,8 +562,27 @@
     animation: log-live-pulse 1.2s ease-in-out infinite;
   }
   .log-thinking-live.is-reconnect { color: #b06000; }
-  .log-thinking-live.is-reconnect::before { background: #b06000; }
+  .log-thinking-live.is-reconnect::before { background: #b06000; animation: none; }
+  .log-thinking-live.is-down { color: #c0392b; }
+  .log-thinking-live.is-down::before { background: #c0392b; animation: none; }
   .log-thinking-stale { color: #b06000; }
+  .log-stream-pulse {
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+    border-radius: 10px; background: #fff; border: 1px dashed #d0d7de; color: #5f6368;
+    font-size: 12.5px;
+  }
+  .log-stream-pulse-bar {
+    flex: 1; height: 6px; border-radius: 999px; overflow: hidden; background: #eef1f5;
+  }
+  .log-stream-pulse-bar > span {
+    display: block; width: 40%; height: 100%; border-radius: inherit; background: #a8c4f5;
+    animation: log-pulse-slide 1.2s ease-in-out infinite;
+  }
+  @keyframes log-pulse-slide {
+    0% { transform: translateX(-20%); opacity: .55; }
+    50% { transform: translateX(140%); opacity: 1; }
+    100% { transform: translateX(220%); opacity: .55; }
+  }
   .log-thinking-dots { display: inline-flex; align-items: center; gap: 4px; margin-top: 4px; flex-shrink: 0; }
   .log-thinking-dots span {
     width: 6px; height: 6px; border-radius: 50%; background: #2f6feb;

@@ -251,8 +251,11 @@ export {
   ensureIssueWorkspace,
   isManagedAutoWorkspace,
   maybeReleaseAutoWorkspace,
+  parseAutoWorkspaceOwnerRepo,
   parseGitHubRepoFromEnv,
+  restoreManagedAutoWorkspaceIfMissing,
   type IssueWorkspaceResult,
+  type RestoreAutoWorkspaceResult,
   type WorkspaceSource,
 } from "./workspace.js";
 

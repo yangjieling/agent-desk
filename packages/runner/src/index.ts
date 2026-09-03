@@ -29,6 +29,7 @@ import { getAgentBackend } from "@agent-desk/provider-agent";
 import {
   ensureIssueWorkspace,
   maybeReleaseAutoWorkspace,
+  restoreManagedAutoWorkspaceIfMissing,
 } from "@agent-desk/provider-issue-github";
 import { getNotifyProvider } from "@agent-desk/provider-notify";
 import { mountSkill } from "@agent-desk/skills";
@@ -338,12 +339,52 @@ async function ensureTaskWorkspace(
   opts: RunnerOptions,
   task: Task,
 ): Promise<Task> {
-  if (!opts.dataDir || !task.issueCode?.trim()) return task;
-  if (resolveSettings(opts).providers.issue !== "github") return task;
-  const ws = await ensureIssueWorkspace(opts.dataDir);
-  if (task.projectDir === ws.projectDir) return task;
-  const updated = opts.db.updateTask(task.id, { projectDir: ws.projectDir });
-  return updated ?? task;
+  if (!opts.dataDir) return task;
+
+  let current = task;
+  const projectDir = (current.projectDir || "").trim();
+  const resolved = projectDir ? path.resolve(projectDir) : "";
+
+  // Auto-clone dirs may have been released after a prior done/failed/stopped run.
+  // On start/retry, restore missing managed paths under workspaces/auto/<owner>/<repo>.
+  if (resolved && !fs.existsSync(resolved)) {
+    try {
+      const restored = await restoreManagedAutoWorkspaceIfMissing(opts.dataDir, resolved);
+      if (restored) {
+        const stamp = `\n\n${formatLogTimestamp()} [workspace] 已重新 clone ${restored.owner}/${restored.repo} → ${restored.projectDir}`;
+        const patch: Partial<Task> = {
+          projectDir: restored.projectDir,
+          result: current.result?.trim() ? `${current.result.trim()}${stamp}` : stamp.trimStart(),
+          lastActivityAt: Date.now(),
+        };
+        current = opts.db.updateTask(current.id, patch) ?? { ...current, ...patch };
+        notifyTaskUpdate(opts, current, true);
+      }
+    } catch (err) {
+      console.error(
+        `[agent-desk] restore auto workspace failed for ${resolved}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  // Issue-linked GitHub tasks: ensure checkout matches configured repo (may also clone).
+  if (current.issueCode?.trim() && resolveSettings(opts).providers.issue === "github") {
+    try {
+      const ws = await ensureIssueWorkspace(opts.dataDir);
+      if (current.projectDir !== ws.projectDir) {
+        const updated = opts.db.updateTask(current.id, { projectDir: ws.projectDir });
+        current = updated ?? current;
+      }
+    } catch (err) {
+      console.error(
+        `[agent-desk] ensureIssueWorkspace failed:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  return current;
 }
 
 async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<void> {
@@ -379,6 +420,17 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
 
     const settings = resolveSettings(opts);
     const cwd = task.projectDir || process.cwd();
+
+    if (!fs.existsSync(cwd)) {
+      return markTaskFailed(
+        opts,
+        taskId,
+        new Error(
+          `工作目录不存在：${cwd}。若为自动 clone 的仓库，请检查 GitHub Token/网络后重试；本地目录请重新选择工作区。`,
+        ),
+        "start_error",
+      );
+    }
 
     if (settings.workspaceLockEnabled !== false) {
       const busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);

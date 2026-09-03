@@ -127,7 +127,7 @@
 
 当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。
 
-任务运行会话区的 UI 优化方案见 [task-session-ui.md](./task-session-ui.md)（待实现，与 Multica 学习可并行）。
+任务运行会话区的 UI 优化方案见 [task-session-ui.md](./task-session-ui.md)（**P0 已落地**；P2 布局收窄等可后置）。
 
 ### agent-desk UI 目标
 

@@ -42,6 +42,12 @@ let LOG_TITLE = "";
 let LOG_SSE = null;
 let LOG_SSE_TASK = "";
 let LOG_SSE_OPEN = false;
+/** Timestamp when current SSE connect attempt started (0 = idle). */
+let LOG_SSE_CONNECT_AT = 0;
+/** Timestamp when SSE last became open. */
+let LOG_SSE_OPEN_AT = 0;
+/** Timestamp when SSE last closed/errored while task still live. */
+let LOG_SSE_CLOSED_AT = 0;
 let LOG_SSE_RETRY_TIMER = 0;
 let LOG_STREAM_RENDER_RAF = 0;
 let LOG_STREAM_PENDING = null;
@@ -62,6 +68,8 @@ let LOG_RENDER_SIG = "";
 let LOG_PENDING_USER = "";
 /** True while a reply is in-flight (before status becomes running). */
 let LOG_REPLY_SENDING = false;
+/** In-flight lock for header/list start & continue actions (issue #1). */
+let LOG_TASK_ACTION_BUSY = false;
 let LOG_SCROLL_TO_BOTTOM = false;
 let LOG_TASK_STATUS = "";
 /** @type {null | { type: string, workflowId: string, title?: string, prompt?: string, issueCode?: string }} */
@@ -481,50 +489,62 @@ function parseLogTimelineLocal(raw) {
 function renderLogMeta(task) {
   const el = document.getElementById("logMeta");
   if (!el || !task) return;
-  const chips = [];
+  const primary = [];
+  const more = [];
   const st = task.status || "";
-  chips.push(`<span class="log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st || "-")}</span>`);
+  primary.push(`<span class="log-meta-chip status-${esc(st)}">${esc(STATUS_LABEL[st] || st || "-")}</span>`);
+  const agentChip = agentChipLabelForTask(task);
+  if (agentChip) {
+    primary.push(`<span class="log-meta-chip" title="任务 Agent">${esc(agentChip)}</span>`);
+  }
+  const projFull = tField(task, "projectDir", "project_dir");
+  const proj = shortPath(projFull);
+  if (proj && proj !== "-") {
+    primary.push(`<span class="log-meta-chip" title="${esc(projFull)}">${esc(proj)}</span>`);
+  }
+
   const skill = tField(task, "skill", "skill");
-  if (skill) chips.push(`<span class="log-meta-chip">技能 ${esc(skill)}</span>`);
+  if (skill) more.push(`<span class="log-meta-chip">技能 ${esc(skill)}</span>`);
   const wf = tField(task, "workflowName", "workflow_name");
   const step = Number(tField(task, "workflowStep", "workflow_step") || 0);
   const total = Number(tField(task, "workflowStepTotal", "workflow_step_total") || 0);
   if (wf) {
-    chips.push(
+    more.push(
       `<span class="log-meta-chip">${esc(wf)}${total > 0 ? ` · ${step}/${total}` : ""}</span>`,
     );
   }
   const issue = tField(task, "issueCode", "issue_code");
-  if (issue) chips.push(`<span class="log-meta-chip bug-code">${esc(issue)}</span>`);
-  const agentChip = agentChipLabelForTask(task);
-  if (agentChip) {
-    chips.push(`<span class="log-meta-chip" title="任务 Agent">${esc(agentChip)}</span>`);
-  }
+  if (issue) more.push(`<span class="log-meta-chip bug-code">${esc(issue)}</span>`);
   const model = (tField(task, "model", "model") || "").trim();
   if (model) {
-    chips.push(`<span class="log-meta-chip" title="任务模型">${esc(model)}</span>`);
+    more.push(`<span class="log-meta-chip" title="任务模型">${esc(model)}</span>`);
   } else if (agentChip) {
-    chips.push(`<span class="log-meta-chip" title="任务模型">默认模型</span>`);
+    more.push(`<span class="log-meta-chip" title="任务模型">默认模型</span>`);
   }
-  const proj = shortPath(tField(task, "projectDir", "project_dir"));
-  if (proj && proj !== "-") chips.push(`<span class="log-meta-chip" title="${esc(tField(task, "projectDir", "project_dir"))}">${esc(proj)}</span>`);
   const retryCount = Number(tField(task, "retryCount", "retry_count") || 0);
-  if (retryCount > 0) chips.push(`<span class="log-meta-chip">重试 ${retryCount}</span>`);
+  if (retryCount > 0) more.push(`<span class="log-meta-chip">重试 ${retryCount}</span>`);
   const failureCode = String(tField(task, "failureCode", "failure_code") || "").trim();
   if (failureCode) {
-    chips.push(`<span class="log-meta-chip log-meta-fail" title="${esc(tField(task, "failureMessage", "failure_message"))}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`);
+    more.push(
+      `<span class="log-meta-chip log-meta-fail" title="${esc(tField(task, "failureMessage", "failure_message"))}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`,
+    );
   }
   const retryHint = taskRetryHint(task);
   if (retryHint && (st === "queued" || st === "failed")) {
-    chips.push(`<span class="log-meta-chip">${esc(retryHint)}</span>`);
+    more.push(`<span class="log-meta-chip">${esc(retryHint)}</span>`);
   }
   const usageChip = formatTaskUsageChip(task.usage || extractUsageFromTaskResult(task));
   if (usageChip) {
-    chips.push(
+    more.push(
       `<span class="log-meta-chip" title="${esc(usageChip.title)}">${esc(usageChip.label)}</span>`,
     );
   }
-  el.innerHTML = chips.join("");
+
+  let html = `<div class="log-meta-primary">${primary.join("")}</div>`;
+  if (more.length) {
+    html += `<details class="log-meta-more"><summary>详情</summary><div class="log-meta-more-chips">${more.join("")}</div></details>`;
+  }
+  el.innerHTML = html;
 }
 
 function formatTaskUsageChip(u) {
@@ -676,11 +696,26 @@ function renderLogTimeline(items) {
     if (!already) list.push({ type: "user", text: LOG_PENDING_USER });
   }
   if (!list.length) {
-    box.innerHTML = '<div class="log-empty">暂无输出，等待 Agent 开始…</div>';
+    // P0-1: running wait state lives in the sticky footer — avoid dual empty + thinking UI.
+    if (LOG_TASK_STATUS === "running" || LOG_REPLY_SENDING) {
+      box.innerHTML = "";
+      return;
+    }
+    if (LOG_TASK_STATUS === "queued" || LOG_TASK_STATUS === "created") {
+      box.innerHTML = '<div class="log-empty">任务已创建，等待开始执行…</div>';
+      return;
+    }
+    box.innerHTML = '<div class="log-empty">暂无输出</div>';
     return;
   }
-  box.innerHTML = list
-    .map((it, i) => {
+  const hasAssistant = list.some((it) => it.type === "assistant" && String(it.text || "").trim());
+  const showPulse =
+    LOG_TASK_STATUS === "running" &&
+    !hasAssistant &&
+    list.every((it) => it.type === "activity" || it.type === "user");
+  box.innerHTML =
+    list
+      .map((it, i) => {
       const type = it.type || "assistant";
       const streaming =
         LOG_TASK_STATUS === "running" && i === list.length - 1 && type === "assistant";
@@ -717,7 +752,13 @@ function renderLogTimeline(items) {
         <div class="li-body${type === "assistant" || type === "user" ? " log-md-body" : ""}">${renderLogBodyHtml(type, bodyText)}</div>
       </div>`;
     })
-    .join("");
+    .join("") +
+    (showPulse
+      ? `<div class="log-stream-pulse" aria-live="polite">
+          <span>等待首条回复…</span>
+          <div class="log-stream-pulse-bar" aria-hidden="true"><span></span></div>
+        </div>`
+      : "");
 }
 
 function extractUserRepliesFromPrompt(prompt) {
@@ -973,8 +1014,39 @@ function setLogTitleEl(status, title) {
 function canContinueTask(t) {
   if (!t) return false;
   const st = (t.status || "").trim();
-  if (st !== "stopped" && st !== "failed" && st !== "awaiting") return false;
-  return !!(tField(t, "sessionId", "session_id") || "").trim() || st === "awaiting" || st === "stopped" || st === "failed";
+  if (st === "awaiting") return true;
+  if (st === "stopped") return true;
+  if (st !== "failed") return false;
+  // Start-class failures need retry/start, not resume("继续") which pollutes prompt (#1).
+  if (isStartClassFailure(t)) return false;
+  return !!(tField(t, "sessionId", "session_id") || "").trim();
+}
+
+/** Missing CLI / backend / generic start errors — retry via /start, not /resume. */
+function isStartClassFailure(t) {
+  if (!t || (t.status || "").trim() !== "failed") return false;
+  const code = String(tField(t, "failureCode", "failure_code") || "").trim();
+  return code === "spawn_error" || code === "backend_unavailable" || code === "start_error";
+}
+
+function taskNeedsFreshStart(t) {
+  if (!t) return false;
+  const st = (t.status || "").trim();
+  if (st === "created") return true;
+  if (st !== "failed") return false;
+  const hasSession = !!(tField(t, "sessionId", "session_id") || "").trim();
+  return !hasSession || isStartClassFailure(t);
+}
+
+function failureFooterHint(task, failed) {
+  if (!failed) return "可从标题栏继续会话";
+  const code = String(tField(task, "failureCode", "failure_code") || "").trim();
+  const msg = String(tField(task, "failureMessage", "failure_message") || "").trim();
+  if (code === "spawn_error" || code === "backend_unavailable") {
+    return (msg ? `${msg} · ` : "") + "请确认 Agent CLI 已安装并在 PATH 中，然后重试";
+  }
+  if (taskNeedsFreshStart(task)) return msg || "可重试启动";
+  return msg || "可从标题栏继续会话";
 }
 
 async function api(path, opts = {}) {
@@ -1237,9 +1309,7 @@ function renderListRow(t, opts = {}) {
   const awaiting = t.status === "awaiting";
   const queued = t.status === "queued";
   const canContinue = canContinueTask(t);
-  const hasSession = !!(tField(t, "sessionId", "session_id") || "").trim();
-  const needsFreshStart =
-    t.status === "created" || (t.status === "failed" && !hasSession);
+  const needsFreshStart = taskNeedsFreshStart(t);
   const metaParts = [];
   if (!LOG_ID && proj && proj !== "-") metaParts.push(proj);
   if (issue) metaParts.push(`<span class="bug-code">${issue}</span>`);
@@ -1260,7 +1330,12 @@ function renderListRow(t, opts = {}) {
   } else if (queued) {
     ops += taskIconBtn({ act: "stop", id, kind: "stop", label: "取消" });
   } else if (needsFreshStart) {
-    ops += taskIconBtn({ act: "start", id, kind: "play", label: "运行" });
+    ops += taskIconBtn({
+      act: "start",
+      id,
+      kind: "play",
+      label: t.status === "failed" ? "重试" : "运行",
+    });
   } else if (canContinue) {
     ops += taskIconBtn({ act: "continue", id, kind: "play", label: "继续" });
   }
@@ -1455,7 +1530,8 @@ async function stopTask(id) {
 }
 
 async function runTask(id) {
-  if (!id) return;
+  if (!id || LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING) return;
+  LOG_TASK_ACTION_BUSY = true;
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/start`, { method: "POST" });
     toast("已开始运行");
@@ -1465,11 +1541,15 @@ async function runTask(id) {
   } catch (e) {
     toast(`运行失败: ${e.message || e}`);
     await loadTasks();
+    if (LOG_ID === id) await pollLog();
+  } finally {
+    LOG_TASK_ACTION_BUSY = false;
   }
 }
 
 async function continueTask(id) {
-  if (!id) return;
+  if (!id || LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING) return;
+  LOG_TASK_ACTION_BUSY = true;
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/resume`, {
       method: "POST",
@@ -1481,6 +1561,9 @@ async function continueTask(id) {
     showLog(id);
   } catch (e) {
     toast(`继续失败: ${e.message || e}`);
+    if (LOG_ID === id) await pollLog();
+  } finally {
+    LOG_TASK_ACTION_BUSY = false;
   }
 }
 
@@ -1533,7 +1616,8 @@ function startActivityTicker() {
     const timeline = LOG_TIMELINE_PARSER
       ? LOG_TIMELINE_PARSER.getItems().slice()
       : timelineForDisplay(LOG_RESULT, false, "");
-    updateLogActivityFooter(true, timeline);
+    const task = TASKS.find((t) => t.id === LOG_ID);
+    updateLogActivityFooter(true, timeline, task);
   }, 1000);
 }
 
@@ -1550,8 +1634,13 @@ function markLogStreamActivity() {
 
 function updateLogLiveBadge(connected) {
   LOG_SSE_OPEN = !!connected;
+  if (connected) {
+    LOG_SSE_OPEN_AT = Date.now();
+    LOG_SSE_CLOSED_AT = 0;
+  }
+  // Connection copy lives in the sticky activity footer (avoid header duplicate).
   const el = document.getElementById("logLiveBadge");
-  if (el) el.hidden = !connected;
+  if (el) el.hidden = true;
 }
 
 function clearLogSseRetry() {
@@ -1568,6 +1657,7 @@ function closeLogStream() {
     LOG_SSE = null;
   }
   LOG_SSE_TASK = "";
+  LOG_SSE_CONNECT_AT = 0;
   LOG_STREAM_PATCH_LEN = 0;
   updateLogLiveBadge(false);
 }
@@ -1608,6 +1698,10 @@ function openLogStream(id) {
   closeLogStream();
   if (!id || typeof EventSource === "undefined") return;
   LOG_SSE_TASK = id;
+  LOG_SSE_CONNECT_AT = Date.now();
+  LOG_SSE_OPEN_AT = 0;
+  // Keep LOG_SSE_CLOSED_AT across reconnect attempts so "连接中断" can accumulate ≥8s.
+  // Cleared only when SSE opens successfully (updateLogLiveBadge(true)).
   const offset = LOG_RESULT_LEN > 0 ? `?offset=${LOG_RESULT_LEN}` : "";
   const es = new EventSource(`/api/tasks/${encodeURIComponent(id)}/stream${offset}`);
   LOG_SSE = es;
@@ -1638,6 +1732,7 @@ function openLogStream(id) {
     }
   };
   es.onerror = () => {
+    LOG_SSE_CLOSED_AT = Date.now();
     closeLogStream();
     const cached = TASKS.find((t) => t.id === LOG_ID);
     if (cached && !isLogTaskActive(cached)) {
@@ -1683,14 +1778,72 @@ function tryPatchStreamingTimeline(timeline, running) {
   return true;
 }
 
-function updateLogActivityFooter(running, timeline) {
+function logConnectionHintHtml() {
+  if (LOG_SSE_OPEN) {
+    return '<span class="log-thinking-live">实时</span>';
+  }
+  const now = Date.now();
+  if (LOG_SSE_CLOSED_AT) {
+    const downSec = Math.floor((now - LOG_SSE_CLOSED_AT) / 1000);
+    if (downSec < 8) {
+      return '<span class="log-thinking-live is-reconnect">重新连接…</span>';
+    }
+    return '<span class="log-thinking-live is-down">连接中断，任务可能仍在运行</span>';
+  }
+  const attemptAt = LOG_SSE_CONNECT_AT || LOG_RUN_STARTED_AT || now;
+  const waitMs = now - attemptAt;
+  if (waitMs < 3000) {
+    return '<span class="log-thinking-live is-reconnect">正在连接…</span>';
+  }
+  return '<span class="log-thinking-live is-reconnect">重新连接…</span>';
+}
+
+function setLogSessionFooterVisible(show) {
+  const footer = document.getElementById("logSessionFooter");
+  if (footer) footer.hidden = !show;
+}
+
+function updateLogActivityFooter(running, timeline, task) {
   const el = document.getElementById("logThinking");
   if (!el) return;
-  if (!running) {
+  const status = (task && task.status) || LOG_TASK_STATUS || "";
+  const failed = status === "failed";
+  const stopped = status === "stopped";
+
+  if (!running && !failed && !stopped) {
     el.hidden = true;
+    el.classList.remove("is-error");
+    setLogSessionFooterVisible(false);
     return;
   }
+
   el.hidden = false;
+  setLogSessionFooterVisible(true);
+  el.classList.toggle("is-error", failed);
+
+  if (failed || stopped) {
+    const code = String((task && tField(task, "failureCode", "failure_code")) || "").trim();
+    const title = failed
+      ? FAILURE_CODE_LABEL[code] || code || "任务失败"
+      : "任务已停止";
+    const sub = failureFooterHint(task, failed);
+    const busy = LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING;
+    let actions = "";
+    if (failed && task && taskNeedsFreshStart(task)) {
+      actions = `<div class="log-thinking-actions"><button type="button" class="log-thinking-action" ${busy ? "disabled" : ""} onclick="runTask(LOG_ID)">重试</button></div>`;
+    } else if ((failed && task && canContinueTask(task)) || stopped) {
+      actions = `<div class="log-thinking-actions"><button type="button" class="log-thinking-action" ${busy ? "disabled" : ""} onclick="continueTask(LOG_ID)">继续</button></div>`;
+    }
+    el.innerHTML = `<div class="log-thinking-inner">
+      <div class="log-thinking-copy">
+        <div class="log-thinking-title">${esc(title)}</div>
+        <div class="log-thinking-sub">${esc(sub)}</div>
+        ${actions}
+      </div>
+    </div>`;
+    return;
+  }
+
   const now = Date.now();
   const elapsed = LOG_RUN_STARTED_AT ? Math.max(1, Math.floor((now - LOG_RUN_STARTED_AT) / 1000)) : 0;
   const staleSec = LOG_LAST_STREAM_AT ? Math.floor((now - LOG_LAST_STREAM_AT) / 1000) : 0;
@@ -1702,17 +1855,22 @@ function updateLogActivityFooter(running, timeline) {
   else if (lastAct) label = lastAct.text;
   const staleHint =
     staleSec >= 8 ? `<span class="log-thinking-stale">${staleSec}s 无新输出，可能仍在执行</span>` : "";
-  const liveHint = LOG_SSE_OPEN
-    ? '<span class="log-thinking-live">实时</span>'
-    : '<span class="log-thinking-live is-reconnect">连接中…</span>';
+  const liveHint = logConnectionHintHtml();
+  const downLong =
+    !LOG_SSE_OPEN &&
+    LOG_SSE_CLOSED_AT &&
+    Math.floor((now - LOG_SSE_CLOSED_AT) / 1000) >= 8;
+  const refreshAction = downLong
+    ? `<div class="log-thinking-actions"><button type="button" class="log-thinking-action" onclick="openLogStream(LOG_ID)">刷新连接</button></div>`
+    : "";
   el.innerHTML = `<div class="log-thinking-inner">
     <span class="log-thinking-dots" aria-hidden="true"><span></span><span></span><span></span></span>
   <div class="log-thinking-copy">
     <div class="log-thinking-title">${esc(label)}</div>
-    <div class="log-thinking-sub">已运行 ${elapsed}s ${liveHint}${staleHint ? ` · ${staleHint}` : ""}</div>
+    <div class="log-thinking-sub">已运行 ${elapsed}s · ${liveHint}${staleHint ? ` · ${staleHint}` : ""}</div>
+    ${refreshAction}
   </div>
 </div>`;
-  scrollLogToBottom(true);
 }
 
 function fitReplyInputHeight(input) {
@@ -1845,7 +2003,7 @@ async function renderLogTask(d, opts = {}) {
   }
 
   const timeline = timelineForDisplay(raw, awaiting, d.prompt);
-  updateLogActivityFooter(running, timeline);
+  updateLogActivityFooter(running, timeline, d);
 
   const sig = [
     d.status,
@@ -1860,7 +2018,7 @@ async function renderLogTask(d, opts = {}) {
   if (fromStream && running && tryPatchStreamingTimeline(timeline, running)) {
     const body = document.getElementById("logBody");
     if (body) updateRawLogBody(raw);
-    updateLogActivityFooter(running, timeline);
+    updateLogActivityFooter(running, timeline, d);
     return;
   }
 
@@ -1904,14 +2062,13 @@ async function renderLogTask(d, opts = {}) {
 
     const contBtn = document.getElementById("logContinueBtn");
     if (contBtn) {
-      const hasSession = !!(tField(d, "sessionId", "session_id") || "").trim();
-      const showStart =
-        !running && (d.status === "created" || (d.status === "failed" && !hasSession));
+      const showStart = !running && taskNeedsFreshStart(d);
       const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
       contBtn.style.display = showStart || showCont ? "" : "none";
+      contBtn.disabled = LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING;
       if (showStart) {
-        contBtn.title = "运行";
-        contBtn.setAttribute("aria-label", "运行");
+        contBtn.title = d.status === "failed" ? "重试" : "运行";
+        contBtn.setAttribute("aria-label", contBtn.title);
         contBtn.onclick = () => runTask(LOG_ID);
       } else {
         contBtn.title = "继续";
@@ -2000,11 +2157,15 @@ function showLog(id) {
     LOG_RENDER_SIG = "";
     LOG_PENDING_USER = "";
     LOG_REPLY_SENDING = false;
+    LOG_TASK_ACTION_BUSY = false;
     LOG_REPLY_MODEL_KEY = "";
     LOG_TASK_STATUS = "";
     LOG_RESULT = "";
     LOG_RESULT_LEN = 0;
     LOG_TIMELINE_PARSER = null;
+    LOG_SSE_CONNECT_AT = 0;
+    LOG_SSE_OPEN_AT = 0;
+    LOG_SSE_CLOSED_AT = 0;
     stopActivityTicker();
     updateLogActivityFooter(false, []);
     closeLogStream();
@@ -2094,6 +2255,7 @@ function closeLog() {
   LOG_RENDER_SIG = "";
   LOG_PENDING_USER = "";
   LOG_REPLY_SENDING = false;
+  LOG_TASK_ACTION_BUSY = false;
   LOG_TASK_STATUS = "";
   LOG_VIEW_MODE = "timeline";
   LOG_RESULT = "";

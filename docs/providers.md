@@ -32,6 +32,8 @@ export AD_GITHUB_REPO=owner/repo        # e.g. acme/my-app
 # export AD_GITHUB_PROJECT_DIR=/path/to/checkout
 # optional: auto-clone missing repos to ~/.agent-desk/workspaces/auto/<owner>/<repo>
 # (user-local clones found by folder name are reused and never deleted)
+# Auto workspaces under workspaces/auto/ may be removed when no active task uses them;
+# on the next start/retry, agent-desk re-clones that path if it is still under auto/<owner>/<repo>.
 # export AD_GITHUB_API_BASE=https://api.github.com
 
 # point settings at github (PUT /api/settings):

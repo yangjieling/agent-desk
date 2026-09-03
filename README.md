@@ -146,7 +146,7 @@ More backends: implement `@agent-desk/provider-agent` and register at startup �
 | Use or author skills | [docs/skills.md](docs/skills.md) |
 | Learning checklist vs Multica | [docs/learn-from-multica.md](docs/learn-from-multica.md) |
 | Local HTTP API (OpenAPI) | [schemas/openapi.yaml](schemas/openapi.yaml) · runtime `http://127.0.0.1:19877/api/docs` |
-| Task session UI improvements (planned) | [docs/task-session-ui.md](docs/task-session-ui.md) |
+| Task session UI improvements (P0 done) | [docs/task-session-ui.md](docs/task-session-ui.md) |
 | See task states and gates | [Architecture → Task lifecycle](#architecture) below |
 | Configure env vars | [Configuration](#configuration) |
 | Develop the monorepo | [Development](#development) |

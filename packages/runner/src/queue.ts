@@ -81,6 +81,11 @@ export function retryPolicy(settings: Settings): { enabled: boolean; max: number
   };
 }
 
+/** Failures that won't clear by waiting (missing CLI / backend). */
+export function isNonRetryableFailure(code: TaskFailureCode | string | undefined): boolean {
+  return code === "spawn_error" || code === "backend_unavailable";
+}
+
 export async function maybeScheduleAutoRetry(
   opts: QueueRunnerOptions,
   task: Task,
@@ -88,7 +93,7 @@ export async function maybeScheduleAutoRetry(
 ): Promise<Task> {
   const settings = opts.db.getSettings();
   const policy = retryPolicy(settings);
-  if (!policy.enabled || task.retryCount >= policy.max) {
+  if (!policy.enabled || task.retryCount >= policy.max || isNonRetryableFailure(task.failureCode)) {
     await processWorkspaceQueue(opts, task.projectDir, startTask);
     return task;
   }

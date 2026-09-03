@@ -250,6 +250,72 @@ export async function ensureIssueWorkspace(
   return { projectDir: managed, source: "cloned", owner, repo, cloned: true };
 }
 
+/**
+ * Parse `~/.agent-desk/workspaces/auto/<owner>/<repo>` into owner/repo.
+ * Returns null when the path is not under the auto-workspace root.
+ */
+export function parseAutoWorkspaceOwnerRepo(
+  dataDir: string,
+  projectDir: string,
+): { owner: string; repo: string } | null {
+  const resolved = path.resolve(projectDir);
+  const prefix = path.join(dataDir, "workspaces", "auto") + path.sep;
+  if (!resolved.startsWith(prefix)) return null;
+  const parts = resolved.slice(prefix.length).split(path.sep).filter(Boolean);
+  if (parts.length < 2) return null;
+  const owner = parts[0]?.trim();
+  const repo = parts[1]?.trim();
+  if (!owner || !repo || owner.startsWith(".") || repo.startsWith(".")) return null;
+  return { owner, repo };
+}
+
+export interface RestoreAutoWorkspaceResult {
+  projectDir: string;
+  owner: string;
+  repo: string;
+  /** True when a fresh git clone was performed. */
+  cloned: boolean;
+}
+
+/**
+ * If `projectDir` is a missing (or broken) managed auto-clone path, re-clone it.
+ * Used on task start/retry so released auto workspaces can come back.
+ * Non-auto paths return null (caller should fail with a clear cwd error).
+ */
+export async function restoreManagedAutoWorkspaceIfMissing(
+  dataDir: string,
+  projectDir: string,
+): Promise<RestoreAutoWorkspaceResult | null> {
+  const resolved = path.resolve(projectDir || "");
+  if (!resolved) return null;
+
+  if (fs.existsSync(resolved) && (await isGitRepo(resolved))) {
+    const parsed = parseAutoWorkspaceOwnerRepo(dataDir, resolved);
+    if (parsed) registerManagedPath(dataDir, resolved, parsed.owner, parsed.repo);
+    return null;
+  }
+
+  const parsed = parseAutoWorkspaceOwnerRepo(dataDir, resolved);
+  if (!parsed) return null;
+
+  const { owner, repo } = parsed;
+  const managed = autoWorkspacePath(dataDir, owner, repo);
+  if (fs.existsSync(managed) && (await isGitRepo(managed))) {
+    registerManagedPath(dataDir, managed, owner, repo);
+    return { projectDir: managed, owner, repo, cloned: false };
+  }
+
+  if (fs.existsSync(managed)) {
+    // Leftover empty/corrupt dir after a prior release — replace with a fresh clone.
+    fs.rmSync(managed, { recursive: true, force: true });
+  }
+
+  const cfg = resolveGitHubConfig();
+  await cloneRepo(owner, repo, managed, cfg.token);
+  registerManagedPath(dataDir, managed, owner, repo);
+  return { projectDir: managed, owner, repo, cloned: true };
+}
+
 export async function maybeReleaseAutoWorkspace(
   dataDir: string,
   projectDir: string,
