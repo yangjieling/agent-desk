@@ -78,7 +78,7 @@ export type AutopilotAction = "skill_task" | "workflow_run";
 /** create_work_item ≈ Multica create_issue; run_only ≈ Multica run_only. */
 export type AutopilotExecutionMode = "run_only" | "create_work_item";
 export type AutopilotConcurrencyPolicy = "skip" | "allow";
-export type AutopilotRunSource = "schedule" | "manual";
+export type AutopilotRunSource = "schedule" | "manual" | "webhook";
 export type AutopilotRunStatus = "pending" | "running" | "skipped" | "completed" | "failed";
 
 export interface Autopilot {
@@ -101,6 +101,12 @@ export interface Autopilot {
   nextRunAt: number;
   lastRunAt: number;
   concurrencyPolicy: AutopilotConcurrencyPolicy;
+  /** When true, POST /api/webhooks/autopilots/:token may trigger this rule. */
+  webhookEnabled: boolean;
+  /** Public path credential (`awt_…`). Empty until generated. */
+  webhookToken: string;
+  /** Optional HMAC secret for X-Hub-Signature-256. Empty = token-only auth. */
+  webhookSecret: string;
   createdAt: number;
   updatedAt: number;
 }

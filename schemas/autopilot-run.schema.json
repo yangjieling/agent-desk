@@ -7,7 +7,7 @@
   "properties": {
     "id": { "type": "string", "pattern": "^ar_" },
     "autopilotId": { "type": "string" },
-    "source": { "enum": ["schedule", "manual"] },
+    "source": { "enum": ["schedule", "manual", "webhook"] },
     "status": { "enum": ["pending", "running", "skipped", "completed", "failed"] },
     "taskId": { "type": "string" },
     "workflowRunId": { "type": "string" },

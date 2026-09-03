@@ -53,7 +53,7 @@ export async function dispatchAutopilot(
   runnerOpts: RunnerOptions,
   dataDir: string,
   ap: Autopilot,
-  opts: { source: AutopilotRunSource; plannedAt?: number },
+  opts: { source: AutopilotRunSource; plannedAt?: number; promptExtra?: string },
 ): Promise<{ run: AutopilotRun; autopilot: Autopilot }> {
   const plannedAt = Number(opts.plannedAt || 0);
   const stub = db.createAutopilotRunStub({
@@ -95,7 +95,9 @@ export async function dispatchAutopilot(
 
   try {
     const title = renderAutopilotTitle(ap);
-    const prompt = clipPrompt(String(ap.runbook || "").trim() || title);
+    const basePrompt = String(ap.runbook || "").trim() || title;
+    const extra = String(opts.promptExtra || "").trim();
+    const prompt = clipPrompt(extra ? `${basePrompt}\n\n---\n\n${extra}` : basePrompt);
     const projectDir = path.resolve(ap.projectDir || process.cwd());
     const settings = db.getSettings();
     let workItemId = "";

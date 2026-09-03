@@ -20,7 +20,7 @@ when a decision is needed — without shipping a cloud control plane.
 
 **English | [简体中文](README.zh.md)**
 
-[Architecture](#architecture) · [Quick start](#get-started) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md) · [docs/security.md](docs/security.md)
+[Architecture](#architecture) · [Quick start](#get-started) · [Autopilot webhook](#autopilot-webhook-inbound) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md) · [docs/security.md](docs/security.md)
 
 ---
 
@@ -51,6 +51,7 @@ shapes portable.
 - **[Workflows](templates/workflows/) →** `shared` (one session, many steps) or `independent` (parallel child tasks).
 - **[Skills](docs/skills.md) →** Discover, sync, and inject `SKILL.md` + `--add-dir` mounts at task start.
 - **Issue → task →** GitHub Issues provider, **AI 修复** from the defects list, optional auto workspace clone.
+- **[Autopilot](#autopilot-webhook-inbound) →** cron schedules, or inbound webhooks from CI/alerts (requires `oh web` running).
 
 ## Stay in the loop.
 
@@ -148,6 +149,7 @@ More backends: implement `@agent-desk/provider-agent` and register at startup �
 | Local HTTP API (OpenAPI) | [schemas/openapi.yaml](schemas/openapi.yaml) · runtime `http://127.0.0.1:19877/api/docs` |
 | Task session UI | [docs/task-session-ui.md](docs/task-session-ui.md) |
 | Overview / inbox / bugs / task list simplification | [docs/work-surfaces-ui.md](docs/work-surfaces-ui.md) |
+| Trigger Autopilot via cron / webhook | [Autopilot webhook](#autopilot-webhook-inbound) |
 | See task states and gates | [Architecture → Task lifecycle](#architecture) below |
 | Configure env vars | [Configuration](#configuration) |
 | Develop the monorepo | [Development](#development) |
@@ -241,6 +243,54 @@ Templates: `templates/workflows/*.yaml` · User workflows: `~/.agent-desk/workfl
 
 ---
 
+## Autopilot webhook (inbound)
+
+The **自动化** (Autopilot) page can run skill tasks or workflows on a **cron** schedule, or via an inbound **Webhook** so CI / alerts can HTTP-callback the same Runbook.
+
+This is **not** the notify webhook below (outbound: agent-desk → your URL). Autopilot webhooks are **inbound** (external → agent-desk).
+
+### Get the URL and secret
+
+1. Keep `oh web` running.
+2. **自动化** → create/edit → enable **Webhook** → save.
+3. After save, a **Webhook ready** dialog shows the **URL** and **signing secret** for one-click copy (you can also reveal / rotate later in the editor).
+
+URL shape:
+
+```text
+{Web Base URL}/api/webhooks/autopilots/{token}
+```
+
+Default Web Base URL is `http://127.0.0.1:19877` (Settings → Advanced). Use `127.0.0.1` for local curl; LAN/public callers need a reachable host/IP and a matching Web Base URL. With default `AD_HOST=127.0.0.1`, the server is not reachable from outside the machine.
+
+Paused schedules still accept webhooks (while enabled and not archived).
+
+### Example
+
+```bash
+WEBHOOK_URL='http://127.0.0.1:19877/api/webhooks/autopilots/awt_your_token'
+SECRET='aws_your_signing_secret'
+BODY='{"event":"ci_failed","job":"build"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
+
+curl -X POST "$WEBHOOK_URL" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: run-1" \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  -d "$BODY"
+```
+
+| Piece | Meaning |
+|-------|---------|
+| Path `token` | URL credential (`awt_…`), generated when enabled |
+| `X-Hub-Signature-256` | HMAC-SHA256 of the **raw body**; required once a secret is set |
+| `Idempotency-Key` or `X-GitHub-Delivery` | Dedupes deliveries; repeats return `duplicate` |
+| JSON body | Arbitrary; appended to the Runbook as context for the agent |
+
+Success responses include `status` (`accepted` / `duplicate` / `skipped`), `runId`, and `taskId`. See OpenAPI at `GET /api/docs`.
+
+---
+
 ## Configuration
 
 Web **Settings** persist to `~/.agent-desk/agent-desk.db`. Non-empty `AD_*` env vars override stored values.
@@ -267,6 +317,8 @@ Web **Settings** persist to `~/.agent-desk/agent-desk.db`. Non-empty `AD_*` env 
 | `AD_CURSOR_MODEL` | Optional model for Cursor (`--model`) |
 
 ### Notify — webhook
+
+Outbound notifications (POST to your URL on gates/task updates) — **not** Autopilot inbound triggers. See [Autopilot webhook](#autopilot-webhook-inbound).
 
 | Variable | Description |
 |----------|-------------|

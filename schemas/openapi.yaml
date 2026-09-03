@@ -1299,6 +1299,97 @@ paths:
         "409":
           $ref: "#/components/responses/Error"
 
+  /api/autopilots/{id}/webhook/rotate:
+    parameters:
+      - $ref: "#/components/parameters/AutopilotId"
+    post:
+      tags: [Autopilots]
+      operationId: rotateAutopilotWebhook
+      summary: Rotate webhook path token and optionally HMAC secret
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotateSecret:
+                  type: boolean
+                  default: true
+      responses:
+        "200":
+          description: Autopilot with revealed secrets
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutopilotSummary"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/webhooks/autopilots/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      tags: [Autopilots]
+      operationId: triggerAutopilotWebhook
+      summary: Inbound webhook trigger (token in path; optional X-Hub-Signature-256)
+      description: |
+        Enqueues an Autopilot run (source=webhook). Use Idempotency-Key or X-GitHub-Delivery for dedupe.
+        JSON body is appended to the runbook as a payload block.
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: false
+          schema:
+            type: string
+          description: sha256=<hex> HMAC of raw body when webhookSecret is set
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-GitHub-Delivery
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Accepted, duplicate, or skipped
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [accepted, duplicate, skipped]
+                  deliveryId:
+                    type: string
+                  runId:
+                    type: string
+                  taskId:
+                    type: string
+                  workflowRunId:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "413":
+          $ref: "#/components/responses/Error"
+
   /api/autopilots/{id}/runs:
     parameters:
       - $ref: "#/components/parameters/AutopilotId"
@@ -1900,6 +1991,13 @@ components:
         concurrencyPolicy:
           type: string
           enum: [skip, allow]
+        webhookEnabled:
+          type: boolean
+        webhookToken:
+          type: string
+        webhookSecret:
+          type: string
+          description: Masked as ******** unless revealSecrets=1
         createdAt:
           type: integer
         updatedAt:
@@ -1910,6 +2008,8 @@ components:
         - $ref: "#/components/schemas/Autopilot"
         - type: object
           properties:
+            webhookUrl:
+              type: string
             lastRun:
               oneOf:
                 - $ref: "#/components/schemas/AutopilotRun"
@@ -1950,6 +2050,8 @@ components:
         concurrencyPolicy:
           type: string
           enum: [skip, allow]
+        webhookEnabled:
+          type: boolean
 
     AutopilotRun:
       type: object
@@ -1962,7 +2064,7 @@ components:
           type: string
         source:
           type: string
-          enum: [schedule, manual]
+          enum: [schedule, manual, webhook]
         status:
           type: string
           enum: [pending, running, skipped, completed, failed]

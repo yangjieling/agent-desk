@@ -1499,6 +1499,90 @@
   .ap-edit-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   @media (max-width: 640px) { .ap-edit-row { grid-template-columns: 1fr; } }
   .ap-cron-preview { margin: 0 0 8px; font-size: 12px; color: #9aa0a6; line-height: 1.45; min-height: 1.2em; }
+  .ap-webhook-box {
+    margin-top: 8px; padding: 12px; border: 1px solid #e8eaed; border-radius: 8px; background: #fafbfc;
+  }
+  .ap-webhook-toggle {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    font-size: 13px; font-weight: 600; color: #1f2329; margin-bottom: 6px;
+  }
+  .ap-webhook-toggle input { width: 16px; height: 16px; }
+  .ap-webhook-hint { margin: 0 0 8px; font-size: 12px; color: #9aa0a6; line-height: 1.45; }
+  .ap-webhook-hint code { font-size: 11px; background: #eef0f3; padding: 1px 4px; border-radius: 3px; }
+  .ap-webhook-details { margin-top: 8px; }
+  .ap-webhook-url-row { display: flex; gap: 8px; align-items: center; }
+  .ap-webhook-url-row input { flex: 1; min-width: 0; }
+  .ap-webhook-ready-modal {
+    width: min(480px, 92vw);
+    height: auto;
+    max-height: min(80vh, 560px);
+  }
+  .ap-webhook-ready-sub {
+    margin: 6px 0 0;
+    font-size: 12px;
+    font-weight: 400;
+    color: #9aa0a6;
+    line-height: 1.45;
+  }
+  .ap-webhook-ready-body {
+    padding: 16px 18px 4px;
+    overflow: auto;
+  }
+  .ap-webhook-cred {
+    margin-bottom: 12px;
+    padding: 12px 14px;
+    border: 1px solid #eceef1;
+    border-radius: 10px;
+    background: #fafbfc;
+  }
+  .ap-webhook-cred-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+  .ap-webhook-cred-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #5f6368;
+    letter-spacing: 0.01em;
+  }
+  .ap-webhook-copy {
+    border: none;
+    background: none;
+    padding: 0;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    color: #2f6feb;
+    cursor: pointer;
+  }
+  .ap-webhook-copy:hover { color: #1a5cd4; text-decoration: underline; }
+  .ap-webhook-cred-value {
+    display: block;
+    margin: 0;
+    padding: 0;
+    border: none;
+    background: transparent;
+    font-size: 12.5px;
+    line-height: 1.5;
+    word-break: break-all;
+    color: #1f2329;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  .ap-webhook-ready-hint {
+    margin: 4px 0 8px;
+    font-size: 12px;
+    color: #9aa0a6;
+    line-height: 1.45;
+  }
+  .ap-webhook-ready-hint code {
+    font-size: 11px;
+    background: #eef0f3;
+    padding: 1px 4px;
+    border-radius: 3px;
+  }
   .agent-card { display: flex; align-items: center; gap: 14px; padding: 16px 10px;
                 border-bottom: 1px solid #f0f1f3; }
   .agent-card:hover { background: #fafbfc; }

@@ -3,7 +3,7 @@ import fastifyStatic from "@fastify/static";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
+import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, newAutopilotWebhookSecret, newAutopilotWebhookToken, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -73,6 +73,13 @@ import {
 } from "./autopilot-dispatch.js";
 import { startAutopilotScheduler, stopAutopilotScheduler } from "./autopilot-scheduler.js";
 import { previewCronOccurrences, validateCronExpression } from "./cron-next.js";
+import {
+  AUTOPILOT_WEBHOOK_MAX_BYTES,
+  formatWebhookPayloadBlock,
+  headerString,
+  resolveWebhookDeliveryKey,
+  verifyHubSignature256,
+} from "./autopilot-webhook.js";
 
 /** Mask stored secrets in API responses (UI shows placeholder; blank save keeps old). */
 const SECRET_MASK = "********";
@@ -286,6 +293,25 @@ export async function createServer(opts: ServerOptions = {}) {
   );
 
   const app = Fastify({ logger: true });
+
+  // Preserve raw JSON body for webhook HMAC (X-Hub-Signature-256).
+  app.addContentTypeParser(
+    "application/json",
+    { parseAs: "string" },
+    (req, body, done) => {
+      const text = typeof body === "string" ? body : String(body ?? "");
+      (req as { rawBody?: string }).rawBody = text;
+      if (!text) {
+        done(null, {});
+        return;
+      }
+      try {
+        done(null, JSON.parse(text));
+      } catch (err) {
+        done(err as Error, undefined);
+      }
+    },
+  );
 
   await app.register(fastifyStatic, {
     root: uiPublicDir(),
@@ -1414,10 +1440,27 @@ export async function createServer(opts: ServerOptions = {}) {
     }
   });
 
-  const summarizeAutopilot = (ap: Autopilot) => {
+  const summarizeAutopilot = (ap: Autopilot, opts?: { revealSecrets?: boolean }) => {
     const runs = db.listAutopilotRuns(ap.id, 1);
     const lastRun = runs[0] || null;
-    return { ...ap, lastRun };
+    const reveal = Boolean(opts?.revealSecrets);
+    const baseUrl = String(db.getSettings().webBaseUrl || "").replace(/\/$/, "") || "";
+    const webhookUrl =
+      ap.webhookToken && baseUrl
+        ? `${baseUrl}/api/webhooks/autopilots/${ap.webhookToken}`
+        : ap.webhookToken
+          ? `/api/webhooks/autopilots/${ap.webhookToken}`
+          : "";
+    return {
+      ...ap,
+      webhookSecret: ap.webhookSecret
+        ? reveal
+          ? ap.webhookSecret
+          : SECRET_MASK
+        : "",
+      webhookUrl,
+      lastRun,
+    };
   };
 
   type AutopilotBody = {
@@ -1435,6 +1478,7 @@ export async function createServer(opts: ServerOptions = {}) {
     cronExpression?: string;
     timezone?: string;
     concurrencyPolicy?: string;
+    webhookEnabled?: boolean;
   };
 
   function buildAutopilotFromBody(
@@ -1468,6 +1512,14 @@ export async function createServer(opts: ServerOptions = {}) {
       String(body.projectDir ?? existing?.projectDir ?? "").trim() || process.cwd(),
     );
     const now = Date.now();
+    const webhookEnabled =
+      typeof body.webhookEnabled === "boolean"
+        ? body.webhookEnabled
+        : Boolean(existing?.webhookEnabled);
+    let webhookToken = existing?.webhookToken || "";
+    let webhookSecret = existing?.webhookSecret || "";
+    if (!webhookToken) webhookToken = newAutopilotWebhookToken();
+    if (webhookEnabled && !webhookSecret) webhookSecret = newAutopilotWebhookSecret();
     const item: Autopilot = {
       id: existing?.id || newAutopilotId(),
       name,
@@ -1489,21 +1541,29 @@ export async function createServer(opts: ServerOptions = {}) {
         String(body.concurrencyPolicy ?? existing?.concurrencyPolicy ?? "skip").trim() === "allow"
           ? "allow"
           : "skip",
+      webhookEnabled,
+      webhookToken,
+      webhookSecret,
       createdAt: existing?.createdAt || now,
       updatedAt: now,
     };
     return { ok: true, item };
   }
 
-  app.get("/api/autopilots", async () => {
-    return db.listAutopilots(200).map(summarizeAutopilot);
+  app.get<{ Querystring: { revealSecrets?: string } }>("/api/autopilots", async (req) => {
+    const reveal = req.query.revealSecrets === "1" || req.query.revealSecrets === "true";
+    return db.listAutopilots(200).map((ap) => summarizeAutopilot(ap, { revealSecrets: reveal }));
   });
 
-  app.get<{ Params: { id: string } }>("/api/autopilots/:id", async (req, reply) => {
-    const ap = db.getAutopilot(req.params.id);
-    if (!ap || ap.status === "archived") return reply.code(404).send({ error: "not_found" });
-    return summarizeAutopilot(ap);
-  });
+  app.get<{ Params: { id: string }; Querystring: { revealSecrets?: string } }>(
+    "/api/autopilots/:id",
+    async (req, reply) => {
+      const ap = db.getAutopilot(req.params.id);
+      if (!ap || ap.status === "archived") return reply.code(404).send({ error: "not_found" });
+      const reveal = req.query.revealSecrets === "1" || req.query.revealSecrets === "true";
+      return summarizeAutopilot(ap, { revealSecrets: reveal });
+    },
+  );
 
   app.post<{ Body: AutopilotBody }>("/api/autopilots", async (req, reply) => {
     const built = buildAutopilotFromBody(req.body || {});
@@ -1585,6 +1645,92 @@ export async function createServer(opts: ServerOptions = {}) {
     const current = db.getAutopilot(req.params.id);
     if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
     return db.listAutopilotRuns(current.id, 50);
+  });
+
+  app.post<{ Params: { id: string }; Body: { rotateSecret?: boolean } }>(
+    "/api/autopilots/:id/webhook/rotate",
+    async (req, reply) => {
+      const current = db.getAutopilot(req.params.id);
+      if (!current || current.status === "archived") return reply.code(404).send({ error: "not_found" });
+      const rotateSecret = req.body?.rotateSecret !== false;
+      const next: Autopilot = {
+        ...current,
+        webhookToken: newAutopilotWebhookToken(),
+        webhookSecret: rotateSecret ? newAutopilotWebhookSecret() : current.webhookSecret,
+        updatedAt: Date.now(),
+      };
+      if (next.webhookEnabled && !next.webhookSecret) {
+        next.webhookSecret = newAutopilotWebhookSecret();
+      }
+      db.upsertAutopilot(next);
+      return summarizeAutopilot(next, { revealSecrets: true });
+    },
+  );
+
+  /** Public ingress: token in path is the credential. Optional HMAC when secret set. */
+  app.post<{ Params: { token: string } }>("/api/webhooks/autopilots/:token", async (req, reply) => {
+    const token = String(req.params.token || "").trim();
+    const ap = db.getAutopilotByWebhookToken(token);
+    if (!ap) return reply.code(404).send({ error: "not_found" });
+
+    const rawBody = String((req as { rawBody?: string }).rawBody ?? "");
+    if (Buffer.byteLength(rawBody, "utf8") > AUTOPILOT_WEBHOOK_MAX_BYTES) {
+      return reply.code(413).send({ error: "payload_too_large" });
+    }
+
+    const headers = req.headers as Record<string, unknown>;
+    if (ap.webhookSecret) {
+      const sig = headerString(headers, "x-hub-signature-256");
+      if (!verifyHubSignature256(rawBody || JSON.stringify(req.body ?? {}), ap.webhookSecret, sig)) {
+        db.tryInsertWebhookDelivery({
+          autopilotId: ap.id,
+          deliveryKey: resolveWebhookDeliveryKey(headers) || `reject_${Date.now()}`,
+          status: "rejected",
+        });
+        return reply.code(401).send({ error: "invalid_signature" });
+      }
+    }
+
+    const deliveryKey = resolveWebhookDeliveryKey(headers);
+    const admitted = db.tryInsertWebhookDelivery({
+      autopilotId: ap.id,
+      deliveryKey,
+      status: "accepted",
+    });
+    if (admitted.duplicate) {
+      const prev = db.findWebhookDelivery(ap.id, deliveryKey);
+      return {
+        status: "duplicate",
+        deliveryId: admitted.id,
+        runId: prev?.runId || "",
+      };
+    }
+
+    try {
+      const result = await dispatchAutopilot(db, runnerOpts, dataDir, ap, {
+        source: "webhook",
+        plannedAt: 0,
+        promptExtra: formatWebhookPayloadBlock(req.body ?? {}),
+      });
+      db.updateWebhookDelivery(admitted.id, {
+        runId: result.run.id,
+        status: result.run.status === "skipped" ? "skipped" : "accepted",
+      });
+      return {
+        status: result.run.status === "skipped" ? "skipped" : "accepted",
+        deliveryId: admitted.id,
+        runId: result.run.id,
+        taskId: result.run.taskId || "",
+        workflowRunId: result.run.workflowRunId || "",
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      db.updateWebhookDelivery(admitted.id, { status: "failed" });
+      if (msg === "duplicate_or_busy") {
+        return reply.code(409).send({ error: "busy", deliveryId: admitted.id });
+      }
+      return reply.code(500).send({ error: msg, deliveryId: admitted.id });
+    }
   });
 
   app.post<{ Body: { expression?: string; count?: number } }>(

@@ -131,7 +131,7 @@ const VIEW_TITLES = {
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
   agents: ["智能体", "可命名的 Agent 配置：提供方、模型、技能与系统指令"],
-  autopilots: ["自动化", "按计划定时创建任务或启动流程（需 oh web 保持运行）"],
+  autopilots: ["自动化", "定时或 Webhook 触发任务 / 流程（需 oh web 保持运行）"],
   "tasks-new": ["新建任务", "创建技能任务或启动流程"],
   "tasks-list": ["任务管理", "执行日志、闸门确认与工作区"],
   settings: ["集成与偏好", "通知、缺陷来源与任务默认行为"],
@@ -2415,6 +2415,11 @@ const MODAL_DISMISS_LAYERS = [
     closeDropdownsInRoot: true,
   },
   {
+    id: "autopilotWebhookReadyMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeAutopilotWebhookReady(),
+  },
+  {
     id: "autopilotEditMask",
     isOpen: (el) => !!el?.classList.contains("show"),
     close: () => closeAutopilotEditor(),
@@ -4055,8 +4060,15 @@ const AUTOPILOT_RUN_STATUS_LABEL = {
   failed: "失败",
 };
 
+const AUTOPILOT_SOURCE_LABEL = {
+  schedule: "定时",
+  manual: "手动",
+  webhook: "Webhook",
+};
+
 let AUTOPILOT_EDIT_ID = "";
 let AUTOPILOT_LIST = [];
+let AUTOPILOT_EDIT_WEBHOOK = { url: "", secret: "", enabled: false };
 
 function cronPresetLabel(expr) {
   const hit = AUTOPILOT_CRON_PRESETS.find((p) => p.value === expr);
@@ -4067,11 +4079,15 @@ function renderAutopilotCard(ap) {
   const id = esc(ap.id || "");
   const active = ap.status === "active";
   const last = ap.lastRun;
+  const lastSource = last
+    ? AUTOPILOT_SOURCE_LABEL[last.source] || last.source || ""
+    : "";
   const lastBit = last
-    ? `${AUTOPILOT_RUN_STATUS_LABEL[last.status] || last.status} · ${fmtTime(last.triggeredAt || last.createdAt)}`
+    ? `${AUTOPILOT_RUN_STATUS_LABEL[last.status] || last.status}${lastSource ? ` · ${lastSource}` : ""} · ${fmtTime(last.triggeredAt || last.createdAt)}`
     : "尚未运行";
   const meta = [
     active ? "已启用" : "已暂停",
+    ap.webhookEnabled ? "Webhook" : "",
     cronPresetLabel(ap.cronExpression),
     ap.action === "workflow_run" ? `流程 ${ap.workflowId || "-"}` : `技能 ${ap.skill || "default"}`,
     shortPath(ap.projectDir),
@@ -4084,11 +4100,15 @@ function renderAutopilotCard(ap) {
   const runbook = String(ap.runbook || "").trim();
   const toggleLabel = active ? "暂停" : "启用";
   const toggleFn = active ? "pauseAutopilot" : "resumeAutopilot";
+  const webhookChip = ap.webhookEnabled
+    ? `<span class="log-meta-chip status-queued" title="Webhook 已启用">Webhook</span>`
+    : "";
   return `<div class="ap-card">
     <div class="ap-card-main">
       <div class="ap-card-name">
         <span>${esc(ap.name || ap.id)}</span>
         <span class="log-meta-chip${active ? " status-running" : ""}">${active ? "启用" : "暂停"}</span>
+        ${webhookChip}
       </div>
       <div class="ap-card-meta">${esc(meta)}</div>
       <div class="ap-card-meta">${esc(schedule)}</div>
@@ -4128,6 +4148,126 @@ function closeAutopilotEditor() {
   const mask = document.getElementById("autopilotEditMask");
   if (mask) mask.classList.remove("show");
   AUTOPILOT_EDIT_ID = "";
+  AUTOPILOT_EDIT_WEBHOOK = { url: "", secret: "", enabled: false };
+}
+
+function syncAutopilotWebhookDetails() {
+  const enabled = Boolean(document.getElementById("ap-ed-webhook-enabled")?.checked);
+  const details = document.getElementById("ap-ed-webhook-details");
+  if (details) details.hidden = !enabled || !AUTOPILOT_EDIT_ID;
+  const urlEl = document.getElementById("ap-ed-webhook-url");
+  const secretEl = document.getElementById("ap-ed-webhook-secret");
+  if (urlEl) urlEl.value = AUTOPILOT_EDIT_WEBHOOK.url || "";
+  if (secretEl) {
+    secretEl.value = AUTOPILOT_EDIT_WEBHOOK.secret || "";
+    secretEl.type = "password";
+  }
+  const rotateBtn = document.getElementById("ap-ed-webhook-rotate");
+  if (rotateBtn) rotateBtn.hidden = !AUTOPILOT_EDIT_ID;
+}
+
+function applyAutopilotWebhookFromApi(ap) {
+  AUTOPILOT_EDIT_WEBHOOK = {
+    url: String(ap?.webhookUrl || "").trim(),
+    secret:
+      ap?.webhookSecret && ap.webhookSecret !== "********"
+        ? String(ap.webhookSecret)
+        : AUTOPILOT_EDIT_WEBHOOK.secret || "",
+    enabled: Boolean(ap?.webhookEnabled),
+  };
+  const cb = document.getElementById("ap-ed-webhook-enabled");
+  if (cb) cb.checked = AUTOPILOT_EDIT_WEBHOOK.enabled;
+  syncAutopilotWebhookDetails();
+}
+
+function onAutopilotWebhookToggle() {
+  syncAutopilotWebhookDetails();
+}
+
+async function copyAutopilotWebhookUrl() {
+  const url = (document.getElementById("ap-ed-webhook-url")?.value || "").trim();
+  if (!url) return toast("请先保存并启用 Webhook");
+  try {
+    await navigator.clipboard.writeText(url);
+    toast("已复制 Webhook URL");
+  } catch {
+    toast("复制失败，请手动选择 URL");
+  }
+}
+
+function toggleAutopilotWebhookSecret() {
+  const el = document.getElementById("ap-ed-webhook-secret");
+  if (!el) return;
+  el.type = el.type === "password" ? "text" : "password";
+}
+
+function onAutopilotWebhookReadyMaskClick(e) {
+  if (e.target.id === "autopilotWebhookReadyMask") closeAutopilotWebhookReady();
+}
+
+function closeAutopilotWebhookReady() {
+  const mask = document.getElementById("autopilotWebhookReadyMask");
+  if (mask) mask.classList.remove("show");
+}
+
+function showAutopilotWebhookReady(ap, opts = {}) {
+  const url = String(ap?.webhookUrl || "").trim();
+  const secret = String(ap?.webhookSecret || "").trim();
+  if (!url || !secret || secret === "********") {
+    toast("Webhook 已保存，请在编辑页查看 URL");
+    return;
+  }
+  const title = document.getElementById("apWebhookReadyTitle");
+  const sub = document.getElementById("apWebhookReadySub");
+  if (title) title.textContent = opts.rotated ? "Webhook 已轮换" : "Webhook 已就绪";
+  if (sub) {
+    sub.textContent = opts.rotated
+      ? "旧 URL / 密钥已失效。请更新调用方配置，并先复制下方新凭证。"
+      : "请先复制 URL 与签名密钥，关闭后密钥默认掩码显示。";
+  }
+  const urlEl = document.getElementById("ap-wh-ready-url");
+  const secretEl = document.getElementById("ap-wh-ready-secret");
+  if (urlEl) urlEl.textContent = url;
+  if (secretEl) secretEl.textContent = secret;
+  AUTOPILOT_EDIT_WEBHOOK = {
+    url,
+    secret,
+    enabled: true,
+  };
+  const mask = document.getElementById("autopilotWebhookReadyMask");
+  if (mask) mask.classList.add("show");
+}
+
+async function copyAutopilotWebhookReady(kind) {
+  const el =
+    kind === "secret"
+      ? document.getElementById("ap-wh-ready-secret")
+      : document.getElementById("ap-wh-ready-url");
+  const text = (el?.textContent || "").trim();
+  if (!text) return toast("暂无可复制内容");
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(kind === "secret" ? "已复制签名密钥" : "已复制 Webhook URL");
+  } catch {
+    toast("复制失败，请手动选择文本");
+  }
+}
+
+async function rotateAutopilotWebhook() {
+  if (!AUTOPILOT_EDIT_ID) return toast("请先保存自动化");
+  if (!window.confirm("轮换后旧 URL / 签名将失效，确认继续？")) return;
+  try {
+    const ap = await api(`/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}/webhook/rotate`, {
+      method: "POST",
+      body: JSON.stringify({ rotateSecret: true }),
+    });
+    applyAutopilotWebhookFromApi(ap);
+    closeAutopilotEditor();
+    showAutopilotWebhookReady(ap, { rotated: true });
+    await loadAutopilotsPage();
+  } catch (e) {
+    toast(`轮换失败: ${e.message || e}`);
+  }
 }
 
 function onAutopilotActionChange() {
@@ -4223,10 +4363,13 @@ async function fillAutopilotEditorSelects(ap) {
 
 async function openAutopilotEditor(id) {
   AUTOPILOT_EDIT_ID = String(id || "").trim();
+  AUTOPILOT_EDIT_WEBHOOK = { url: "", secret: "", enabled: false };
   let ap = null;
   if (AUTOPILOT_EDIT_ID) {
     try {
-      ap = await api(`/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}`);
+      ap = await api(
+        `/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}?revealSecrets=1`,
+      );
     } catch (e) {
       toast(`加载失败: ${e.message || e}`);
       return;
@@ -4249,6 +4392,12 @@ async function openAutopilotEditor(id) {
   await fillAutopilotEditorSelects(ap);
   onAutopilotActionChange();
   onAutopilotPresetChange();
+  applyAutopilotWebhookFromApi(ap);
+  const webhookCb = document.getElementById("ap-ed-webhook-enabled");
+  if (webhookCb && !webhookCb.dataset.bound) {
+    webhookCb.addEventListener("change", onAutopilotWebhookToggle);
+    webhookCb.dataset.bound = "1";
+  }
   document.getElementById("autopilotEditMask").classList.add("show");
 }
 
@@ -4267,6 +4416,7 @@ async function saveAutopilotEditor() {
       ? (document.getElementById("ap-ed-cron").value || "").trim()
       : preset;
   if (!cronExpression) return toast("请填写 cron 表达式");
+  const webhookEnabled = Boolean(document.getElementById("ap-ed-webhook-enabled")?.checked);
   const body = {
     name,
     runbook: (document.getElementById("ap-ed-runbook").value || "").trim(),
@@ -4279,17 +4429,38 @@ async function saveAutopilotEditor() {
     agentProfileId: (document.getElementById("ap-ed-agent").value || "").trim(),
     titleTemplate: (document.getElementById("ap-ed-title").value || "").trim(),
     cronExpression,
+    webhookEnabled,
   };
   try {
+    let saved;
+    const creating = !AUTOPILOT_EDIT_ID;
+    const wasWebhookEnabled = Boolean(AUTOPILOT_EDIT_WEBHOOK.enabled);
     if (AUTOPILOT_EDIT_ID) {
-      await api(`/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}`, {
+      saved = await api(`/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}`, {
         method: "PUT",
         body: JSON.stringify(body),
       });
       toast("已保存");
     } else {
-      await api("/api/autopilots", { method: "POST", body: JSON.stringify(body) });
+      saved = await api("/api/autopilots", { method: "POST", body: JSON.stringify(body) });
+      AUTOPILOT_EDIT_ID = String(saved?.id || "").trim();
       toast("已创建");
+    }
+    if (webhookEnabled && AUTOPILOT_EDIT_ID) {
+      try {
+        saved = await api(
+          `/api/autopilots/${encodeURIComponent(AUTOPILOT_EDIT_ID)}?revealSecrets=1`,
+        );
+      } catch {
+        /* keep masked response */
+      }
+      const justEnabled = !wasWebhookEnabled;
+      closeAutopilotEditor();
+      await loadAutopilotsPage();
+      if (creating || justEnabled) {
+        showAutopilotWebhookReady(saved);
+      }
+      return;
     }
     closeAutopilotEditor();
     await loadAutopilotsPage();

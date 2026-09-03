@@ -7,6 +7,7 @@ import {
   clipTitle,
   newAgentId,
   newAutopilotRunId,
+  newAutopilotWebhookToken,
   newWorkItemEventId,
   newWorkItemId,
   normalizeIssueCode,
@@ -120,6 +121,9 @@ function rowToAutopilot(row: Record<string, unknown>): Autopilot {
     lastRunAt: Number(row.last_run_at ?? 0),
     concurrencyPolicy: (String(row.concurrency_policy ?? "skip") ||
       "skip") as AutopilotConcurrencyPolicy,
+    webhookEnabled: Boolean(Number(row.webhook_enabled ?? 0)),
+    webhookToken: String(row.webhook_token ?? ""),
+    webhookSecret: String(row.webhook_secret ?? ""),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
   };
@@ -333,9 +337,28 @@ export class AgentDeskDb {
       CREATE UNIQUE INDEX IF NOT EXISTS idx_autopilot_runs_plan
         ON autopilot_runs(autopilot_id, planned_at)
         WHERE planned_at > 0;
+
+      CREATE TABLE IF NOT EXISTS autopilot_webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        autopilot_id TEXT NOT NULL,
+        delivery_key TEXT NOT NULL,
+        run_id TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_ap_wh_delivery
+        ON autopilot_webhook_deliveries(autopilot_id, delivery_key);
     `);
+    this.ensureAutopilotColumn("webhook_enabled", "INTEGER DEFAULT 0");
+    this.ensureAutopilotColumn("webhook_token", "TEXT DEFAULT ''");
+    this.ensureAutopilotColumn("webhook_secret", "TEXT DEFAULT ''");
+    this.db.exec(
+      `CREATE UNIQUE INDEX IF NOT EXISTS idx_autopilots_webhook_token
+       ON autopilots(webhook_token) WHERE webhook_token != ''`,
+    );
     this.backfillWorkItemsFromTasks();
     this.ensureDefaultAgents();
+    this.ensureAutopilotWebhookTokens();
   }
 
   private ensureDefaultAgents(): void {
@@ -379,6 +402,26 @@ export class AgentDeskDb {
     const cols = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === name)) {
       this.db.exec(`ALTER TABLE tasks ADD COLUMN ${name} ${ddl}`);
+    }
+  }
+
+  private ensureAutopilotColumn(name: string, ddl: string): void {
+    const cols = this.db.prepare("PRAGMA table_info(autopilots)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === name)) {
+      this.db.exec(`ALTER TABLE autopilots ADD COLUMN ${name} ${ddl}`);
+    }
+  }
+
+  /** Existing rules get a webhook token so rotate/enable works without recreate. */
+  private ensureAutopilotWebhookTokens(): void {
+    const rows = this.db
+      .prepare(`SELECT id FROM autopilots WHERE webhook_token IS NULL OR webhook_token = ''`)
+      .all() as Array<{ id: string }>;
+    const upd = this.db.prepare(
+      `UPDATE autopilots SET webhook_token = @token, updated_at = @now WHERE id = @id AND (webhook_token IS NULL OR webhook_token = '')`,
+    );
+    for (const row of rows) {
+      upd.run({ id: row.id, token: newAutopilotWebhookToken(), now: Date.now() });
     }
   }
 
@@ -1086,11 +1129,15 @@ export class AgentDeskDb {
         `INSERT INTO autopilots (
           id, name, runbook, status, action, execution_mode, skill, workflow_id,
           project_dir, agent_profile_id, model, title_template, cron_expression,
-          timezone, next_run_at, last_run_at, concurrency_policy, created_at, updated_at
+          timezone, next_run_at, last_run_at, concurrency_policy,
+          webhook_enabled, webhook_token, webhook_secret,
+          created_at, updated_at
         ) VALUES (
           @id, @name, @runbook, @status, @action, @executionMode, @skill, @workflowId,
           @projectDir, @agentProfileId, @model, @titleTemplate, @cronExpression,
-          @timezone, @nextRunAt, @lastRunAt, @concurrencyPolicy, @createdAt, @updatedAt
+          @timezone, @nextRunAt, @lastRunAt, @concurrencyPolicy,
+          @webhookEnabled, @webhookToken, @webhookSecret,
+          @createdAt, @updatedAt
         )
         ON CONFLICT(id) DO UPDATE SET
           name=excluded.name, runbook=excluded.runbook, status=excluded.status,
@@ -1100,7 +1147,9 @@ export class AgentDeskDb {
           model=excluded.model, title_template=excluded.title_template,
           cron_expression=excluded.cron_expression, timezone=excluded.timezone,
           next_run_at=excluded.next_run_at, last_run_at=excluded.last_run_at,
-          concurrency_policy=excluded.concurrency_policy, updated_at=excluded.updated_at`,
+          concurrency_policy=excluded.concurrency_policy,
+          webhook_enabled=excluded.webhook_enabled, webhook_token=excluded.webhook_token,
+          webhook_secret=excluded.webhook_secret, updated_at=excluded.updated_at`,
       )
       .run({
         id: item.id,
@@ -1120,8 +1169,119 @@ export class AgentDeskDb {
         nextRunAt: item.nextRunAt,
         lastRunAt: item.lastRunAt,
         concurrencyPolicy: item.concurrencyPolicy,
+        webhookEnabled: item.webhookEnabled ? 1 : 0,
+        webhookToken: item.webhookToken || "",
+        webhookSecret: item.webhookSecret || "",
         createdAt: item.createdAt,
         updatedAt: item.updatedAt,
+      });
+  }
+
+  getAutopilotByWebhookToken(token: string): Autopilot | null {
+    const t = String(token || "").trim();
+    if (!t) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM autopilots
+         WHERE webhook_token = ? AND webhook_enabled = 1 AND status != 'archived'
+         LIMIT 1`,
+      )
+      .get(t) as Record<string, unknown> | undefined;
+    return row ? rowToAutopilot(row) : null;
+  }
+
+  findWebhookDelivery(autopilotId: string, deliveryKey: string): {
+    id: string;
+    autopilotId: string;
+    deliveryKey: string;
+    runId: string;
+    status: string;
+    createdAt: number;
+  } | null {
+    const key = String(deliveryKey || "").trim();
+    if (!key) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM autopilot_webhook_deliveries
+         WHERE autopilot_id = @autopilotId AND delivery_key = @deliveryKey
+         LIMIT 1`,
+      )
+      .get({ autopilotId, deliveryKey: key }) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      autopilotId: String(row.autopilot_id ?? ""),
+      deliveryKey: String(row.delivery_key ?? ""),
+      runId: String(row.run_id ?? ""),
+      status: String(row.status ?? ""),
+      createdAt: Number(row.created_at ?? 0),
+    };
+  }
+
+  /**
+   * Insert a delivery row. Returns null if the (autopilot, key) already exists.
+   */
+  tryInsertWebhookDelivery(input: {
+    autopilotId: string;
+    deliveryKey: string;
+    runId?: string;
+    status: string;
+  }): { id: string; duplicate: boolean } {
+    const deliveryKey = String(input.deliveryKey || "").trim();
+    if (!deliveryKey) {
+      const id = `wd_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+      this.db
+        .prepare(
+          `INSERT INTO autopilot_webhook_deliveries (
+            id, autopilot_id, delivery_key, run_id, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          id,
+          input.autopilotId,
+          `anon_${id}`,
+          input.runId || "",
+          input.status,
+          Date.now(),
+        );
+      return { id, duplicate: false };
+    }
+    const existing = this.findWebhookDelivery(input.autopilotId, deliveryKey);
+    if (existing) return { id: existing.id, duplicate: true };
+    const id = `wd_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO autopilot_webhook_deliveries (
+            id, autopilot_id, delivery_key, run_id, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, input.autopilotId, deliveryKey, input.runId || "", input.status, Date.now());
+      return { id, duplicate: false };
+    } catch {
+      const again = this.findWebhookDelivery(input.autopilotId, deliveryKey);
+      return { id: again?.id || id, duplicate: true };
+    }
+  }
+
+  updateWebhookDelivery(
+    id: string,
+    patch: { runId?: string; status?: string },
+  ): void {
+    const row = this.db
+      .prepare(`SELECT * FROM autopilot_webhook_deliveries WHERE id = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    if (!row) return;
+    this.db
+      .prepare(
+        `UPDATE autopilot_webhook_deliveries
+         SET run_id = @runId, status = @status
+         WHERE id = @id`,
+      )
+      .run({
+        id,
+        runId: patch.runId ?? String(row.run_id ?? ""),
+        status: patch.status ?? String(row.status ?? ""),
       });
   }
 

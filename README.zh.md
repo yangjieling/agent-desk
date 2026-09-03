@@ -19,7 +19,7 @@ agent-desk 是一个开源、**本地优先**的 AI 编码 Agent 编排框架。
 
 [English](README.md) | **简体中文**
 
-[架构](#架构) · [快速开始](#快速开始) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md) · [docs/security.md](docs/security.md)
+[架构](#架构) · [快速开始](#快速开始) · [自动化 Webhook](#自动化-webhook入站触发) · [docs/architecture.md](docs/architecture.md) · [docs/providers.md](docs/providers.md) · [docs/skills.md](docs/skills.md) · [docs/security.md](docs/security.md)
 
 ---
 
@@ -48,6 +48,7 @@ agent-desk 在本机用一个小型 harness 把这些 CLI 包起来：
 - **[工作流](templates/workflows/) →** `shared`（单会话多步骤）或 `independent`（并行子任务）。
 - **[技能](docs/skills.md) →** 发现、同步并在任务启动时注入 `SKILL.md` 与 `--add-dir` 挂载。
 - **Issue → 任务 →** GitHub Issues 提供方，缺陷列表 **AI 修复**，可选自动克隆工作区。
+- **[自动化](#自动化-webhook入站触发) →** cron 定时，或外部系统 Webhook 触发技能任务 / 流程（需 `oh web` 运行）。
 
 ## 保持知情。
 
@@ -145,6 +146,7 @@ agent --version && agent -p --trust --output-format text "say hi"
 | 本机 HTTP API（OpenAPI） | [schemas/openapi.yaml](schemas/openapi.yaml) · 运行时 `http://127.0.0.1:19877/api/docs` |
 | 任务运行界面 UI 优化 | [docs/task-session-ui.md](docs/task-session-ui.md) |
 | 总览 / 待办 / 缺陷 / 任务列表简化 | [docs/work-surfaces-ui.md](docs/work-surfaces-ui.md) |
+| 用 cron / Webhook 触发自动化 | [自动化 Webhook](#自动化-webhook入站触发) |
 | 查看任务状态与卡点 | 下文 [架构 → 任务生命周期](#架构) |
 | 配置环境变量 | [配置](#配置) |
 | 开发 monorepo | [开发](#开发) |
@@ -238,6 +240,54 @@ sequenceDiagram
 
 ---
 
+## 自动化 Webhook（入站触发）
+
+侧栏 **自动化** 可按 **cron** 定时跑技能任务或流程；也可开启 **Webhook**，让 CI / 告警等外部系统 HTTP 回调触发同一次 Runbook。
+
+与下方「通知 → Webhook」不同：通知是 **出站**（agent-desk → 你的 URL）；这里是 **入站**（外部 → agent-desk）。
+
+### 获取 URL 与密钥
+
+1. 保持 `oh web` 运行。
+2. **自动化** → 新建/编辑 → 勾选 **启用 Webhook 触发** → 保存。
+3. 保存后会弹出 **Webhook 已就绪** 窗口，可一键复制 **Webhook URL** 与 **签名密钥**（也可在编辑页再次查看 / 轮换）。
+
+URL 形态：
+
+```text
+{Web Base URL}/api/webhooks/autopilots/{token}
+```
+
+默认 Web Base URL 为 `http://127.0.0.1:19877`（设置 → 高级）。本机 curl 用 `127.0.0.1` 即可；局域网或公网回调须改成可达的 IP/域名，并相应修改 Web Base URL；默认 `AD_HOST=127.0.0.1` 时外网打不进来。
+
+暂停计划后 Webhook 仍可触发（未归档且已启用即可）。
+
+### 调用示例
+
+```bash
+WEBHOOK_URL='http://127.0.0.1:19877/api/webhooks/autopilots/awt_你的token'
+SECRET='aws_你的签名密钥'
+BODY='{"event":"ci_failed","job":"build"}'
+SIG=$(printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')
+
+curl -X POST "$WEBHOOK_URL" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: run-1" \
+  -H "X-Hub-Signature-256: sha256=$SIG" \
+  -d "$BODY"
+```
+
+| 项 | 含义 |
+|----|------|
+| URL 中的 `token` | 路径凭证（`awt_…`），启用时自动生成 |
+| `X-Hub-Signature-256` | 对 **原始 body** 的 HMAC-SHA256；启用 Webhook 后一般必填 |
+| `Idempotency-Key` 或 `X-GitHub-Delivery` | 幂等：相同 key 只真正跑一次，重复返回 `duplicate` |
+| JSON body | 任意；会附在 Runbook 后作为上下文交给 Agent |
+
+成功时响应大致含 `status`（`accepted` / `duplicate` / `skipped`）、`runId`、`taskId`。OpenAPI：`GET /api/docs`。
+
+---
+
 ## 配置
 
 Web **设置** 持久化到 `~/.agent-desk/agent-desk.db`。非空的 `AD_*` 环境变量会覆盖已存值。
@@ -264,6 +314,8 @@ Web **设置** 持久化到 `~/.agent-desk/agent-desk.db`。非空的 `AD_*` 环
 | `AD_CURSOR_MODEL` | Cursor 可选模型（`--model`） |
 
 ### 通知 — Webhook
+
+出站通知（卡点/任务完成时 POST 到你的 URL），**不是**自动化入站触发。入站见 [自动化 Webhook](#自动化-webhook入站触发)。
 
 | 变量 | 说明 |
 |----------|-------------|

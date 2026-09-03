@@ -22,6 +22,9 @@
     "nextRunAt": { "type": "integer" },
     "lastRunAt": { "type": "integer" },
     "concurrencyPolicy": { "enum": ["skip", "allow"] },
+    "webhookEnabled": { "type": "boolean", "default": false },
+    "webhookToken": { "type": "string", "description": "Public path credential (awt_…)" },
+    "webhookSecret": { "type": "string", "description": "HMAC secret for X-Hub-Signature-256" },
     "createdAt": { "type": "integer" },
     "updatedAt": { "type": "integer" }
   },

@@ -356,7 +356,7 @@
     </section>
 
     <section id="view-autopilots" style="display:none">
-      <p class="ap-page-hint">按 cron 定时创建技能任务或启动流程。需保持 <code>oh web</code> 运行；Webhook 与建 Issue 不在本阶段。</p>
+      <p class="ap-page-hint">按 cron 定时，或通过 Webhook 触发技能任务 / 流程。需保持 <code>oh web</code> 运行。</p>
       <div class="toolbar">
         <button class="btn-install" type="button" onclick="openAutopilotEditor()">新建自动化</button>
         <button class="btn-refresh" type="button" onclick="loadAutopilotsPage()">刷新</button>
@@ -1015,10 +1015,65 @@
         <input id="ap-ed-cron" type="text" placeholder="*/15 * * * *" maxlength="80" oninput="previewAutopilotCron()">
       </label>
       <p class="ap-cron-preview" id="ap-ed-cron-preview"></p>
+      <div class="ap-webhook-box">
+        <label class="wf-field ap-webhook-toggle">
+          <span>启用 Webhook 触发</span>
+          <input id="ap-ed-webhook-enabled" type="checkbox">
+        </label>
+        <p class="ap-webhook-hint">开启后可用 URL 入站触发（与 cron 独立；暂停计划仍可收 Webhook）。保存后会弹出凭证窗口，便于复制 URL 与签名密钥。</p>
+        <div id="ap-ed-webhook-details" class="ap-webhook-details" hidden>
+          <label class="wf-field">Webhook URL
+            <div class="ap-webhook-url-row">
+              <input id="ap-ed-webhook-url" type="text" readonly>
+              <button type="button" class="btn-outline" onclick="copyAutopilotWebhookUrl()">复制</button>
+            </div>
+          </label>
+          <label class="wf-field">签名密钥（X-Hub-Signature-256）
+            <div class="ap-webhook-url-row">
+              <input id="ap-ed-webhook-secret" type="password" readonly>
+              <button type="button" class="btn-outline" onclick="toggleAutopilotWebhookSecret()">显示</button>
+            </div>
+          </label>
+          <p class="ap-webhook-hint">请求头可带 <code>Idempotency-Key</code> 或 <code>X-GitHub-Delivery</code> 做幂等。</p>
+          <button type="button" class="btn-outline" id="ap-ed-webhook-rotate" onclick="rotateAutopilotWebhook()">轮换 Token / Secret</button>
+        </div>
+      </div>
     </div>
     <div class="dlg-foot wf-edit-foot">
       <button type="button" class="dlg-cancel" onclick="closeAutopilotEditor()">取消</button>
       <button type="button" class="dlg-ok" onclick="saveAutopilotEditor()">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="autopilotWebhookReadyMask" onclick="onAutopilotWebhookReadyMaskClick(event)">
+  <div class="modal ap-webhook-ready-modal" role="dialog" aria-modal="true" aria-labelledby="apWebhookReadyTitle" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div class="log-head-main">
+        <span class="mt" id="apWebhookReadyTitle">Webhook 已就绪</span>
+        <p class="ap-webhook-ready-sub" id="apWebhookReadySub">请先复制 URL 与签名密钥，关闭后密钥默认掩码显示。</p>
+      </div>
+      <button class="mc" type="button" onclick="closeAutopilotWebhookReady()" aria-label="关闭">×</button>
+    </div>
+    <div class="ap-webhook-ready-body">
+      <div class="ap-webhook-cred">
+        <div class="ap-webhook-cred-top">
+          <span class="ap-webhook-cred-label">Webhook URL</span>
+          <button type="button" class="ap-webhook-copy" onclick="copyAutopilotWebhookReady('url')">复制</button>
+        </div>
+        <code id="ap-wh-ready-url" class="ap-webhook-cred-value"></code>
+      </div>
+      <div class="ap-webhook-cred">
+        <div class="ap-webhook-cred-top">
+          <span class="ap-webhook-cred-label">签名密钥</span>
+          <button type="button" class="ap-webhook-copy" onclick="copyAutopilotWebhookReady('secret')">复制</button>
+        </div>
+        <code id="ap-wh-ready-secret" class="ap-webhook-cred-value"></code>
+      </div>
+      <p class="ap-webhook-ready-hint">外网回调请改「设置 → Web Base URL」，并保证 <code>oh web</code> 可达。</p>
+    </div>
+    <div class="dlg-foot wf-edit-foot">
+      <button type="button" class="dlg-ok" onclick="closeAutopilotWebhookReady()">完成</button>
     </div>
   </div>
 </div>

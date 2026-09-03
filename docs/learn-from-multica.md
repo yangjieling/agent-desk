@@ -52,7 +52,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 11 | 评论时间线作共享记忆 | 进度、决策、@派活挂在同一 Issue | 工作项事件流（备注 / 闸门决策 / 执行关联）；弹窗内展示 | **已有**（MVP） | 无 @派活与线程；闸门回复自动写入 |
 | 12 | Squads（队长路由） | Leader 读上下文 → `@` 派成员 → evaluation | workflow `independent` 可并行子任务，无「队长路由」语义 | **长期** | 先把 Agent 身份与触发做稳再引入 |
-| 13 | Autopilot | cron + Webhook + Runbook；建 Issue vs 仅运行 | 本地 cron 调度 + Runbook；技能任务 / 流程；「自动化」页 | **已有**（MVP） | 需 `oh web` 运行；无 Webhook；`create_work_item`≈建工作项 |
+| 13 | Autopilot | cron + Webhook + Runbook；建 Issue vs 仅运行 | cron + Webhook 入站 + Runbook；技能任务 / 流程；「自动化」页 | **已有**（MVP） | `POST /api/webhooks/autopilots/:token`；HMAC + 幂等；需 `oh web` |
 | 14 | 双向 Channel | IM 可触发/跟进 Agent，不只通知 | Webhook / 飞书 / 钉钉偏出站通知 | **已有**（通知）/ **长期**（入站触发） | 出站保持；入站需签名校验与幂等 |
 | 15 | Workspace + 角色 | 多工作区；owner/admin/member | 单用户本地 `~/.agent-desk` | **长期** | 本地优先下可先做「多 profile」而非完整 RBAC |
 
@@ -77,7 +77,7 @@
 1. **对象模型**：Agent 身份配置 → Issue/工作项 与 Task/执行 拆分（#2 → #1）。
 2. **执行底座**：队列 / 重试 / 并发与目录锁 / Runtime 探测（#6、#7、#10）；控制面/执行面 claim+心跳（#3 ✅）。
 3. **人机界面**：Inbox + 验收态；评论流承接闸门与决策（#5、#11）。
-4. **触发面**：Autopilot（cron/Webhook）（#13）。
+4. **触发面**：Autopilot（cron/Webhook）（#13 ✅）。
 5. **生态**：OpenAPI ✅ → GitLab Issues MVP ✅ → 更多 agent provider（#16）、Gitea/Forgejo（#19 长期）。
 6. **协作加深**：Squads、双向 IM、多 workspace（#12、#14、#15）。
 
@@ -157,13 +157,14 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | #13 Autopilot Webhook：`POST /api/webhooks/autopilots/:token`；X-Hub-Signature-256；Idempotency-Key / X-GitHub-Delivery 幂等；自动化页可启停/轮换 |
 | 2026-09-03 | #3 控制面/执行面分离 MVP：LocalExecutor claim + 心跳；`dispatched` 状态；`GET /api/executor`；HTTP 仅入队 |
 | 2026-09-03 | 工作面 UI：**W-1–W-5** 已落地（主线完成）；见 [work-surfaces-ui.md](./work-surfaces-ui.md) |
 | 2026-09-03 | #19 GitLab Issues MVP：`@agent-desk/provider-issue-gitlab`；设置页 / CLI / `/api/issues`；无自动 clone |
 | 2026-09-03 | 任务会话 UI：P0–P3 必做项已落地（含转录密度）；见 [task-session-ui.md](./task-session-ui.md) |
 | 2026-09-02 | #18 OpenAPI MVP：`schemas/openapi.yaml` 覆盖本机 Fastify API；`GET /openapi.yaml`、`/api/openapi.yaml`、`/api/docs`（Swagger UI） |
 | 2026-09-02 | #8/#9：Claude 用量 meta chip；`docs/security.md` 说明本地用户边界（不假装沙箱） |
-| 2026-09-02 | #13 Autopilot MVP：cron 调度、Runbook→技能任务/流程、自动化页、立即运行/暂停；无 Webhook |
+| 2026-09-02 | #13 Autopilot MVP：cron 调度、Runbook→技能任务/流程、自动化页、立即运行/暂停；Webhook 见 2026-09-03 |
 | 2026-09-02 | #5 `in_review` 验收态：WorkItem 交付后待验收；Inbox Accept/Reject；不再因任务完成自动关闭工作项 |
 | 2026-09-02 | #11 工作项评论/事件流 MVP：gate 决策自动写入、手动备注、工作项弹窗时间线 |
 | 2026-09-02 | #1 Issue ≠ Task MVP：WorkItem 表、`/api/work-items`、缺陷页工作项与执行时间线 |

@@ -287,6 +287,16 @@ export function newAutopilotRunId(): string {
   return `ar_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
 }
 
+/** Public webhook path token (URL credential). */
+export function newAutopilotWebhookToken(): string {
+  return `awt_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2, 10)}`;
+}
+
+/** HMAC signing secret for X-Hub-Signature-256. */
+export function newAutopilotWebhookSecret(): string {
+  return `aws_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2, 14)}`;
+}
+
 /** Normalize issue codes for lookup (#42 and 42 match). */
 export function normalizeIssueCode(code: string): string {
   return String(code || "")
