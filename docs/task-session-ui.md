@@ -1,6 +1,6 @@
 # 任务运行界面 UI 优化方案
 
-> 状态：**P0–P2 已落地**；**P1-1 活动流前置已补齐**；下一迭代做 **P3 转录密度**（按序实现，见下）  
+> 状态：**P0–P3 必做项已落地**（P3-1～P3-3）；可选 P3-4/5 视痛感，P3-6 投诉驱动  
 > 范围：任务列表分屏 + 右侧「任务会话」面板（`view-tasks-list` / `sessionPanel`）  
 > 目标：提升运行中可读性与等待态体验，强化 harness 差异化（闸门 + 执行日志），不照搬 Multica 布局。
 
@@ -33,9 +33,9 @@
 | 区域 | 文件 | 关键节点 |
 | --- | --- | --- |
 | 任务分屏 | `packages/ui/public/index.html` | `#taskSplit`, `.task-pane-list`, `.task-pane-session`, `#sessionEmpty` |
-| 会话面板 | 同上 | `#sessionPanel`, `#logScroll`, `#logTimeline`, `#logSessionFooter` / `#logThinking`, `#replyBox` |
-| 样式 | `packages/ui/public/app.css` | `.task-split.session-open`, `.log-session-footer`, `.log-item`, `.session-empty` |
-| 渲染逻辑 | `packages/ui/public/app.js` | `renderLogMeta`, `renderLogTimeline`, `updateLogActivityFooter`, `updateReplyComposerState` |
+| 会话面板 | 同上 | `#sessionPanel`, `#logOutcome`, `#logScroll`, `#logTimeline`, `#logSessionFooter` / `#logThinking`, `#replyBox` |
+| 样式 | `packages/ui/public/app.css` | `.task-split.session-open`, `.log-tool-row`, `.log-outcome`, `.log-session-footer`, `.session-empty` |
+| 渲染逻辑 | `packages/ui/public/app.js` | `renderLogMeta`, `renderLogTimeline`, `renderLogOutcome`, `updateLogActivityFooter` |
 | 时间轴解析 | `packages/ui/public/log-timeline.js` | `activity` / `tool` 条目 |
 
 ### 关键行为（P0–P2 后）
@@ -46,6 +46,7 @@
 4. **回复框**：`running` 时隐藏；`awaiting` / 可继续时显示闸门回复区。
 5. **分屏**：常驻左右栏；打开会话后 filters → `#taskFilterSelect`，列表行收窄；未选任务显示 `#sessionEmpty`。
 6. **启动活动流**：进入 `running` 即写入 runtime/prompt/cli activity；首 token 前底部与时间轴同步显示「启动… / 等待首条回复」。
+7. **转录密度**：工具为扁行；助手正文更紧；结束态显示 `#logOutcome`。
 
 ---
 
@@ -98,25 +99,18 @@
 
 ---
 
-### P3 — 转录密度（下一迭代 · 按序实现）
+### P3 — 转录密度（P3-1～P3-3 ✅ · 可选后置）
 
-> 对照 Multica **transcript / execution-log 的小交互**，不学其 Issue 布局、Chat 常驻输入、RunTimeline 双车道、Virtuoso。  
-> 实现时只动 `packages/ui/public/{app.css,app.js,index.html}`（必要时 `log-timeline.js`）；每项单独可验收、可回滚。
+> 对照 Multica **transcript / execution-log 的小交互**，不学其 Issue 布局、Chat 常驻输入、RunTimeline 双车道、Virtuoso。
 
-#### 建议落地顺序
-
-```
-P3-1 → P3-2 → P3-3 →（可选）P3-4 →（可选）P3-5 →（有投诉再做）P3-6
-```
-
-| # | 项 | 做法 | 涉及 | 验收 |
-| --- | --- | --- | --- | --- |
-| **P3-1** | **工具行扁化** | `.log-item.tool` 默认一行：工具名 + 可选短摘要；去掉厚暖色卡片感（浅底或无边框即可）。`details` 仍承载参数/输出，默认折叠。assistant / user / gate 保持现有卡片。 | `renderLogTimeline` tool 分支, `app.css` | 长工具序列时时间轴以扁行扫读，展开才占高 |
-| **P3-2** | **assistant 正文密度** | `.log-md` 标题继续降到 body 字重/字号；段间距略收（贴近 Multica `transcript-prose` 的 data-panel 节奏，不是文章页）。不改 markdown 解析器能力。 | `app.css` `.log-md*` | 助手长回复更紧、仍可读 |
-| **P3-3** | **终态摘要条** | `done` / `failed` / `stopped` 时，在时间轴顶部（或活动条位置）显示一行结果：成功简述 / 失败码+文案 / 已停止。失败码复用 `FAILURE_CODE_LABEL`；有用量 chip 时可附带一行（可选，不阻塞）。`running`/`awaiting` 不显示。 | `renderLogTask` / `updateLogActivityFooter` 或新 `#logOutcome`, `app.css` | 打开已结束任务，一眼看到结果再滚日志 |
-| **P3-4** | **连续 tool 折叠**（可选） | 相邻 `type===tool` 折叠为一条「N 次工具调用」分组行，点击展开为扁行列表。参考 Multica `groupSteps` 思路，手写轻量即可，不引入组件库。 | `renderLogTimeline` 或 `timelineForDisplay` 预处理 | 工具连打时默认折叠；展开后行为同 P3-1 |
-| **P3-5** | **轻量视图过滤**（可选） | 会话头或时间轴顶增加分段：`全部` / `仅助手` / `仅工具`（三态足够）。不做 Multica 式按工具种类多选 filter。过滤只影响展示，不改 `LOG_RESULT`。 | `index.html` + `renderLogTimeline` | 长运行可快速只看助手结论 |
-| **P3-6** | **跟滚抗抖动**（投诉驱动） | 现有 `nearBottom` 48px。仅当流式时出现「用户上滚仍被拽回」再加强：略增阈值，或记录用户上滚意图后暂停自动贴底直至回到底部。不移植 Multica stick-to-bottom 全套 latch。 | `app.js` scroll helpers | 上滚阅读历史时不被流式输出打断 |
+| # | 项 | 状态 | 备注 |
+| --- | --- | --- | --- |
+| P3-1 | 工具行扁化 | ✅ | `.log-tool-row`：名 + 短摘要；展开看参数 |
+| P3-2 | assistant 正文密度 | ✅ | `.log-md*` 标题降权、段间距收紧 |
+| P3-3 | 终态摘要条 | ✅ | `#logOutcome`：done / failed / stopped；完成可附用量 |
+| P3-4 | 连续 tool 折叠 | 可选 | 相邻 tool →「N 次工具调用」 |
+| P3-5 | 轻量视图过滤 | 可选 | `全部` / `仅助手` / `仅工具` |
+| P3-6 | 跟滚抗抖动 | 投诉驱动 | 上滚意图后暂停贴底 |
 
 #### P3 刻意不做
 
@@ -126,15 +120,6 @@ P3-1 → P3-2 → P3-3 →（可选）P3-4 →（可选）P3-5 →（有投诉�
 - Virtuoso / 虚拟列表（日志量未证明需要前不做）
 - 常驻 Chat 输入框、气泡左右分列
 - 换 shadcn / design token 皮肤
-
-#### P3 建议改动文件
-
-```
-packages/ui/public/app.css      # tool 扁行、log-md 间距、outcome 条
-packages/ui/public/app.js       # renderLogTimeline / outcome / group / filter / scroll
-packages/ui/public/index.html   # 可选：#logOutcome、过滤分段控件
-packages/ui/public/log-timeline.js  # 仅当分组需要稳定 tool id/时长时再动
-```
 
 ---
 
@@ -158,7 +143,7 @@ packages/ui/public/log-timeline.js  # 仅当分组需要稳定 tool id/时长时
 | Transcript 交互细节 | **P3 轻量吸收** | 密度 / 终态 / 可选分组过滤；不抄布局 |
 | UI 信息架构（learn-from-multica §UI） | **遵循** | 能力驱动改布局，不必照搬 Multica 菜单 |
 
-**建议节奏**：另一任务按 **P3-1 → P3-3** 先落地必做项；P3-4/5 视长任务痛感；P3-6 有投诉再做。对象模型继续跟 learn-from-multica #1 / #11。
+**建议节奏**：P3-1～P3-3 已落地；P3-4/5 视长任务痛感；P3-6 有投诉再做。对象模型继续跟 learn-from-multica #1 / #11。
 
 ---
 
@@ -179,6 +164,7 @@ packages/ui/public/log-timeline.js  # 仅当分组需要稳定 tool id/时长时
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | **P3-1～P3-3 落地**：工具扁行、assistant 正文密度、`#logOutcome` 终态摘要 |
 | 2026-09-03 | **P1-1 落地**：spawn 前写入启动 activity；解析 activity / `$` / workspace；等待首 token 时显示活动行 |
 | 2026-09-03 | 对齐 P0–P2 已落地现状；新增 **P3 转录密度** 按序补丁条目（工具扁化 → 正文密度 → 终态摘要 → 可选分组/过滤/跟滚） |
 | 2026-09-03 | **P2 落地**：常驻分栏 + 空态引导；会话打开收窄列表/筛选下拉/状态点；选中态与会话头联动；操作按钮宽屏文字标签 |

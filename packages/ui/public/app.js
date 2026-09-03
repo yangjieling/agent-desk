@@ -685,6 +685,77 @@ function renderLogBodyHtml(type, bodyText) {
   return esc(text);
 }
 
+function toolDetailPeek(detail) {
+  const raw = String(detail || "").trim();
+  if (!raw || raw === "(无参数)") return "";
+  try {
+    const obj = JSON.parse(raw);
+    if (obj && typeof obj === "object") {
+      for (const key of ["path", "file_path", "filePath", "command", "cmd", "query", "pattern", "url"]) {
+        const v = obj[key];
+        if (typeof v === "string" && v.trim()) {
+          const s = v.trim().replace(/\s+/g, " ");
+          return s.length > 64 ? `${s.slice(0, 63)}…` : s;
+        }
+      }
+    }
+  } catch {
+    /* plain text */
+  }
+  const s = raw.replace(/\s+/g, " ");
+  return s.length > 64 ? `${s.slice(0, 63)}…` : s;
+}
+
+function renderToolTimelineItem(it) {
+  const name = esc(it.toolName || it.text || "tool");
+  const detailRaw = String(it.detail || "");
+  const peek = esc(toolDetailPeek(detailRaw));
+  return `<div class="log-tool-row">
+    <details>
+      <summary>
+        <span class="log-tool-chev" aria-hidden="true"></span>
+        <span class="log-tool-name">${name}</span>
+        ${peek ? `<span class="log-tool-peek" title="${peek}">${peek}</span>` : ""}
+      </summary>
+      <pre>${esc(detailRaw) || "(无参数)"}</pre>
+    </details>
+  </div>`;
+}
+
+function renderLogOutcome(task) {
+  const el = document.getElementById("logOutcome");
+  if (!el) return;
+  const st = (task && task.status) || "";
+  if (!task || !["done", "failed", "stopped"].includes(st)) {
+    el.hidden = true;
+    el.innerHTML = "";
+    el.className = "log-outcome";
+    return;
+  }
+  let tone = "ok";
+  let title = "任务已完成";
+  let sub = "";
+  if (st === "failed") {
+    tone = "fail";
+    const code = String(tField(task, "failureCode", "failure_code") || "").trim();
+    title = FAILURE_CODE_LABEL[code] || code || "任务失败";
+    sub = failureFooterHint(task, true);
+  } else if (st === "stopped") {
+    tone = "stop";
+    title = "任务已停止";
+    sub = "可从标题栏继续会话";
+  } else {
+    const usage = formatTaskUsageChip(task.usage || extractUsageFromTaskResult(task));
+    if (usage) sub = usage.label;
+  }
+  el.hidden = false;
+  el.className = `log-outcome is-${tone}`;
+  el.innerHTML = `<div class="log-outcome-inner">
+    <span class="log-outcome-title">${esc(title)}</span>
+    ${sub ? `<span class="log-outcome-sub">${esc(sub)}</span>` : ""}
+  </div>`;
+}
+
 function renderLogTimeline(items) {
   const box = document.getElementById("logTimeline");
   if (!box) return;
@@ -729,17 +800,7 @@ function renderLogTimeline(items) {
           <span class="log-activity-text">${esc(it.text || "")}</span>
         </div>`;
       }
-      if (type === "tool") {
-        const name = esc(it.toolName || it.text || "tool");
-        const detail = esc(it.detail || "");
-        return `<div class="log-item tool">
-          <div class="li-head"><span class="li-role">工具</span></div>
-          <details>
-            <summary>${name}</summary>
-            <pre>${detail || "(无参数)"}</pre>
-          </details>
-        </div>`;
-      }
+      if (type === "tool") return renderToolTimelineItem(it);
       const role =
         type === "user" ? "你" : type === "gate" ? "闸门" : type === "system" ? "系统" : "助手";
       const bodyText =
@@ -2060,6 +2121,7 @@ async function renderLogTask(d, opts = {}) {
 
   const timeline = timelineForDisplay(raw, awaiting, d.prompt);
   updateLogActivityFooter(running, timeline, d);
+  renderLogOutcome(d);
 
   const sig = [
     d.status,
@@ -2233,6 +2295,7 @@ function showLog(id) {
     LOG_VIEW_MODE = "timeline";
     LOG_RAW_PIN_BOTTOM = true;
     clearLogWorkflowSteps();
+    renderLogOutcome(null);
     const input = document.getElementById("replyInput");
     if (input) {
       input.value = "";
@@ -2325,6 +2388,7 @@ function closeLog() {
   updateLogActivityFooter(false, []);
   closeLogStream();
   clearLogWorkflowSteps();
+  renderLogOutcome(null);
   renderLogTaskDetail(null);
   setSessionPanelVisible(false);
   applyLogViewMode();
