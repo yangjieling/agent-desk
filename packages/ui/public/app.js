@@ -709,9 +709,12 @@ function renderLogTimeline(items) {
     return;
   }
   const hasAssistant = list.some((it) => it.type === "assistant" && String(it.text || "").trim());
+  const hasRunningActivity = list.some((it) => it.type === "activity" && it.status === "running");
+  // Prefer live activity rows over the pulse skeleton once startup steps exist.
   const showPulse =
     LOG_TASK_STATUS === "running" &&
     !hasAssistant &&
+    !hasRunningActivity &&
     list.every((it) => it.type === "activity" || it.type === "user");
   box.innerHTML =
     list
@@ -804,6 +807,7 @@ function isExecCommandTimelineItem(it) {
 
 const NOISE_SYSTEM_LABELS = new Set(["init", "turn_end"]);
 const NOISE_ASSISTANT_RE = /^Reading additional input from stdin/i;
+const STARTUP_ACTIVITY_IDS = new Set(["runtime", "prompt", "cli", "await-token", "workspace"]);
 
 function isNoiseSystemTimelineItem(it) {
   if (it.type === "assistant" && NOISE_ASSISTANT_RE.test(String(it.text || "").trim())) return true;
@@ -811,6 +815,49 @@ function isNoiseSystemTimelineItem(it) {
   const text = String(it.text || "").trim();
   if (isExecCommandTimelineItem(it)) return true;
   return NOISE_SYSTEM_LABELS.has(text);
+}
+
+function hasAgentOutputInTimeline(items) {
+  return (items || []).some((it) => {
+    if (it.type === "assistant" && String(it.text || "").trim()) return true;
+    if (it.type === "tool") return true;
+    if (it.type === "activity" && !STARTUP_ACTIVITY_IDS.has(String(it.id || ""))) return true;
+    return false;
+  });
+}
+
+/** P1-1: keep a running step visible while waiting for the first model/tool output. */
+function enrichStartupActivities(items) {
+  const list = (items || []).map((it) =>
+    it && it.type === "activity" ? { ...it } : it,
+  );
+  const hasOutput = hasAgentOutputInTimeline(list);
+  if (LOG_TASK_STATUS === "running" && !hasOutput) {
+    const hasRunning = list.some((it) => it.type === "activity" && it.status === "running");
+    if (!hasRunning) {
+      list.push({
+        type: "activity",
+        id: "await-token",
+        text: "等待首条回复…",
+        status: "running",
+      });
+    }
+    return list;
+  }
+  for (const it of list) {
+    if (it.type !== "activity" || it.status !== "running") continue;
+    if (!STARTUP_ACTIVITY_IDS.has(String(it.id || ""))) continue;
+    it.status = "done";
+    if (it.id === "cli") {
+      it.text = String(it.text || "")
+        .replace(/…$/, "")
+        .replace(/^启动\s*/, "已启动 ")
+        .replace(/^续跑\s*/, "已续跑 ");
+    } else if (it.id === "await-token") {
+      it.text = "已收到首条输出";
+    }
+  }
+  return list;
 }
 
 function timelineForDisplay(raw, awaiting, prompt) {
@@ -825,7 +872,8 @@ function timelineForDisplay(raw, awaiting, prompt) {
     // Gate card owns the decision UI; drop trailing gate blobs from the stream.
     while (items.length && items[items.length - 1].type === "gate") items.pop();
   }
-  return items.filter((it) => !isNoiseSystemTimelineItem(it));
+  items = items.filter((it) => !isNoiseSystemTimelineItem(it));
+  return enrichStartupActivities(items);
 }
 
 function scrollLogToBottom(force) {
@@ -1623,9 +1671,7 @@ function startActivityTicker() {
   stopActivityTicker();
   LOG_ACTIVITY_TICKER = setInterval(() => {
     if (LOG_TASK_STATUS !== "running" || !LOG_ID) return;
-    const timeline = LOG_TIMELINE_PARSER
-      ? LOG_TIMELINE_PARSER.getItems().slice()
-      : timelineForDisplay(LOG_RESULT, false, "");
+    const timeline = timelineForDisplay(LOG_RESULT, false, "");
     const task = TASKS.find((t) => t.id === LOG_ID);
     updateLogActivityFooter(true, timeline, task);
   }, 1000);

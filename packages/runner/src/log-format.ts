@@ -32,6 +32,30 @@ export function formatCommandLogLine(cmd: string[]): string {
   return `${formatLogTimestamp()} $ ${formatCommandForLog(cmd)}\n\n`;
 }
 
+/** Structured startup / progress activity for the session timeline. */
+export function formatActivityLogLine(
+  id: string,
+  text: string,
+  status: "running" | "done" = "done",
+): string {
+  const payload = JSON.stringify({
+    type: "activity",
+    id: String(id || "activity"),
+    text: String(text || "").trim() || "…",
+    status,
+  });
+  return `${formatLogTimestamp()} ${payload}\n`;
+}
+
+/** Human-readable agent label for startup activities. */
+export function agentStartupLabel(agentId: string): string {
+  const id = String(agentId || "").toLowerCase();
+  if (id.includes("claude")) return "Claude";
+  if (id.includes("codex")) return "Codex";
+  if (id.includes("cursor")) return "Cursor";
+  return agentId || "Agent";
+}
+
 export interface LogLinePrefixer {
   append(chunk: string): string;
   flush(): string;

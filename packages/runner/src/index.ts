@@ -35,8 +35,10 @@ import { getNotifyProvider } from "@agent-desk/provider-notify";
 import { mountSkill } from "@agent-desk/skills";
 import {
   createLogLinePrefixer,
+  formatActivityLogLine,
   formatCommandLogLine,
   formatLogTimestamp,
+  agentStartupLabel,
 } from "./log-format.js";
 import { publishTaskUpdate } from "./task-events.js";
 import {
@@ -351,7 +353,11 @@ async function ensureTaskWorkspace(
     try {
       const restored = await restoreManagedAutoWorkspaceIfMissing(opts.dataDir, resolved);
       if (restored) {
-        const stamp = `\n\n${formatLogTimestamp()} [workspace] 已重新 clone ${restored.owner}/${restored.repo} → ${restored.projectDir}`;
+        const stamp = `\n\n${formatActivityLogLine(
+          "workspace",
+          `已重新 clone ${restored.owner}/${restored.repo} → ${restored.projectDir}`,
+          "done",
+        ).trimEnd()}`;
         const patch: Partial<Task> = {
           projectDir: restored.projectDir,
           result: current.result?.trim() ? `${current.result.trim()}${stamp}` : stamp.trimStart(),
@@ -482,12 +488,30 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       ? backend.buildResumeCommand({ ...execParams, sessionId: task.sessionId })
       : backend.buildExecCommand(execParams);
 
+    const agentLabel = agentStartupLabel(backend.displayName || backend.id || task.codingAgent || "");
+    let output = task.result ? `${task.result}\n` : "";
+    output += formatActivityLogLine("runtime", `${agentLabel} 运行时已就绪`, "done");
+    output += formatActivityLogLine(
+      "prompt",
+      task.sessionId ? "已准备续跑输入" : "已写入 prompt",
+      "done",
+    );
+    output += formatActivityLogLine(
+      "cli",
+      task.sessionId ? `续跑 ${agentLabel}…` : `启动 ${agentLabel}…`,
+      "running",
+    );
+    output += formatCommandLogLine(args);
+
     const runningTask = opts.db.updateTask(taskId, {
       status: "running",
       failureCode: "",
       failureMessage: "",
       nextRetryAt: 0,
+      result: output,
+      lastActivityAt: Date.now(),
     });
+    resetPublishedResultLen(taskId, output.length);
     notifyTaskUpdate(opts, runningTask ?? taskId, true);
 
     const child = spawn(args[0], args.slice(1), {
@@ -497,9 +521,6 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       env: process.env,
     });
 
-    let output = task.result ? `${task.result}\n` : "";
-    output += formatCommandLogLine(args);
-    resetPublishedResultLen(taskId, output.length);
     const linePrefixer = createLogLinePrefixer();
     const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
     let settled = false;

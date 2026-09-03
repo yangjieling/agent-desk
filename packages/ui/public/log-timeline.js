@@ -2,6 +2,7 @@
 (function (global) {
   const LOG_LINE_TS_RE = /^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d{3})?\] /;
   const CODEX_PLAIN_NOISE_RE = /^Reading additional input from stdin/i;
+  const STARTUP_ACTIVITY_IDS = new Set(["runtime", "prompt", "cli", "await-token", "workspace"]);
 
   function stripStoredLogPrefix(line) {
     return String(line || "").replace(LOG_LINE_TS_RE, "");
@@ -18,6 +19,15 @@
     const s = String(text || "").replace(/\s+/g, " ").trim();
     if (s.length <= max) return s;
     return `${s.slice(0, max - 1)}…`;
+  }
+
+  function agentNameFromCommand(command) {
+    const cmd = unwrapShellCommand(command).replace(/^\$\s+/, "");
+    const bin = (cmd.split(/\s+/)[0] || "").replace(/^.*\//, "");
+    if (/claude/i.test(bin)) return "Claude";
+    if (/codex/i.test(bin)) return "Codex";
+    if (/cursor|agent/i.test(bin)) return "Cursor";
+    return bin || "Agent";
   }
 
   function formatCommandActivity(command, running) {
@@ -110,6 +120,27 @@
     items.push(item);
   }
 
+  function markStartupActivitiesDone(activityById) {
+    for (const item of activityById.values()) {
+      if (item.status !== "running") continue;
+      if (!STARTUP_ACTIVITY_IDS.has(String(item.id || ""))) continue;
+      item.status = "done";
+      const text = String(item.text || "");
+      if (item.id === "cli") {
+        item.text = text
+          .replace(/…$/, "")
+          .replace(/^启动\s*/, "已启动 ")
+          .replace(/^续跑\s*/, "已续跑 ");
+      } else if (item.id === "await-token") {
+        item.text = "已收到首条输出";
+      }
+    }
+  }
+
+  function noteAgentOutputStarted(activityById) {
+    markStartupActivitiesDone(activityById);
+  }
+
   function parseCodexStreamEvent(evt, items, activityById) {
     const type = String(evt.type || "");
     if (type === "thread.started" || type === "turn.started" || type === "turn.completed") {
@@ -170,13 +201,24 @@
 
   function applyJsonEvent(evt, items, helpers, activityById) {
     const type = String(evt.type || "");
+    if (type === "activity") {
+      const id = jsonField(evt, ["id"]) || String(evt.text || "activity");
+      const text = String(evt.text || "").trim() || "…";
+      const status = evt.status === "running" ? "running" : "done";
+      pushOrUpdateActivity(items, activityById, id, text, status);
+      return;
+    }
     if (type === "assistant") {
       const content = evt.message && evt.message.content;
       const textPart = helpers.extractTextFromContent(content);
       const tools = helpers.extractToolsFromContent(content);
       const isPartial = "model_call_id" in evt;
-      if (textPart) pushTimelineItem(items, "assistant", textPart, isPartial ? { delta: true } : undefined);
+      if (textPart) {
+        noteAgentOutputStarted(activityById);
+        pushTimelineItem(items, "assistant", textPart, isPartial ? { delta: true } : undefined);
+      }
       for (const t of tools) {
+        noteAgentOutputStarted(activityById);
         pushTimelineItem(items, "tool", t.name, {
           toolName: t.name,
           detail: helpers.prettyJson(t.input),
@@ -185,6 +227,7 @@
       return;
     }
     if (type === "tool_call") {
+      noteAgentOutputStarted(activityById);
       const subtype = String(evt.subtype || "");
       const toolCall =
         typeof evt.tool_call === "object" && evt.tool_call ? evt.tool_call : null;
@@ -220,7 +263,10 @@
       if (!deltaText && typeof evt.delta === "object" && evt.delta) {
         deltaText = evt.delta.text ?? evt.delta.content;
       }
-      if (deltaText) pushTimelineItem(items, "assistant", String(deltaText), { delta: true });
+      if (deltaText) {
+        noteAgentOutputStarted(activityById);
+        pushTimelineItem(items, "assistant", String(deltaText), { delta: true });
+      }
       return;
     }
     if (type === "user") {
@@ -230,6 +276,7 @@
         ? content.filter((c) => c && c.type === "tool_result")
         : [];
       if (toolResults.length) {
+        noteAgentOutputStarted(activityById);
         for (const tr of toolResults) {
           const detail =
             typeof tr.content === "string" ? tr.content : helpers.prettyJson(tr.content ?? tr);
@@ -259,6 +306,7 @@
     }
     const codex = parseCodexStreamEvent(evt, items, activityById);
     if (codex?.kind === "assistant") {
+      noteAgentOutputStarted(activityById);
       pushTimelineItem(
         items,
         "assistant",
@@ -266,6 +314,7 @@
         codex.delta ? { delta: true } : { noMerge: true },
       );
     } else if (codex?.kind === "activity") {
+      noteAgentOutputStarted(activityById);
       pushOrUpdateActivity(items, activityById, codex.id, codex.text, codex.status);
     } else if (codex?.kind === "system") {
       pushTimelineItem(items, "system", codex.text);
@@ -294,6 +343,7 @@
         return;
       }
       if (CODEX_PLAIN_NOISE_RE.test(chunk)) return;
+      noteAgentOutputStarted(ctx.activityById);
       pushTimelineItem(ctx.items, "assistant", chunk);
     }
 
@@ -306,7 +356,22 @@
       const bare = stripStoredLogPrefix(trimmed);
       if (bare.startsWith("$ ")) {
         flushPlain();
-        pushTimelineItem(ctx.items, "system", bare);
+        const name = agentNameFromCommand(bare);
+        const existing = ctx.activityById.get("cli");
+        const status = existing && existing.status === "done" ? "done" : "running";
+        const text =
+          existing && existing.text
+            ? existing.text
+            : status === "running"
+              ? `启动 ${name}…`
+              : `已启动 ${name}`;
+        pushOrUpdateActivity(ctx.items, ctx.activityById, "cli", text, status);
+        return;
+      }
+      const wsMatch = bare.match(/^\[workspace\]\s*(.+)$/);
+      if (wsMatch) {
+        flushPlain();
+        pushOrUpdateActivity(ctx.items, ctx.activityById, "workspace", wsMatch[1].trim(), "done");
         return;
       }
       if (bare.startsWith("{") && bare.endsWith("}")) {
