@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-desk.dev/schemas/project.json",
+  "title": "Project",
+  "type": "object",
+  "required": ["id", "name", "projectDir", "createdAt", "updatedAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^p_" },
+    "name": { "type": "string", "maxLength": 80 },
+    "projectDir": { "type": "string" },
+    "repoUrl": { "type": "string" },
+    "createdAt": { "type": "integer" },
+    "updatedAt": { "type": "integer" }
+  },
+  "additionalProperties": false
+}

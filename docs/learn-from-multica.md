@@ -67,7 +67,7 @@
 | 18 | Public API + OpenAPI | 较完整的 public API | `schemas/openapi.yaml` + `GET /api/docs` / `/openapi.yaml` | **已有**（MVP） | 本地契约；无 PAT/OAuth/幂等账本 |
 | 19 | VCS 多后端 | GitHub / GitLab / Gitea / Forgejo | GitHub Issues ✅；GitLab Issues MVP ✅ | **已有**（GitLab MVP）/ **长期**（Gitea/Forgejo） | `provider-issue-gitlab`；无自动 clone |
 | 20 | Skills 工作区共享 | Skill 挂多 Agent；指令=身份、Skill=怎么做 | Skills 可同步；**Agent 绑默认技能 + 附加技能**；运行时一并挂载 | **已有**（MVP） | `AgentProfile.defaultSkill` + `skills[]`；任务页随 Agent 继承主技能 |
-| 21 | 项目与资源绑定 | Project 挂仓库/目录 | 任务选工作区目录；GitHub 可自动 clone | **已有**（弱）/ **可做 MVP** | 显式 Project 实体可选 |
+| 21 | 项目与资源绑定 | Project 挂仓库/目录 | **显式 Project**（名称 + 本地目录 + 可选 repo URL）；侧栏「项目」+ 工作区选择器「项目」页签 | **已有**（MVP） | 运行时仍写 `projectDir`；`repoUrl` 仅文档、无自动 clone |
 | 22 | 桌面端 / daemon UX | 打开即注册本机 Runtime | `oh web` + 浏览器 | **长期** | 产品成熟后再做 |
 
 ---
@@ -123,9 +123,10 @@
 | 近期 | 待办 / Inbox（#5） | 侧栏「待办」+ 角标，聚合闸门待确认与工作项待验收 ✅ |
 | 近期 | Issue ≠ Task（#1） | 「工作项详情 + 执行记录时间线」，而非单条 task 行塞一切 |
 | 中期 | Autopilot（#13） | 独立「自动化」列表 + Runbook 编辑，不硬塞进流程页 ✅ |
+| 近期 | Project（#21） | 侧栏「项目」+ 工作区选择器「项目」页签 ✅ |
 | 长期 | Runtime / daemon（#3 ✅ 本机 claim、#10） | 「本机运行时」状态页 + 执行器心跳；远程 daemon 仍属长期 |
 
-当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。总览偏「第二 Inbox」时可按 [work-surfaces-ui.md](./work-surfaces-ui.md) 瘦身，而不是改成 Multica 导航。
+当前侧栏在 harness 阶段仍合理；「项目 / 智能体 / 自动化 / 待办」已按能力逐步加入，不必为对齐 Multica 再塞「小队 / Chat」等空壳。
 
 任务运行会话区见 [task-session-ui.md](./task-session-ui.md)（**P0–P3 必做项已落地**；可选 P3-4/5 视痛感）。  
 总览 / 待办 / 缺陷 / 任务列表的对照与简化顺序见 [work-surfaces-ui.md](./work-surfaces-ui.md)。
@@ -157,6 +158,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | #21 Project MVP：侧栏「项目」CRUD；工作区选择器项目页签 / 存为项目；自动化可选项目填路径 |
 | 2026-09-03 | #20 Agent 绑定 Skills：`skills[]` 附加挂载；智能体页多选；任务页随 Agent 继承 `defaultSkill`；`mountSkills` |
 | 2026-09-03 | #4 分配 / @提及：`POST /api/work-items/:id/assign`；备注解析 `@Agent` / `mention://agent/…` 入队；同 Agent 进行中任务合流；工作项弹窗负责人选择 |
 | 2026-09-03 | #13 Autopilot Webhook：`POST /api/webhooks/autopilots/:token`；X-Hub-Signature-256；Idempotency-Key / X-GitHub-Delivery 幂等；自动化页可启停/轮换 |

@@ -18,6 +18,7 @@
   <div class="nav-group-label">配置</div>
   <div class="nav-item" data-view="workflows"><span class="ic">⛓</span>流程编排</div>
   <div class="nav-item" data-view="skills"><span class="ic">✦</span>技能</div>
+  <div class="nav-item" data-view="projects"><span class="ic">▤</span>项目</div>
   <div class="nav-item" data-view="agents"><span class="ic">◉</span>智能体</div>
   <div class="nav-item" data-view="settings"><span class="ic">⚙</span>设置</div>
 </aside>
@@ -328,6 +329,15 @@
         <button class="btn-install" onclick="syncSkills()">同步内置</button>
       </div>
       <div id="sk-list"></div>
+    </section>
+
+    <section id="view-projects" style="display:none">
+      <p class="ap-page-hint">把常用本地目录存成项目，新建任务 / 自动化时可一键选用（写入工作区路径，不强制绑定历史任务）。</p>
+      <div class="toolbar">
+        <button class="btn-install" type="button" onclick="openProjectEditor()">新建项目</button>
+        <button class="btn-refresh" type="button" onclick="loadProjectsPage()">刷新</button>
+      </div>
+      <div id="projectsPageList" class="projects-page-list"></div>
     </section>
 
     <section id="view-agents" style="display:none">
@@ -754,6 +764,7 @@
     <div class="ws-top">
       <div class="ws-tabs" role="tablist">
         <button type="button" class="ws-tab active" role="tab" data-tab="browse" onclick="setWsTab('browse')">浏览</button>
+        <button type="button" class="ws-tab" role="tab" data-tab="projects" onclick="setWsTab('projects')">项目</button>
         <button type="button" class="ws-tab" role="tab" data-tab="recent" onclick="setWsTab('recent')">最近</button>
       </div>
       <div class="ws-pathbar">
@@ -804,7 +815,10 @@
     </div>
     <div class="ws-foot">
       <div class="ws-selected" id="ws-selected" title="">未选择</div>
-      <button type="button" class="ws-confirm" id="wsConfirmBtn" onclick="fsSelectCurrent()">确认</button>
+      <div class="ws-foot-actions">
+        <button type="button" class="ws-pill" id="wsSaveProjectBtn" title="把当前目录存为项目" onclick="saveWorkspaceAsProject()">存为项目</button>
+        <button type="button" class="ws-confirm" id="wsConfirmBtn" onclick="fsSelectCurrent()">确认</button>
+      </div>
     </div>
   </div>
 </div>
@@ -817,6 +831,33 @@
     </div>
     <div class="skill-meta" id="skillMeta"></div>
     <pre class="modal-body skill-body" id="skillBody"></pre>
+  </div>
+</div>
+
+<div class="modal-mask" id="projectEditMask" onclick="onProjectEditMaskClick(event)">
+  <div class="modal wf-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑项目">
+    <div class="modal-head">
+      <span class="mt" id="projectEditTitle">新建项目</span>
+      <button class="mc" type="button" onclick="closeProjectEditor()">×</button>
+    </div>
+    <div class="wf-edit-body">
+      <label class="wf-field">名称
+        <input id="project-ed-name" type="text" placeholder="例如: agent-desk" maxlength="80">
+      </label>
+      <label class="wf-field">本地目录
+        <div class="project-ed-dir-row">
+          <input id="project-ed-dir" type="text" placeholder="/path/to/repo" maxlength="500">
+          <button type="button" class="btn-outline" onclick="pickProjectEditorDir()">浏览</button>
+        </div>
+      </label>
+      <label class="wf-field">仓库 URL（可选）
+        <input id="project-ed-repo" type="text" placeholder="https://github.com/org/repo" maxlength="500">
+      </label>
+    </div>
+    <div class="dlg-foot wf-edit-foot">
+      <button type="button" class="dlg-cancel" onclick="closeProjectEditor()">取消</button>
+      <button type="button" class="dlg-ok" onclick="saveProjectEditor()">保存</button>
+    </div>
   </div>
 </div>
 
@@ -1015,6 +1056,11 @@
           </select>
         </label>
       </div>
+      <label class="wf-field">工作区
+        <select id="ap-ed-project" onchange="onAutopilotProjectChange()">
+          <option value="">自定义路径…</option>
+        </select>
+      </label>
       <label class="wf-field">工作区目录
         <input id="ap-ed-dir" type="text" placeholder="/path/to/project" maxlength="500">
       </label>

@@ -52,6 +52,7 @@ shapes portable.
 - **[Skills](docs/skills.md) →** Discover, sync, and inject `SKILL.md` + `--add-dir` mounts at task start.
 - **Issue → task →** GitHub Issues provider, **AI 修复** from the defects list, optional auto workspace clone.
 - **Assign / @mention →** assign a work item to an Agent to enqueue a run; `@AgentName` in notes wakes without changing the assignee.
+- **Projects →** named local workspaces (directory + optional repo URL) for one-click pick in tasks / Autopilot.
 - **[Autopilot](#autopilot-webhook-inbound) →** cron schedules, or inbound webhooks from CI/alerts (requires `oh web` running).
 
 ## Stay in the loop.

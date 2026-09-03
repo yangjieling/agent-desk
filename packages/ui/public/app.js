@@ -130,6 +130,7 @@ const VIEW_TITLES = {
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
+  projects: ["项目", "命名本地工作区，任务与自动化可一键选用"],
   agents: ["智能体", "可命名的 Agent 配置：提供方、模型、技能与系统指令"],
   autopilots: ["自动化", "定时或 Webhook 触发任务 / 流程（需 oh web 保持运行）"],
   "tasks-new": ["新建任务", "创建技能任务或启动流程"],
@@ -2415,6 +2416,11 @@ const MODAL_DISMISS_LAYERS = [
     closeDropdownsInRoot: true,
   },
   {
+    id: "projectEditMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeProjectEditor(),
+  },
+  {
     id: "autopilotWebhookReadyMask",
     isOpen: (el) => !!el?.classList.contains("show"),
     close: () => closeAutopilotWebhookReady(),
@@ -2608,8 +2614,14 @@ function openWorkspacePicker(e, purpose) {
   if (!mask) return;
   mask.classList.add("show");
   if (btn) btn.setAttribute("aria-expanded", "true");
-  const preferBrowse = purpose && purpose.type === "workflow";
-  setWsTab(preferBrowse ? "browse" : loadRecentDirs().length ? "recent" : "browse");
+  const preferBrowse = purpose && (purpose.type === "workflow" || purpose.type === "project-editor");
+  void (async () => {
+    await loadProjectProfiles();
+    let tab = "browse";
+    if (!preferBrowse && PROJECT_PROFILES.length) tab = "projects";
+    else if (!preferBrowse && loadRecentDirs().length) tab = "recent";
+    setWsTab(tab);
+  })();
   const start = getTaskDir() || loadRecentDirs()[0] || "";
   loadFsBrowse(start);
   const filter = document.getElementById("ws-filter");
@@ -2632,15 +2644,18 @@ function onWsMaskClick(e) {
 }
 
 function setWsTab(tab) {
-  WS_TAB = tab === "recent" ? "recent" : "browse";
+  WS_TAB = tab === "recent" ? "recent" : tab === "projects" ? "projects" : "browse";
   document.querySelectorAll(".ws-tab").forEach((el) => {
     el.classList.toggle("active", el.dataset.tab === WS_TAB);
   });
   const toolbar = document.getElementById("wsBrowseToolbar");
   const filterWrap = document.getElementById("wsFilterWrap");
+  const saveBtn = document.getElementById("wsSaveProjectBtn");
   if (toolbar) toolbar.style.display = WS_TAB === "browse" ? "" : "none";
   if (filterWrap) filterWrap.style.display = WS_TAB === "browse" ? "" : "none";
+  if (saveBtn) saveBtn.style.display = WS_TAB === "projects" ? "none" : "";
   if (WS_TAB === "recent") renderRecentList();
+  else if (WS_TAB === "projects") void renderWorkspaceProjectsList();
   else renderFsList(FS_ENTRIES, false);
 }
 
@@ -2741,6 +2756,29 @@ function renderRecentList() {
     .join("");
 }
 
+async function renderWorkspaceProjectsList() {
+  const list = document.getElementById("t-fs-list");
+  if (!list) return;
+  list.innerHTML = '<div class="ws-empty">加载中…</div>';
+  await loadProjectProfiles();
+  if (!PROJECT_PROFILES.length) {
+    list.innerHTML =
+      '<div class="ws-empty">暂无项目<br><span class="dash-empty-hint">可在「项目」页新建，或在浏览/最近里点「存为项目」</span></div>';
+    syncWsSelected();
+    return;
+  }
+  list.innerHTML = PROJECT_PROFILES.map((p) => {
+    const dir = String(p.projectDir || "").trim();
+    const active = normalizeDirKey(dir) === normalizeDirKey(FS_BROWSER_PATH || getTaskDir());
+    return (
+      `<button type="button" class="ws-item${active ? " is-active" : ""}" data-path="${esc(dir)}" data-project="1">` +
+      `${folderSvg()}<span class="ws-item-meta"><span class="ws-item-name">${esc(p.name || basenameFromPath(dir))}</span>` +
+      `<span class="ws-item-sub" title="${esc(dir)}">${esc(shortProjectPath(dir) || dir)}</span></span>` +
+      `<span class="ws-item-chev">›</span></button>`
+    );
+  }).join("");
+}
+
 function bindFsListNav() {
   const list = document.getElementById("t-fs-list");
   if (!list || list.dataset.bound) return;
@@ -2750,7 +2788,7 @@ function bindFsListNav() {
     if (!btn) return;
     const p = btn.getAttribute("data-path") || "";
     if (!p) return;
-    if (WS_TAB === "recent") {
+    if (WS_TAB === "recent" || WS_TAB === "projects") {
       FS_BROWSER_PATH = p;
       syncWsSelected();
       void confirmWorkspacePath(p);
@@ -2835,14 +2873,25 @@ async function confirmWorkspacePath(path) {
   const dir = String(path || "").trim();
   if (!dir) return;
   const purpose = WS_PICK_PURPOSE;
-  setTaskDir(dir);
-  clearTaskDirErr();
   // Clear purpose before close so closeWorkspacePicker doesn't wipe mid-flight incorrectly
   WS_PICK_PURPOSE = null;
   const mask = document.getElementById("wsMask");
   const btn = document.getElementById("t-workspace-btn");
   if (mask) mask.classList.remove("show");
   if (btn) btn.setAttribute("aria-expanded", "false");
+
+  if (purpose && purpose.type === "project-editor") {
+    const dirInput = document.getElementById("project-ed-dir");
+    if (dirInput) dirInput.value = dir;
+    const nameInput = document.getElementById("project-ed-name");
+    if (nameInput && !(nameInput.value || "").trim()) {
+      nameInput.value = basenameFromPath(dir);
+    }
+    return;
+  }
+
+  setTaskDir(dir);
+  clearTaskDirErr();
 
   if (purpose && purpose.type === "workflow" && purpose.workflowId) {
     try {
@@ -2887,6 +2936,196 @@ function pushRecentDir(dir) {
   } catch {
     /* ignore */
   }
+}
+
+function normalizeDirKey(p) {
+  return String(p || "")
+    .trim()
+    .replace(/[/\\]+$/, "")
+    .toLowerCase();
+}
+
+function basenameFromPath(p) {
+  const s = String(p || "").replace(/[/\\]+$/, "");
+  const parts = s.split(/[/\\]/).filter(Boolean);
+  return parts[parts.length - 1] || s || "project";
+}
+
+let PROJECT_PROFILES = [];
+let PROJECT_EDIT = null;
+
+async function loadProjectProfiles() {
+  try {
+    PROJECT_PROFILES = await api("/api/projects");
+    if (!Array.isArray(PROJECT_PROFILES)) PROJECT_PROFILES = [];
+  } catch {
+    PROJECT_PROFILES = [];
+  }
+  return PROJECT_PROFILES;
+}
+
+function findProjectByDir(dir) {
+  const key = normalizeDirKey(dir);
+  if (!key) return null;
+  return PROJECT_PROFILES.find((p) => normalizeDirKey(p.projectDir) === key) || null;
+}
+
+async function saveWorkspaceAsProject() {
+  const dir = String(FS_BROWSER_PATH || getTaskDir() || "").trim();
+  if (!dir) return toast("请先选择或浏览到一个目录");
+  await loadProjectProfiles();
+  if (findProjectByDir(dir)) {
+    toast("该目录已是项目");
+    setWsTab("projects");
+    return;
+  }
+  const suggested = basenameFromPath(dir);
+  const name = (window.prompt("项目名称", suggested) || "").trim();
+  if (!name) return;
+  try {
+    await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ name, projectDir: dir }),
+    });
+    await loadProjectProfiles();
+    toast("已存为项目");
+    setWsTab("projects");
+  } catch (e) {
+    toast(`保存失败: ${e.message || e}`);
+  }
+}
+
+function onProjectEditMaskClick(e) {
+  onModalMaskClick(e, closeProjectEditor);
+}
+
+function closeProjectEditor() {
+  const mask = document.getElementById("projectEditMask");
+  if (mask) mask.classList.remove("show");
+  PROJECT_EDIT = null;
+}
+
+function pickProjectEditorDir() {
+  openWorkspacePicker(null, { type: "project-editor" });
+}
+
+async function openProjectEditor(id) {
+  await loadProjectProfiles();
+  const existing = id ? PROJECT_PROFILES.find((p) => p.id === id) : null;
+  PROJECT_EDIT = { id: existing?.id || "", isNew: !existing };
+  document.getElementById("projectEditTitle").textContent = existing ? "编辑项目" : "新建项目";
+  document.getElementById("project-ed-name").value = existing?.name || "";
+  document.getElementById("project-ed-dir").value = existing?.projectDir || getTaskDir() || "";
+  document.getElementById("project-ed-repo").value = existing?.repoUrl || "";
+  document.getElementById("projectEditMask").classList.add("show");
+}
+
+async function saveProjectEditor() {
+  if (!PROJECT_EDIT) return;
+  const name = (document.getElementById("project-ed-name").value || "").trim();
+  const projectDir = (document.getElementById("project-ed-dir").value || "").trim();
+  const repoUrl = (document.getElementById("project-ed-repo").value || "").trim();
+  if (!name) return toast("请填写项目名称");
+  if (!projectDir) return toast("请填写本地目录");
+  const body = { name, projectDir, repoUrl };
+  try {
+    if (PROJECT_EDIT.isNew) {
+      await api("/api/projects", { method: "POST", body: JSON.stringify(body) });
+    } else {
+      await api(`/api/projects/${encodeURIComponent(PROJECT_EDIT.id)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    }
+    toast("项目已保存");
+    closeProjectEditor();
+    await loadProjectsPage();
+  } catch (e) {
+    toast(`保存失败: ${e.message || e}`);
+  }
+}
+
+async function deleteProjectProfile(id) {
+  if (!id) return;
+  if (!confirm("确定删除这个项目？不会删除本地目录。")) return;
+  try {
+    await api(`/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" });
+    toast("已删除");
+    await loadProjectsPage();
+  } catch (e) {
+    toast(`删除失败: ${e.message || e}`);
+  }
+}
+
+function useProjectAsWorkspace(id) {
+  const p = PROJECT_PROFILES.find((x) => x.id === id);
+  if (!p?.projectDir) return toast("项目目录无效");
+  setTaskDir(p.projectDir);
+  clearTaskDirErr();
+  pushRecentDir(p.projectDir);
+  toast(`已选用「${p.name}」`);
+  switchView("tasks-new");
+}
+
+async function importRecentDirsAsProjects() {
+  const recent = loadRecentDirs();
+  if (!recent.length) return toast("暂无最近工作区");
+  await loadProjectProfiles();
+  let created = 0;
+  for (const dir of recent) {
+    if (findProjectByDir(dir)) continue;
+    try {
+      await api("/api/projects", {
+        method: "POST",
+        body: JSON.stringify({ name: basenameFromPath(dir), projectDir: dir }),
+      });
+      created += 1;
+    } catch {
+      /* skip */
+    }
+  }
+  await loadProjectProfiles();
+  await renderProjectsPageList();
+  toast(created ? `已导入 ${created} 个项目` : "最近目录均已是项目");
+}
+
+async function renderProjectsPageList() {
+  const box = document.getElementById("projectsPageList");
+  if (!box) return;
+  await loadProjectProfiles();
+  if (!PROJECT_PROFILES.length) {
+    const recentN = loadRecentDirs().length;
+    box.innerHTML =
+      `<div class="wf-empty">暂无项目。点击「新建项目」把常用目录存成书签。` +
+      (recentN
+        ? `<div style="margin-top:12px"><button type="button" class="btn-outline" onclick="importRecentDirsAsProjects()">从最近工作区导入 (${recentN})</button></div>`
+        : "") +
+      `</div>`;
+    return;
+  }
+  box.innerHTML = PROJECT_PROFILES.map((p, i) => {
+    const color = ICON_PALETTE[i % ICON_PALETTE.length];
+    const initial = esc((p.name || "?").trim().charAt(0) || "?");
+    const dir = String(p.projectDir || "");
+    const repo = String(p.repoUrl || "").trim();
+    return `<div class="project-card">
+      <div class="agent-card-icon" style="background:${color}">${initial}</div>
+      <div class="project-card-main">
+        <p class="project-card-name">${esc(p.name || "未命名")}</p>
+        <p class="project-card-dir" title="${esc(dir)}">${esc(dir)}</p>
+        ${repo ? `<p class="project-card-repo">${esc(repo)}</p>` : ""}
+      </div>
+      <div class="project-card-actions">
+        <button type="button" class="btn-outline" onclick="useProjectAsWorkspace('${esc(p.id)}')">选用</button>
+        <button type="button" class="btn-refresh" onclick="openProjectEditor('${esc(p.id)}')">编辑</button>
+        <button type="button" class="btn-stop" onclick="deleteProjectProfile('${esc(p.id)}')">删除</button>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+async function loadProjectsPage() {
+  await renderProjectsPageList();
 }
 
 function clearTaskDirErr() {
@@ -4317,6 +4556,7 @@ async function fillAutopilotEditorSelects(ap) {
   const skillSel = document.getElementById("ap-ed-skill");
   const wfSel = document.getElementById("ap-ed-workflow");
   const agentSel = document.getElementById("ap-ed-agent");
+  const projectSel = document.getElementById("ap-ed-project");
   if (skillSel) {
     let skills = [];
     try {
@@ -4360,6 +4600,27 @@ async function fillAutopilotEditorSelects(ap) {
         return `<option value="${esc(a.id)}"${a.id === cur ? " selected" : ""}>${esc(agentProfileLabel(a))}</option>`;
       }).join("");
   }
+  if (projectSel) {
+    await loadProjectProfiles();
+    const curDir = (ap && ap.projectDir) || document.getElementById("ap-ed-dir")?.value || "";
+    const matched = findProjectByDir(curDir);
+    projectSel.innerHTML =
+      `<option value="">自定义路径…</option>` +
+      PROJECT_PROFILES.map((p) => {
+        const selected = matched && matched.id === p.id;
+        return `<option value="${esc(p.id)}"${selected ? " selected" : ""}>${esc(p.name)} · ${esc(shortProjectPath(p.projectDir) || p.projectDir)}</option>`;
+      }).join("");
+  }
+}
+
+function onAutopilotProjectChange() {
+  const sel = document.getElementById("ap-ed-project");
+  const dirInput = document.getElementById("ap-ed-dir");
+  if (!sel || !dirInput) return;
+  const id = String(sel.value || "").trim();
+  if (!id) return;
+  const p = PROJECT_PROFILES.find((x) => x.id === id);
+  if (p?.projectDir) dirInput.value = p.projectDir;
 }
 
 async function openAutopilotEditor(id) {
@@ -6767,7 +7028,7 @@ function switchView(view, opts = {}) {
   if (view !== "inbox") stopInboxPolling();
   CURRENT_VIEW = view;
 
-  ["dashboard", "inbox", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "agents", "autopilots", "settings"].forEach((v) => {
+  ["dashboard", "inbox", "bugs", "tasks-list", "tasks-new", "workflows", "skills", "projects", "agents", "autopilots", "settings"].forEach((v) => {
     const el = document.getElementById(`view-${v}`);
     if (el) el.style.display = view === v ? "" : "none";
   });
@@ -6841,6 +7102,7 @@ function switchView(view, opts = {}) {
     if (view === "bugs") loadBugs({ resetPage: false });
     if (view === "workflows") loadWorkflows();
     if (view === "skills") loadSkills();
+    if (view === "projects") loadProjectsPage();
     if (view === "agents") loadAgentsPage();
     if (view === "autopilots") loadAutopilotsPage();
   }

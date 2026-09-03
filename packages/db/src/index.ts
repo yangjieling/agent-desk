@@ -21,6 +21,7 @@ import {
   type AutopilotRunSource,
   type AutopilotRunStatus,
   type AutopilotStatus,
+  type Project,
   type Settings,
   type Task,
   type TaskStatus,
@@ -100,6 +101,17 @@ function parseAgentSkillsJson(raw: unknown): string[] {
   } catch {
     return [];
   }
+}
+
+function rowToProject(row: Record<string, unknown>): Project {
+  return {
+    id: String(row.id),
+    name: String(row.name ?? ""),
+    projectDir: String(row.project_dir ?? ""),
+    repoUrl: String(row.repo_url ?? ""),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
 }
 
 function rowToAgent(row: Record<string, unknown>): AgentProfile {
@@ -270,6 +282,16 @@ export class AgentDeskDb {
         updated_at INTEGER NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_agents_updated ON agents(updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        project_dir TEXT NOT NULL,
+        repo_url TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC);
     `);
     this.ensureTaskColumn("model", "TEXT");
     this.ensureTaskColumn("agent_profile_id", "TEXT");
@@ -525,6 +547,47 @@ export class AgentDeskDb {
 
   deleteAgent(id: string): boolean {
     const r = this.db.prepare("DELETE FROM agents WHERE id = ?").run(id);
+    return r.changes > 0;
+  }
+
+  listProjects(limit = 200): Project[] {
+    const rows = this.db
+      .prepare("SELECT * FROM projects ORDER BY updated_at DESC LIMIT ?")
+      .all(limit) as Record<string, unknown>[];
+    return rows.map(rowToProject);
+  }
+
+  getProject(id: string): Project | null {
+    const row = this.db.prepare("SELECT * FROM projects WHERE id = ?").get(id) as
+      | Record<string, unknown>
+      | undefined;
+    return row ? rowToProject(row) : null;
+  }
+
+  upsertProject(item: Project): void {
+    this.db
+      .prepare(
+        `INSERT INTO projects (
+          id, name, project_dir, repo_url, created_at, updated_at
+        ) VALUES (
+          @id, @name, @projectDir, @repoUrl, @createdAt, @updatedAt
+        )
+        ON CONFLICT(id) DO UPDATE SET
+          name=excluded.name, project_dir=excluded.project_dir, repo_url=excluded.repo_url,
+          updated_at=excluded.updated_at`,
+      )
+      .run({
+        id: item.id,
+        name: item.name,
+        projectDir: item.projectDir,
+        repoUrl: item.repoUrl,
+        createdAt: item.createdAt,
+        updatedAt: item.updatedAt,
+      });
+  }
+
+  deleteProject(id: string): boolean {
+    const r = this.db.prepare("DELETE FROM projects WHERE id = ?").run(id);
     return r.changes > 0;
   }
 

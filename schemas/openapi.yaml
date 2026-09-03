@@ -26,6 +26,7 @@ tags:
   - name: Dashboard
   - name: Inbox
   - name: Agents
+  - name: Projects
   - name: Tasks
   - name: WorkItems
   - name: Workflows
@@ -374,6 +375,92 @@ paths:
       tags: [Agents]
       operationId: deleteAgent
       summary: Delete an agent profile
+      responses:
+        "200":
+          $ref: "#/components/responses/Ok"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List named local workspace projects
+      responses:
+        "200":
+          description: Projects
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Project"
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a project bookmark
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectWrite"
+      responses:
+        "200":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/Error"
+
+  /api/projects/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: "^p_"
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get one project
+      responses:
+        "200":
+          description: Project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "404":
+          $ref: "#/components/responses/Error"
+    put:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Update a project
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProjectWrite"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Project"
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    delete:
+      tags: [Projects]
+      operationId: deleteProject
+      summary: Delete a project bookmark
       responses:
         "200":
           $ref: "#/components/responses/Ok"
@@ -1673,6 +1760,37 @@ components:
           items:
             type: string
         instructions:
+          type: string
+
+    Project:
+      type: object
+      required: [id, name, projectDir, createdAt, updatedAt]
+      properties:
+        id:
+          type: string
+          pattern: "^p_"
+        name:
+          type: string
+          maxLength: 80
+        projectDir:
+          type: string
+          description: Absolute local workspace directory
+        repoUrl:
+          type: string
+          description: Optional repo URL (documentation; no auto-clone in MVP)
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+
+    ProjectWrite:
+      type: object
+      properties:
+        name:
+          type: string
+        projectDir:
+          type: string
+        repoUrl:
           type: string
 
     Task:

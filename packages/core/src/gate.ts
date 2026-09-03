@@ -297,6 +297,10 @@ export function newAutopilotWebhookSecret(): string {
   return `aws_${Date.now().toString(16)}_${Math.random().toString(16).slice(2)}${Math.random().toString(16).slice(2, 14)}`;
 }
 
+export function newProjectId(): string {
+  return `p_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+}
+
 /** Normalize issue codes for lookup (#42 and 42 match). */
 export function normalizeIssueCode(code: string): string {
   return String(code || "")

@@ -1819,6 +1819,7 @@
   .ws-empty { padding: 36px 16px; text-align: center; font-size: 13px; color: #9aa0a6; line-height: 1.5; }
   .ws-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px;
              padding: 12px 14px; border-top: 1px solid #f1f3f4; background: #fff; }
+  .ws-foot-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .ws-selected { flex: 1; min-width: 0; font-size: 12px; color: #80868b; white-space: nowrap;
                  overflow: hidden; text-overflow: ellipsis; }
   .ws-confirm { flex-shrink: 0; min-width: 88px; padding: 8px 18px; border: none; border-radius: 999px;
@@ -1826,6 +1827,29 @@
                 font-weight: 500; height: 36px; }
   .ws-confirm:hover { background: #202124; }
   .ws-confirm:disabled { opacity: .45; cursor: not-allowed; }
+  .ws-item-meta {
+    display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; text-align: left;
+  }
+  .ws-item-sub {
+    font-size: 11px; color: #9aa0a6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ws-item-del {
+    flex-shrink: 0; border: none; background: transparent; color: #9aa0a6; cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; font-size: 12px;
+  }
+  .ws-item-del:hover { color: #c0392b; background: #fdecea; }
+  .projects-page-list { display: flex; flex-direction: column; gap: 10px; }
+  .project-card {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; border: 1px solid #e8eaed; border-radius: 12px; background: #fff;
+  }
+  .project-card-main { min-width: 0; flex: 1; }
+  .project-card-name { margin: 0; font-size: 15px; font-weight: 600; color: #1f2329; }
+  .project-card-dir { margin: 4px 0 0; font-size: 12px; color: #5f6368; word-break: break-all; }
+  .project-card-repo { margin: 4px 0 0; font-size: 12px; color: #1a73e8; word-break: break-all; }
+  .project-card-actions { display: flex; gap: 8px; flex-shrink: 0; }
+  .project-ed-dir-row { display: flex; gap: 8px; align-items: center; }
+  .project-ed-dir-row input { flex: 1; min-width: 0; }
 
   /* 旧表单样式保留（设置页等） */
   .form-card { max-width: 720px; background: #fff; border: 1px solid #eceef1; border-radius: 12px; padding: 22px 24px; }

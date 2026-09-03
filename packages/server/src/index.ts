@@ -3,7 +3,7 @@ import fastifyStatic from "@fastify/static";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, newAutopilotWebhookSecret, newAutopilotWebhookToken, normalizeAgentSkills, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
+import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, newAutopilotWebhookSecret, newAutopilotWebhookToken, newProjectId, normalizeAgentSkills, parseGate, type AgentProfile, type Autopilot, type Project } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -696,6 +696,66 @@ export async function createServer(opts: ServerOptions = {}) {
       });
     }
     db.deleteAgent(current.id);
+    return { ok: true };
+  });
+
+  app.get("/api/projects", async () => db.listProjects(200));
+
+  app.get<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {
+    const item = db.getProject(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    return item;
+  });
+
+  app.post<{
+    Body: { name?: string; projectDir?: string; repoUrl?: string };
+  }>("/api/projects", async (req, reply) => {
+    const name = clipTitle(String(req.body?.name || "").trim(), "", 80);
+    const projectDirRaw = String(req.body?.projectDir || "").trim();
+    if (!name) return reply.code(400).send({ error: "name_required" });
+    if (!projectDirRaw) return reply.code(400).send({ error: "project_dir_required" });
+    const projectDir = path.resolve(projectDirRaw);
+    const now = Date.now();
+    const item: Project = {
+      id: newProjectId(),
+      name,
+      projectDir,
+      repoUrl: String(req.body?.repoUrl || "").trim().slice(0, 500),
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.upsertProject(item);
+    return item;
+  });
+
+  app.put<{
+    Params: { id: string };
+    Body: { name?: string; projectDir?: string; repoUrl?: string };
+  }>("/api/projects/:id", async (req, reply) => {
+    const current = db.getProject(req.params.id);
+    if (!current) return reply.code(404).send({ error: "not_found" });
+    const name = clipTitle(String(req.body?.name ?? current.name).trim(), current.name, 80);
+    if (!name) return reply.code(400).send({ error: "name_required" });
+    const dirRaw = String(req.body?.projectDir ?? current.projectDir).trim();
+    if (!dirRaw) return reply.code(400).send({ error: "project_dir_required" });
+    const item: Project = {
+      ...current,
+      name,
+      projectDir: path.resolve(dirRaw),
+      repoUrl:
+        req.body?.repoUrl !== undefined
+          ? String(req.body.repoUrl || "").trim().slice(0, 500)
+          : current.repoUrl,
+      updatedAt: Date.now(),
+    };
+    db.upsertProject(item);
+    return item;
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/projects/:id", async (req, reply) => {
+    const current = db.getProject(req.params.id);
+    if (!current) return reply.code(404).send({ error: "not_found" });
+    db.deleteProject(current.id);
     return { ok: true };
   });
 

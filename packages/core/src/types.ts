@@ -45,6 +45,18 @@ export interface AgentProfile {
   updatedAt: number;
 }
 
+/** Named local workspace bookmark (fills projectDir at create time). */
+export interface Project {
+  id: string;
+  name: string;
+  /** Absolute local directory. */
+  projectDir: string;
+  /** Optional git remote / repo URL (documentation only in MVP). */
+  repoUrl: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type WorkItemStatus = "open" | "in_progress" | "in_review" | "done" | "cancelled";
 
 export interface WorkItem {
