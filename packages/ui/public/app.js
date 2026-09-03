@@ -119,7 +119,7 @@ const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8
 
 const VIEW_TITLES = {
   dashboard: ["总览看板", "待办与运行态势；缺陷修复请到缺陷列表"],
-  inbox: ["待办", "闸门确认与工作项验收"],
+  inbox: ["待办", "需要你确认的闸门与验收"],
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
   skills: ["技能", "内置随 CLI 同步更新；用户自建可卸载"],
@@ -2380,6 +2380,11 @@ function isRawDrawerOpen() {
 /** Top-most first. Register new modal masks here for Escape dismiss. */
 const MODAL_DISMISS_LAYERS = [
   {
+    id: "rejectNoteMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeRejectNoteDialog(),
+  },
+  {
     id: "wfEditMask",
     isOpen: (el) => !!el?.classList.contains("show"),
     close: () => closeWorkflowEditor(),
@@ -2404,6 +2409,11 @@ const MODAL_DISMISS_LAYERS = [
     id: "wsMask",
     isOpen: (el) => !!el?.classList.contains("show"),
     close: () => closeWorkspacePicker(),
+  },
+  {
+    id: "workItemMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => closeWorkItemModal(),
   },
 ];
 
@@ -5181,22 +5191,88 @@ async function acceptWorkItemFromInbox(workItemId) {
   }
 }
 
-async function rejectWorkItemFromInbox(workItemId) {
+let REJECT_NOTE_WORK_ITEM_ID = "";
+/** @type {"inbox" | "modal" | ""} */
+let REJECT_NOTE_SOURCE = "";
+let REJECT_NOTE_SENDING = false;
+
+function openRejectNoteDialog(workItemId, source) {
   const id = String(workItemId || "").trim();
   if (!id) return;
-  const note = window.prompt("未通过原因（可选）", "") ?? null;
-  if (note === null) return;
+  REJECT_NOTE_WORK_ITEM_ID = id;
+  REJECT_NOTE_SOURCE = source === "modal" ? "modal" : "inbox";
+  REJECT_NOTE_SENDING = false;
+  const mask = document.getElementById("rejectNoteMask");
+  const input = document.getElementById("rejectNoteInput");
+  const btn = document.getElementById("rejectNoteConfirmBtn");
+  if (input) {
+    input.value = "";
+    input.disabled = false;
+  }
+  if (btn) btn.disabled = false;
+  if (mask) mask.classList.add("show");
+  setTimeout(() => input?.focus(), 0);
+}
+
+function closeRejectNoteDialog() {
+  const mask = document.getElementById("rejectNoteMask");
+  if (mask) mask.classList.remove("show");
+  REJECT_NOTE_WORK_ITEM_ID = "";
+  REJECT_NOTE_SOURCE = "";
+  REJECT_NOTE_SENDING = false;
+  const input = document.getElementById("rejectNoteInput");
+  const btn = document.getElementById("rejectNoteConfirmBtn");
+  if (input) input.disabled = false;
+  if (btn) btn.disabled = false;
+}
+
+function onRejectNoteMaskClick(e) {
+  onModalMaskClick(e, closeRejectNoteDialog);
+}
+
+function onRejectNoteKeyDown(e) {
+  if (e.key !== "Enter" || e.shiftKey) return;
+  if (typeof isImeComposingKeyEvent === "function" && isImeComposingKeyEvent(e)) return;
+  if (REJECT_NOTE_SENDING) return;
+  e.preventDefault();
+  void confirmRejectNoteDialog();
+}
+
+async function confirmRejectNoteDialog() {
+  const id = String(REJECT_NOTE_WORK_ITEM_ID || "").trim();
+  if (!id || REJECT_NOTE_SENDING) return;
+  const input = document.getElementById("rejectNoteInput");
+  const btn = document.getElementById("rejectNoteConfirmBtn");
+  const note = String(input?.value || "").trim();
+  const source = REJECT_NOTE_SOURCE;
+  REJECT_NOTE_SENDING = true;
+  if (input) input.disabled = true;
+  if (btn) btn.disabled = true;
   try {
     await api(`/api/work-items/${encodeURIComponent(id)}/reject`, {
       method: "POST",
-      body: JSON.stringify({ note: String(note || "").trim() }),
+      body: JSON.stringify({ note }),
     });
     toast("已标记未通过，工作项已重新打开");
-    await loadInbox(true);
-    if (typeof loadDashboard === "function" && CURRENT_VIEW === "dashboard") loadDashboard();
+    closeRejectNoteDialog();
+    if (source === "modal") {
+      const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+      renderWorkItemModal(data);
+      if (CURRENT_VIEW === "inbox") await loadInbox(true);
+    } else {
+      await loadInbox(true);
+      if (typeof loadDashboard === "function" && CURRENT_VIEW === "dashboard") loadDashboard();
+    }
   } catch (e) {
     toast(`操作失败: ${e.message || e}`);
+    REJECT_NOTE_SENDING = false;
+    if (input) input.disabled = false;
+    if (btn) btn.disabled = false;
   }
+}
+
+function rejectWorkItemFromInbox(workItemId) {
+  openRejectNoteDialog(workItemId, "inbox");
 }
 
 async function loadInbox(force) {
@@ -5216,14 +5292,14 @@ async function loadInbox(force) {
         const parts = [];
         if (gates) parts.push(`${gates} 项闸门确认`);
         if (reviews) parts.push(`${reviews} 项待验收`);
-        summary.innerHTML = `共有 <strong>${count}</strong> 项待你处理（${parts.join("，")}）。`;
+        summary.innerHTML = `共有 <strong>${count}</strong> 项待办（${parts.join("，")}）。`;
       } else {
-        summary.innerHTML = "暂无待办，所有任务均无需你立即操作。";
+        summary.innerHTML = "没有需要你确认的闸门或验收。";
       }
     }
     list.innerHTML = items.length
       ? items.map((item) => renderInboxItem(item)).join("")
-      : '<div class="inbox-empty"><div class="inbox-empty-icon">✓</div>暂无待办事项</div>';
+      : '<div class="inbox-empty"><div class="inbox-empty-icon">✓</div>没有需要你确认的闸门或验收</div>';
   } catch (e) {
     list.innerHTML = `<div class="inbox-empty">加载失败: ${esc(e.message || e)}</div>`;
   }
@@ -5582,22 +5658,8 @@ async function acceptWorkItemFromModal(workItemId) {
   }
 }
 
-async function rejectWorkItemFromModal(workItemId) {
-  const id = String(workItemId || WORK_ITEM_MODAL_ID || "").trim();
-  if (!id) return;
-  const note = window.prompt("未通过原因（可选）", "") ?? null;
-  if (note === null) return;
-  try {
-    await api(`/api/work-items/${encodeURIComponent(id)}/reject`, {
-      method: "POST",
-      body: JSON.stringify({ note: String(note || "").trim() }),
-    });
-    toast("已标记未通过，工作项已重新打开");
-    const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
-    renderWorkItemModal(data);
-  } catch (e) {
-    toast(`操作失败: ${e.message || e}`);
-  }
+function rejectWorkItemFromModal(workItemId) {
+  openRejectNoteDialog(workItemId || WORK_ITEM_MODAL_ID, "modal");
 }
 
 function renderWorkItemModal(data) {

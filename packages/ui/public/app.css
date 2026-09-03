@@ -432,6 +432,10 @@
                      font-size: 13px; cursor: pointer; }
   .dlg-cancel { background: #eef0f3; color: #1f2329; }
   .dlg-ok { background: #2f6feb; color: #fff; }
+  .dlg-ok:disabled, .dlg-cancel:disabled { opacity: .55; cursor: not-allowed; }
+  .dlg-ok-danger { background: #c0392b; }
+  .dlg-ok-danger:hover:not(:disabled) { background: #a93226; }
+  .dlg textarea { resize: vertical; min-height: 72px; line-height: 1.45; }
   .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
                 align-items: center; justify-content: center; z-index: 20; }
   .modal-mask.show { display: flex; }

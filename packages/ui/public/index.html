@@ -900,6 +900,21 @@
   </div>
 </div>
 
+<div class="dlg-mask" id="rejectNoteMask" onclick="onRejectNoteMaskClick(event)">
+  <div class="dlg" role="dialog" aria-modal="true" aria-labelledby="rejectNoteTitle" onclick="event.stopPropagation()">
+    <h3 id="rejectNoteTitle">标记未通过</h3>
+    <p class="dlg-sub">工作项将重新打开；原因会写入讨论时间线（可选）。</p>
+    <label for="rejectNoteInput">未通过原因</label>
+    <textarea id="rejectNoteInput" rows="3" maxlength="2000"
+      placeholder="可选：说明哪里未达预期…"
+      onkeydown="onRejectNoteKeyDown(event)"></textarea>
+    <div class="dlg-foot">
+      <button type="button" class="dlg-cancel" onclick="closeRejectNoteDialog()">取消</button>
+      <button type="button" class="dlg-ok dlg-ok-danger" id="rejectNoteConfirmBtn" onclick="confirmRejectNoteDialog()">确认未通过</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-mask" id="wfEditMask" onclick="onWfEditMaskClick(event)">
   <div class="modal wf-edit-modal" onclick="event.stopPropagation()" role="dialog" aria-modal="true" aria-label="编辑流程">
     <div class="modal-head">
