@@ -316,14 +316,14 @@ export async function createServer(opts: ServerOptions = {}) {
     const tasks = db.listTasks(300);
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const awaiting = tasks.filter((t) => t.status === "awaiting");
-    const active = tasks.filter((t) =>
-      t.status === "running" ||
-      t.status === "created" ||
-      t.status === "queued" ||
-      t.status === "preparing",
+    const active = tasks.filter(
+      (t) =>
+        t.status === "running" ||
+        t.status === "created" ||
+        t.status === "queued" ||
+        t.status === "preparing",
     );
     const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
-    const failedRecent = tasks.filter((t) => t.status === "failed").slice(0, 12);
     const inReview = db.listWorkItemsByStatus("in_review", 100);
 
     const summarize = (t: (typeof tasks)[number]) => ({
@@ -356,7 +356,6 @@ export async function createServer(opts: ServerOptions = {}) {
       inbox_count: awaiting.length + inReview.length,
       active_count: active.length,
       done_week_count: doneWeek.length,
-      failed_count: tasks.filter((t) => t.status === "failed").length,
       open_issue_count: openIssueCount,
       awaiting_tasks: awaiting.slice(0, 12).map(summarize),
       in_review_items: inReview.slice(0, 12).map((w) => ({
@@ -368,8 +367,6 @@ export async function createServer(opts: ServerOptions = {}) {
         updatedAt: w.updatedAt,
         lastActivityAt: w.lastActivityAt,
       })),
-      active_tasks: active.slice(0, 12).map(summarize),
-      failed_tasks: failedRecent.map(summarize),
     };
   });
 

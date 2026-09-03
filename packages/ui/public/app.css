@@ -400,24 +400,12 @@
   }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px;
            white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  .badge.NEW { background: #e7f0ff; color: #2f6feb; }
-  .badge.HANDLE { background: #fff4e5; color: #b8730a; }
-  .badge.REOPEN { background: #fde8e8; color: #c53030; }
   .badge.open { background: #e7f0ff; color: #2f6feb; }
   .badge.closed { background: #f0f1f2; color: #909399; }
   .badge.sev-critical, .badge.sev-high { background: #fdecea; color: #c0392b; }
   .badge.sev-medium { background: #fff4e5; color: #b8730a; }
   .badge.sev-low { background: #e6f4ea; color: #1e7e34; }
   .badge.sev-unknown { background: #f0f1f2; color: #909399; }
-  .badge.ls-none { background: #f0f1f2; color: #909399; }
-  .badge.ls-resolving { background: #e7f0ff; color: #2f6feb; }
-  .badge.ls-awaiting_info { background: #fff4e5; color: #b8730a; }
-  .badge.ls-resolved { background: #e6f4ea; color: #1e7e34; }
-  .badge.ls-failed { background: #fdecea; color: #c0392b; }
-  .badge.comp-ok { background: #e6f4ea; color: #1e7e34; }
-  .badge.comp-bad { background: #fde8e8; color: #c53030; }
-  .badge.comp-warn { background: #fff4e5; color: #b8730a; }
-  .badge.comp-none { background: #f0f1f2; color: #909399; }
   .bug-empty, .bug-loading { text-align: center; color: #9aa0a6; padding: 40px 0; }
   .bug-link-btn { border: none; background: none; padding: 0; font: inherit; color: #1a73e8; cursor: pointer; text-decoration: underline; }
   .bug-link-btn:hover { color: #1557b0; }

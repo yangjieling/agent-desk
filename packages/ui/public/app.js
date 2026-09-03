@@ -5903,7 +5903,10 @@ function renderBugs() {
       const code = esc(b.code || "");
       const codeAttr = esc(b.code || "").replace(/'/g, "\\'");
       const title = esc(b.title || "");
-      const labels = (b.labels || []).map((l) => esc(l)).join(", ");
+      const labelHint = (b.labels || []).filter(Boolean).join(", ");
+      const titleTip = esc(
+        [b.title || "", labelHint ? `标签: ${labelHint}` : ""].filter(Boolean).join(" · "),
+      );
       const when = esc(fmtTime(b.updatedAt));
       const url = (b.url || "").trim();
       const link = url
@@ -5921,7 +5924,6 @@ function renderBugs() {
       } else {
         ops += `<button type="button" class="btn-fix" data-code="${codeAttr}">AI 修复</button>`;
         if (execCount > 0) {
-          // Count already shown in「执行」; keep ops as a single-line pair of actions.
           ops += `<button type="button" class="btn-task" data-issue="${codeAttr}" title="查看关联工作项 (${execCount})">工作项</button>`;
         }
       }
@@ -5934,7 +5936,7 @@ function renderBugs() {
         `<td>${link}</td>` +
         `<td>${statusBadge(b.status)}</td>` +
         `<td>${severityBadge(b.severity)}</td>` +
-        `<td><div class="bug-title-row"><span class="bug-title" title="${title}">${title}</span>${liveChip}</div></td>` +
+        `<td><div class="bug-title-row"><span class="bug-title" title="${titleTip || title}">${title}</span>${liveChip}</div></td>` +
         `<td>${relatedCell}</td>` +
         `<td>${when}</td>` +
         `<td>${ops}</td>` +
