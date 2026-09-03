@@ -125,9 +125,10 @@
 | 中期 | Autopilot（#13） | 独立「自动化」列表 + Runbook 编辑，不硬塞进流程页 ✅ |
 | 长期 | Runtime / daemon（#3、#10） | 「本机运行时」状态页，类似 Multica 运行时但保持本地单用户 |
 
-当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。
+当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。总览偏「第二 Inbox」时可按 [work-surfaces-ui.md](./work-surfaces-ui.md) 瘦身，而不是改成 Multica 导航。
 
-任务运行会话区的 UI 优化方案见 [task-session-ui.md](./task-session-ui.md)（**P0–P3 必做项已落地**；可选 P3-4/5 视痛感）。
+任务运行会话区见 [task-session-ui.md](./task-session-ui.md)（**P0–P3 必做项已落地**；可选 P3-4/5 视痛感）。  
+总览 / 待办 / 缺陷 / 任务列表的对照与简化顺序见 [work-surfaces-ui.md](./work-surfaces-ui.md)。
 
 ### agent-desk UI 目标
 
@@ -156,6 +157,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | 工作面 UI：**W-1·W-2** 已落地；见 [work-surfaces-ui.md](./work-surfaces-ui.md) |
 | 2026-09-03 | #19 GitLab Issues MVP：`@agent-desk/provider-issue-gitlab`；设置页 / CLI / `/api/issues`；无自动 clone |
 | 2026-09-03 | 任务会话 UI：P0–P3 必做项已落地（含转录密度）；见 [task-session-ui.md](./task-session-ui.md) |
 | 2026-09-02 | #18 OpenAPI MVP：`schemas/openapi.yaml` 覆盖本机 Fastify API；`GET /openapi.yaml`、`/api/openapi.yaml`、`/api/docs`（Swagger UI） |

@@ -2,7 +2,8 @@
 const TITLE_MAX = 80;
 const PROMPT_MAX = 8000;
 const TASK_PAGE_SIZE = 15;
-const BOARD_PHASES = ["created", "preparing", "running", "awaiting"];
+/** queued / preparing / running / created — list filter「进行中」 */
+const ACTIVE_TASK_FILTER_STATUSES = new Set(["created", "preparing", "queued", "running"]);
 const URL_PARAMS = new URLSearchParams(location.search);
 let DEEP_LINK_REPLY = (URL_PARAMS.get("reply") || "").trim();
 let DEEP_LINK_REPLY_SENT = false;
@@ -79,6 +80,7 @@ let LOG_WF_CACHE = null;
 
 const STATUS_LABEL = {
   created: "待执行",
+  preparing: "准备中",
   queued: "排队中",
   running: "运行中",
   awaiting: "待确认",
@@ -116,7 +118,7 @@ const FAILURE_CODE_LABEL = {
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
 
 const VIEW_TITLES = {
-  dashboard: ["总览看板", "基于本地任务与缺陷源的实时概览"],
+  dashboard: ["总览看板", "待办与运行态势；缺陷修复请到缺陷列表"],
   inbox: ["待办", "闸门确认与工作项验收"],
   bugs: ["缺陷列表", "从 Issue Provider 拉取；支持 AI 修复并查看关联任务"],
   workflows: ["流程编排", "模板与运行记录；最近运行可跳转至任务"],
@@ -289,7 +291,7 @@ function isGroupExpanded(parentId, children) {
 
 function taskMatchesFilter(t) {
   if (TASK_FILTER === "all") return true;
-  if (TASK_FILTER === "preparing") return false;
+  if (TASK_FILTER === "active") return ACTIVE_TASK_FILTER_STATUSES.has(t.status || "");
   return (t.status || "") === TASK_FILTER;
 }
 
@@ -1199,8 +1201,22 @@ function countAwaitingTasks(tasks) {
   return (tasks || []).filter((t) => (t.status || "") === "awaiting").length;
 }
 
+function normalizeTaskFilter(filter) {
+  const next = String(filter || "all").trim() || "all";
+  // Legacy URL/deep-link values map into「进行中」.
+  if (
+    next === "running" ||
+    next === "created" ||
+    next === "queued" ||
+    next === "preparing"
+  ) {
+    return "active";
+  }
+  return next;
+}
+
 function setTaskFilter(filter, opts = {}) {
-  const next = filter || "all";
+  const next = normalizeTaskFilter(filter);
   TASK_FILTER = next;
   TASK_PAGE = 1;
   document.querySelectorAll("#taskFilters .chip").forEach((c) => {
@@ -1279,7 +1295,7 @@ function openWorkflowRunTask(taskId, status) {
   const st = String(status || "").trim();
   let filter;
   if (st === "awaiting") filter = "awaiting";
-  else if (st === "running") filter = "running";
+  else if (st === "running" || st === "created" || st === "queued" || st === "preparing") filter = "active";
   else if (st === "failed" || st === "stopped") filter = "failed";
   openTaskView(taskId, { filter });
 }
@@ -1384,24 +1400,6 @@ function taskIconBtn({ act, id, kind, label, disabled }) {
     `<button type="button" class="${cls}"${actAttr}${idAttr}` +
     ` title="${esc(label)}" aria-label="${esc(label)}"${dis}>` +
     `${taskIconSvg(kind)}</button>`
-  );
-}
-
-function renderKanbanCard(t) {
-  const id = esc(t.id || "");
-  const skill = esc(tField(t, "skill", "skill") || "default");
-  const isShared = isSharedWorkflow(t);
-  const isIndep = isIndependentWorkflow(t);
-  const childCount = isIndep ? TASKS.filter((x) => tField(x, "parentTaskId", "parent_task_id") === t.id).length : 0;
-  let typeTag = "";
-  if (isShared) typeTag = '<span class="tag tag-mode-shared">共享</span> ';
-  else if (isIndep) typeTag = '<span class="tag tag-mode-indep">独立</span> ';
-  const title = esc(t.title || tField(t, "skill", "skill") || "-");
-  const sub = childCount > 0 ? `<div class="kb-card-sub">${childCount} 个子步骤</div>` : "";
-  return (
-    `<div class="kb-card" data-act="log" data-id="${id}" title="查看日志 / 处理">` +
-    `<div class="kb-card-title">${title}</div>${typeTag}` +
-    `<span class="tag tag-skill ${skill}">${skill}</span>${sub}</div>`
   );
 }
 
@@ -1575,14 +1573,6 @@ function ensureWorkspaceExpandedForTask(taskId) {
 }
 
 function renderTasks() {
-  const boardTasks = uiRootTasks();
-  BOARD_PHASES.forEach((phase) => {
-    const box = document.getElementById(`kb-${phase}`);
-    if (!box) return;
-    const items = boardTasks.filter((t) => taskPhase(t) === phase);
-    box.innerHTML = items.length ? items.map(renderKanbanCard).join("") : '<div class="kb-empty">暂无</div>';
-  });
-
   const list = document.getElementById("task-list");
   if (!list) return;
   const allGroups = buildTaskGroups(TASKS).filter(groupMatchesFilter);
@@ -1619,19 +1609,6 @@ const taskFilterSelect = document.getElementById("taskFilterSelect");
 if (taskFilterSelect) {
   taskFilterSelect.addEventListener("change", () => {
     setTaskFilter(taskFilterSelect.value || "all");
-  });
-}
-
-const taskBoardToggle = document.getElementById("taskBoardToggle");
-if (taskBoardToggle) {
-  taskBoardToggle.addEventListener("click", () => {
-    document.getElementById("taskBoard")?.classList.toggle("collapsed");
-  });
-  taskBoardToggle.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      document.getElementById("taskBoard")?.classList.toggle("collapsed");
-    }
   });
 }
 
@@ -2251,9 +2228,6 @@ function setSessionPanelVisible(open) {
   if (view) view.classList.toggle("session-mode", onTasks);
   const split = document.querySelector("#view-tasks-list .task-split");
   if (split) split.classList.toggle("session-open", !!open);
-  const board = document.getElementById("taskBoard");
-  // With a task open: collapse board to free height for the session.
-  if (board) board.classList.toggle("collapsed", !!open);
   const main = document.querySelector(".main");
   if (main) main.classList.toggle("tasks-fill", onTasks);
   const inner = document.querySelector(".main-inner");
@@ -5292,38 +5266,6 @@ function renderDashTaskItem(t, actionLabel) {
   </div>`;
 }
 
-function renderDashIssueItem(i) {
-  const code = esc(i.code || "");
-  const title = esc(i.title || i.code || "-");
-  const sev = String(i.severity || "medium").toLowerCase();
-  const sevLabel = esc(i.severity || "medium");
-  const when = esc(fmtTime(i.updatedAt));
-  const codeAttr = esc(i.code || "").replace(/'/g, "\\'");
-  const related = relatedTaskForIssue(i.code);
-  const busy =
-    related && ["running", "awaiting", "created", "preparing", "queued"].includes(String(related.status || ""));
-  let ops = "";
-  if (busy) {
-    ops =
-      `<button type="button" class="btn-outline" disabled title="已有关联任务进行中">AI 修复</button>` +
-      `<button type="button" class="btn-outline" onclick="openWorkItemByIssue('${codeAttr}')">工作项</button>`;
-  } else {
-    ops = `<button type="button" class="btn-outline" onclick="startTaskFromIssue('${codeAttr}')">AI 修复</button>`;
-    const execCount = executionCountForIssue(i.code);
-    if (execCount > 0) {
-      ops += `<button type="button" class="btn-outline" onclick="openWorkItemByIssue('${codeAttr}')">工作项 (${execCount})</button>`;
-    }
-  }
-  return `<div class="dash-item">
-    <span class="badge sev-${esc(sev)}">${sevLabel}</span>
-    <div class="di-body">
-      <div class="di-title" title="${title}"><span class="bug-code">${code}</span> ${title}</div>
-      <div class="di-sub">${when}</div>
-    </div>
-    ${ops}
-  </div>`;
-}
-
 function normalizeIssueCode(code) {
   return String(code || "")
     .trim()
@@ -6042,18 +5984,12 @@ async function startTaskFromIssue(code) {
 
 async function loadDashboard(force) {
   const awaitingBox = document.getElementById("dash-awaiting-tasks");
-  const issuesBox = document.getElementById("dash-open-issues-list");
-  if (!awaitingBox || !issuesBox) return;
+  if (!awaitingBox) return;
   if (force) {
     awaitingBox.innerHTML = '<div class="dash-empty">加载中…</div>';
-    issuesBox.innerHTML = '<div class="dash-empty">加载中…</div>';
   }
   try {
-    const [d, tasks] = await Promise.all([
-      api("/api/dashboard"),
-      api("/api/tasks").catch(() => TASKS || []),
-    ]);
-    if (Array.isArray(tasks)) TASKS = tasks;
+    const d = await api("/api/dashboard");
     const setNum = (id, n) => {
       const el = document.getElementById(id);
       if (el) el.textContent = String(n ?? 0);
@@ -6063,14 +5999,6 @@ async function loadDashboard(force) {
     updateAwaitingNavBadge(d.inbox_count ?? ((d.awaiting_count || 0) + (d.in_review_count || 0)));
     setNum("dash-active", d.active_count);
     setNum("dash-done-week", d.done_week_count);
-
-    const openIssues = d.open_issues || [];
-    openIssues.forEach((i) => {
-      if (i && i.code) ISSUE_CACHE.set(String(i.code), i);
-    });
-    issuesBox.innerHTML = openIssues.length
-      ? openIssues.map((i) => renderDashIssueItem(i)).join("")
-      : '<div class="dash-empty">暂无开放缺陷</div>';
 
     const awaiting = d.awaiting_tasks || [];
     const reviews = d.in_review_items || [];
@@ -6101,10 +6029,9 @@ async function loadDashboard(force) {
     }
     awaitingBox.innerHTML = todoBits.length
       ? todoBits.join("")
-      : '<div class="dash-empty">暂无待办事项</div>';
+      : '<div class="dash-empty">没有需要你确认的闸门或验收<br><span class="dash-empty-hint">开放缺陷请到「缺陷列表」处理</span></div>';
   } catch (e) {
     awaitingBox.innerHTML = `<div class="dash-empty">加载失败: ${esc(e.message || e)}</div>`;
-    issuesBox.innerHTML = "";
   }
 }
 
@@ -6172,9 +6099,6 @@ function switchView(view, opts = {}) {
         || (!opts.resetFilter && u.searchParams.get("filter"))
         || "all";
       setTaskFilter(filterToApply, { syncUrl: false });
-      if (filterToApply === "awaiting" && !opts.taskId) {
-        document.getElementById("taskBoard")?.classList.remove("collapsed");
-      }
       const openTaskId = (opts.taskId || "").trim();
       loadTasks().then(() => {
         if (openTaskId) showLog(openTaskId);

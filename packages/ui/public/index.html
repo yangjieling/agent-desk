@@ -41,36 +41,35 @@
 
     <section id="view-dashboard">
       <div class="dash-stats">
-        <div class="dash-stat">
-          <p class="ds-label">开放缺陷</p>
-          <div class="ds-num red" id="dash-open-issues">-</div>
-        </div>
         <div class="dash-stat dash-stat-action" id="dash-awaiting-stat" role="button" tabindex="0"
           title="点击查看待办" onclick="goToInbox()"
           onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();goToInbox();}">
           <p class="ds-label">待办</p>
           <div class="ds-num blue" id="dash-awaiting">-</div>
         </div>
-        <div class="dash-stat">
+        <div class="dash-stat dash-stat-action" role="button" tabindex="0"
+          title="查看进行中的任务" onclick="switchView('tasks-list',{filter:'active'})"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('tasks-list',{filter:'active'});}">
           <p class="ds-label">进行中</p>
           <div class="ds-num blue" id="dash-active">-</div>
         </div>
-        <div class="dash-stat">
+        <div class="dash-stat dash-stat-action" role="button" tabindex="0"
+          title="打开缺陷列表" onclick="switchView('bugs')"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('bugs');}">
+          <p class="ds-label">开放缺陷</p>
+          <div class="ds-num red" id="dash-open-issues">-</div>
+        </div>
+        <div class="dash-stat dash-stat-action" role="button" tabindex="0"
+          title="查看本周已完成任务" onclick="switchView('tasks-list',{filter:'done'})"
+          onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchView('tasks-list',{filter:'done'});}">
           <p class="ds-label">本周完成</p>
           <div class="ds-num green" id="dash-done-week">-</div>
         </div>
       </div>
-      <div class="dash-cols">
+      <div class="dash-attention">
         <div class="dash-card">
           <div class="dc-head">
-            <h3 class="dc-title">开放缺陷</h3>
-            <span class="dc-link" onclick="switchView('bugs')">全部缺陷</span>
-          </div>
-          <div class="dash-card-body" id="dash-open-issues-list"></div>
-        </div>
-        <div class="dash-card">
-          <div class="dc-head">
-            <h3 class="dc-title">待办事项</h3>
+            <h3 class="dc-title">需要你处理</h3>
             <span class="dc-link" id="dash-awaiting-link" onclick="goToInbox()">查看待办</span>
           </div>
           <div class="dash-card-body" id="dash-awaiting-tasks"></div>
@@ -101,30 +100,6 @@
     </section>
 
     <section id="view-tasks-list" style="display:none">
-      <div class="task-sec task-board" id="taskBoard">
-        <div class="task-sec-head toggleable" id="taskBoardToggle" role="button" tabindex="0">
-          <span>任务看板</span>
-          <span class="chev" aria-hidden="true">▾</span>
-        </div>
-        <div class="task-board-body" id="taskBoardBody">
-          <div class="kb-col">
-            <div class="kb-col-title">待执行</div>
-            <div class="kb-cards" id="kb-created"></div>
-          </div>
-          <div class="kb-col">
-            <div class="kb-col-title">准备中</div>
-            <div class="kb-cards" id="kb-preparing"></div>
-          </div>
-          <div class="kb-col">
-            <div class="kb-col-title">运行中</div>
-            <div class="kb-cards" id="kb-running"></div>
-          </div>
-          <div class="kb-col">
-            <div class="kb-col-title">待确认</div>
-            <div class="kb-cards" id="kb-awaiting"></div>
-          </div>
-        </div>
-      </div>
       <div class="task-split" id="taskSplit">
         <aside class="task-pane-list">
           <div class="task-sec-head task-list-head">
@@ -132,23 +107,21 @@
             <div class="task-filters" id="taskFilters">
               <div class="task-filter-chips" id="taskFilterChips">
                 <button type="button" class="chip active" data-filter="all">全部</button>
-                <button type="button" class="chip" data-filter="created">待执行</button>
-                <button type="button" class="chip" data-filter="running">运行中</button>
-                <button type="button" class="chip" data-filter="queued">排队中</button>
+                <button type="button" class="chip" data-filter="active">进行中</button>
                 <button type="button" class="chip" data-filter="awaiting">待确认</button>
                 <button type="button" class="chip" data-filter="failed">失败</button>
                 <button type="button" class="chip" data-filter="done">已完成</button>
+                <button type="button" class="chip" data-filter="stopped">已停止</button>
               </div>
               <label class="task-filter-select-wrap">
                 <span class="sr-only">筛选状态</span>
                 <select id="taskFilterSelect" class="task-filter-select" aria-label="筛选任务状态">
                   <option value="all">全部</option>
-                  <option value="created">待执行</option>
-                  <option value="running">运行中</option>
-                  <option value="queued">排队中</option>
+                  <option value="active">进行中</option>
                   <option value="awaiting">待确认</option>
                   <option value="failed">失败</option>
                   <option value="done">已完成</option>
+                  <option value="stopped">已停止</option>
                 </select>
               </label>
             </div>

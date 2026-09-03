@@ -143,7 +143,8 @@ agent --version && agent -p --trust --output-format text "say hi"
 | 使用或编写技能 | [docs/skills.md](docs/skills.md) |
 | 对照 Multica 的学习清单 | [docs/learn-from-multica.md](docs/learn-from-multica.md) |
 | 本机 HTTP API（OpenAPI） | [schemas/openapi.yaml](schemas/openapi.yaml) · 运行时 `http://127.0.0.1:19877/api/docs` |
-| 任务运行界面 UI 优化（P0 已落地） | [docs/task-session-ui.md](docs/task-session-ui.md) |
+| 任务运行界面 UI 优化 | [docs/task-session-ui.md](docs/task-session-ui.md) |
+| 总览 / 待办 / 缺陷 / 任务列表简化 | [docs/work-surfaces-ui.md](docs/work-surfaces-ui.md) |
 | 查看任务状态与卡点 | 下文 [架构 → 任务生命周期](#架构) |
 | 配置环境变量 | [配置](#配置) |
 | 开发 monorepo | [开发](#开发) |

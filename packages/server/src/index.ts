@@ -316,7 +316,12 @@ export async function createServer(opts: ServerOptions = {}) {
     const tasks = db.listTasks(300);
     const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
     const awaiting = tasks.filter((t) => t.status === "awaiting");
-    const active = tasks.filter((t) => t.status === "running" || t.status === "created" || t.status === "queued");
+    const active = tasks.filter((t) =>
+      t.status === "running" ||
+      t.status === "created" ||
+      t.status === "queued" ||
+      t.status === "preparing",
+    );
     const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
     const failedRecent = tasks.filter((t) => t.status === "failed").slice(0, 12);
     const inReview = db.listWorkItemsByStatus("in_review", 100);
@@ -333,32 +338,14 @@ export async function createServer(opts: ServerOptions = {}) {
       lastActivityAt: t.lastActivityAt,
     });
 
-    let openIssues: Array<{
-      code: string;
-      title: string;
-      status: string;
-      severity: string;
-      projectDir: string;
-      url?: string;
-      updatedAt: number;
-    }> = [];
     let openIssueCount = 0;
     try {
       const issueProviderId = db.getSettings().providers.issue || "manual";
       const provider = getIssueProvider(issueProviderId);
+      // Count-only for overview; AI 修复 / 工作项入口在缺陷列表，不在总览重复。
       const issues = await provider.listIssues({ state: "open", limit: 30 });
       openIssueCount = issues.length;
-      openIssues = issues.slice(0, 12).map((i) => ({
-        code: i.code,
-        title: i.title,
-        status: i.status,
-        severity: i.severity,
-        projectDir: i.projectDir,
-        url: i.url,
-        updatedAt: i.updatedAt,
-      }));
     } catch {
-      openIssues = [];
       openIssueCount = 0;
     }
 
@@ -383,7 +370,6 @@ export async function createServer(opts: ServerOptions = {}) {
       })),
       active_tasks: active.slice(0, 12).map(summarize),
       failed_tasks: failedRecent.map(summarize),
-      open_issues: openIssues,
     };
   });
 
