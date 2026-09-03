@@ -130,19 +130,42 @@
           <div class="task-sec-head task-list-head">
             <span>任务列表</span>
             <div class="task-filters" id="taskFilters">
-              <button class="chip active" data-filter="all">全部</button>
-              <button class="chip" data-filter="created">待执行</button>
-              <button class="chip" data-filter="running">运行中</button>
-              <button class="chip" data-filter="queued">排队中</button>
-              <button class="chip" data-filter="awaiting">待确认</button>
-              <button class="chip" data-filter="failed">失败</button>
-              <button class="chip" data-filter="done">已完成</button>
+              <div class="task-filter-chips" id="taskFilterChips">
+                <button type="button" class="chip active" data-filter="all">全部</button>
+                <button type="button" class="chip" data-filter="created">待执行</button>
+                <button type="button" class="chip" data-filter="running">运行中</button>
+                <button type="button" class="chip" data-filter="queued">排队中</button>
+                <button type="button" class="chip" data-filter="awaiting">待确认</button>
+                <button type="button" class="chip" data-filter="failed">失败</button>
+                <button type="button" class="chip" data-filter="done">已完成</button>
+              </div>
+              <label class="task-filter-select-wrap">
+                <span class="sr-only">筛选状态</span>
+                <select id="taskFilterSelect" class="task-filter-select" aria-label="筛选任务状态">
+                  <option value="all">全部</option>
+                  <option value="created">待执行</option>
+                  <option value="running">运行中</option>
+                  <option value="queued">排队中</option>
+                  <option value="awaiting">待确认</option>
+                  <option value="failed">失败</option>
+                  <option value="done">已完成</option>
+                </select>
+              </label>
             </div>
           </div>
           <div id="task-list" class="task-rows"></div>
           <div class="task-pager" id="taskPager"></div>
         </aside>
         <div class="task-pane-session" id="taskSessionPane">
+          <div class="session-empty" id="sessionEmpty">
+            <div class="session-empty-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" width="28" height="28">
+                <path d="M8 6h11M8 12h11M8 18h7M4.5 6h.01M4.5 12h.01M4.5 18h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="session-empty-title">选择左侧任务查看执行</div>
+            <div class="session-empty-sub">运行日志、闸门确认与回复都在这里</div>
+          </div>
           <div class="session-panel" id="sessionPanel" hidden>
             <div class="modal-head session-head">
               <div class="log-head-main">
@@ -151,24 +174,28 @@
                 <span class="log-live-badge" id="logLiveBadge" hidden>实时</span>
               </div>
               <div class="log-head-actions">
-                <button type="button" class="log-icon-btn" id="logViewToggle"
+                <button type="button" class="log-icon-btn log-btn-labeled" id="logViewToggle"
                   title="原始" aria-label="原始" onclick="toggleLogView()">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M9 7.5L5.5 12 9 16.5M15 7.5L18.5 12 15 16.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
                   </svg>
+                  <span class="log-btn-text">原始</span>
                 </button>
-                <button type="button" class="log-icon-btn log-icon-stop" id="logStopBtn" style="display:none"
+                <button type="button" class="log-icon-btn log-icon-stop log-btn-labeled" id="logStopBtn" style="display:none"
                   title="停止" aria-label="停止" onclick="stopTask(LOG_ID)">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
+                  <span class="log-btn-text">停止</span>
                 </button>
-                <button type="button" class="log-icon-btn log-icon-play" id="logContinueBtn" style="display:none"
+                <button type="button" class="log-icon-btn log-icon-play log-btn-labeled" id="logContinueBtn" style="display:none"
                   title="继续" aria-label="继续" onclick="continueTask(LOG_ID)">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 6.5v11l10-5.5L8 6.5z" fill="currentColor"/></svg>
+                  <span class="log-btn-text" id="logContinueBtnText">继续</span>
                 </button>
-                <button type="button" class="log-icon-btn" title="关闭会话" aria-label="关闭会话" onclick="closeLog()">
+                <button type="button" class="log-icon-btn log-btn-labeled" title="关闭会话" aria-label="关闭会话" onclick="closeLog()">
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M7 7l10 10M17 7L7 17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
                   </svg>
+                  <span class="log-btn-text">关闭</span>
                 </button>
               </div>
             </div>

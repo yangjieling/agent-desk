@@ -1097,6 +1097,8 @@ function setTaskFilter(filter, opts = {}) {
   document.querySelectorAll("#taskFilters .chip").forEach((c) => {
     c.classList.toggle("active", (c.dataset.filter || "all") === next);
   });
+  const sel = document.getElementById("taskFilterSelect");
+  if (sel && sel.value !== next) sel.value = next;
   if (opts.syncUrl !== false && CURRENT_VIEW === "tasks-list") {
     const u = new URL(location.href);
     if (next === "all") u.searchParams.delete("filter");
@@ -1354,12 +1356,13 @@ function renderListRow(t, opts = {}) {
   const tagClass = isChild ? "tag tag-step" : `tag tag-skill ${skill}`;
   const selected = LOG_ID && String(t.id) === String(LOG_ID);
   const rowClass = `task-row${isChild ? " task-row-child" : hasChildren ? " task-row-parent" : ""}${selected ? " selected" : ""}`;
+  const phase = esc(taskPhase(t));
   return (
     `<div class="${rowClass}" data-task-id="${id}">` +
     `<div class="tr-tag">${expandBtn}${modeTag}<span class="${tagClass}">${skillLabel}</span></div>` +
     `<div class="tr-main"><div class="tr-title" title="${title}">${title}</div>` +
     `<div class="tr-meta">${metaParts.join(" · ")}</div></div>` +
-    `<div class="tr-status">${phaseLabel}</div>` +
+    `<div class="tr-status" data-status="${phase}" title="${phaseLabel}">${phaseLabel}</div>` +
     `<div class="tr-actions">${ops}</div></div>`
   );
 }
@@ -1502,6 +1505,13 @@ document.getElementById("taskFilters").addEventListener("click", (e) => {
   if (!btn) return;
   setTaskFilter(btn.dataset.filter || "all");
 });
+
+const taskFilterSelect = document.getElementById("taskFilterSelect");
+if (taskFilterSelect) {
+  taskFilterSelect.addEventListener("change", () => {
+    setTaskFilter(taskFilterSelect.value || "all");
+  });
+}
 
 const taskBoardToggle = document.getElementById("taskBoardToggle");
 if (taskBoardToggle) {
@@ -2066,15 +2076,12 @@ async function renderLogTask(d, opts = {}) {
       const showCont = !running && canContinueTask(d) && !awaiting && !showStart;
       contBtn.style.display = showStart || showCont ? "" : "none";
       contBtn.disabled = LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING;
-      if (showStart) {
-        contBtn.title = d.status === "failed" ? "重试" : "运行";
-        contBtn.setAttribute("aria-label", contBtn.title);
-        contBtn.onclick = () => runTask(LOG_ID);
-      } else {
-        contBtn.title = "继续";
-        contBtn.setAttribute("aria-label", "继续");
-        contBtn.onclick = () => continueTask(LOG_ID);
-      }
+      const contLabel = showStart ? (d.status === "failed" ? "重试" : "运行") : "继续";
+      contBtn.title = contLabel;
+      contBtn.setAttribute("aria-label", contLabel);
+      const contText = document.getElementById("logContinueBtnText");
+      if (contText) contText.textContent = contLabel;
+      contBtn.onclick = showStart ? () => runTask(LOG_ID) : () => continueTask(LOG_ID);
     }
 
     const canChat = !running && ["awaiting", "done", "failed", "stopped", "created"].includes(d.status);
@@ -2130,19 +2137,26 @@ async function pollLog() {
 }
 
 function setSessionPanelVisible(open) {
+  const onTasks = CURRENT_VIEW === "tasks-list";
   const view = document.getElementById("view-tasks-list");
-  if (view) view.classList.toggle("session-mode", !!open);
+  // Always fill-height on tasks page so the empty right pane stays usable.
+  if (view) view.classList.toggle("session-mode", onTasks);
   const split = document.querySelector("#view-tasks-list .task-split");
   if (split) split.classList.toggle("session-open", !!open);
   const board = document.getElementById("taskBoard");
-  // Split mode: collapse board by default; browse mode: expand again.
+  // With a task open: collapse board to free height for the session.
   if (board) board.classList.toggle("collapsed", !!open);
   const main = document.querySelector(".main");
-  if (main) main.classList.toggle("tasks-fill", !!open && CURRENT_VIEW === "tasks-list");
+  if (main) main.classList.toggle("tasks-fill", onTasks);
   const inner = document.querySelector(".main-inner");
-  if (inner) inner.classList.toggle("tasks-session", !!open && CURRENT_VIEW === "tasks-list");
+  if (inner) inner.classList.toggle("tasks-session", onTasks);
   const panel = document.getElementById("sessionPanel");
-  if (panel) panel.hidden = !open;
+  if (panel) {
+    panel.hidden = !open;
+    panel.classList.toggle("is-active-session", !!open);
+  }
+  const empty = document.getElementById("sessionEmpty");
+  if (empty) empty.hidden = !!open;
 }
 
 function showLog(id) {
@@ -6003,11 +6017,11 @@ function switchView(view, opts = {}) {
     head.classList.toggle("inbox-mode", view === "inbox");
   }
   const main = document.querySelector(".main");
-  if (main) main.classList.toggle("tasks-fill", view === "tasks-list" && !!LOG_ID);
+  if (main) main.classList.toggle("tasks-fill", view === "tasks-list");
   const inner = document.querySelector(".main-inner");
   if (inner) {
     inner.classList.toggle("tasks-wide", view === "tasks-list");
-    inner.classList.toggle("tasks-session", view === "tasks-list" && !!LOG_ID);
+    inner.classList.toggle("tasks-session", view === "tasks-list");
     inner.classList.toggle("dash-wide", view === "dashboard");
     inner.classList.toggle("bugs-wide", view === "bugs");
     inner.classList.toggle("inbox-wide", view === "inbox");

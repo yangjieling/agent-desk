@@ -1,6 +1,6 @@
 # 任务运行界面 UI 优化方案
 
-> 状态：**P0 已落地**（P1 部分完成：流式占位 / 失败条 / 步骤高亮；P2 未做）  
+> 状态：**P0–P2 已落地**（P1 部分：流式占位 / 失败条 / 步骤高亮）  
 > 范围：任务列表分屏 + 右侧「任务会话」面板（`view-tasks-list` / `sessionPanel`）  
 > 目标：提升运行中可读性与等待态体验，强化 harness 差异化（闸门 + 执行日志），不照搬 Multica 布局。
 
@@ -108,14 +108,14 @@
 
 ---
 
-### P2 — 布局与导航
+### P2 — 布局与导航（已落地）
 
 | # | 项 | 做法 | 涉及 |
 | --- | --- | --- | --- |
-| P2-1 | **分屏时收窄左侧** | `session-open` 时 filters 收成下拉；列表行只保留标题 + 状态点 + 关键操作 | `task-filters`, `renderTaskList` |
-| P2-2 | **选中态加强** | 已有 `.task-row.selected` 左侧色条，与会话标题联动高亮 | `openLog`, CSS |
-| P2-3 | **操作按钮语义化** | 停止/继续保留图标，宽屏时显示文字标签 | `session-head`, `log-head-actions` |
-| P2-4 | **空会话引导** | 未选中任务时右侧显示「选择左侧任务查看执行」而非空白 | `task-pane-session` 空态 |
+| P2-1 | **分屏时收窄左侧** | 任务页常驻左右分栏；`session-open` 时 filters → `#taskFilterSelect`，行收成标题 + 状态点 + 关键操作 | `task-filters`, `renderListRow`, CSS |
+| P2-2 | **选中态加强** | `.task-row.selected` 加粗色条 + 浅蓝底；`#sessionPanel.is-active-session` 标题底边联动 | `showLog` / `setSessionPanelVisible`, CSS |
+| P2-3 | **操作按钮语义化** | 停止/继续/原始/关闭：图标 + 宽屏（≥1100px）文字标签；继续/重试文案随状态切换 | `session-head`, `log-head-actions` |
+| P2-4 | **空会话引导** | 未选中任务时 `#sessionEmpty`：「选择左侧任务查看执行」 | `#taskSessionPane` |
 
 ---
 
@@ -180,5 +180,6 @@ if (!list.length) {
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | **P2 落地**：常驻分栏 + 空态引导；会话打开收窄列表/筛选下拉/状态点；选中态与会话头联动；操作按钮宽屏文字标签 |
 | 2026-09-02 | **P0 落地** + P1 部分：合并等待态、固定活动条、meta 折叠、连接分级；流式占位 / 失败条重试 / 步骤高亮；断流 ≥8s 可「刷新连接」 |
 | 2026-09-02 | 初稿：任务会话 UI 评审结论与 P0–P2 方案 |
