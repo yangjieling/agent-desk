@@ -48,6 +48,7 @@ agent-desk 在本机用一个小型 harness 把这些 CLI 包起来：
 - **[工作流](templates/workflows/) →** `shared`（单会话多步骤）或 `independent`（并行子任务）。
 - **[技能](docs/skills.md) →** 发现、同步并在任务启动时注入 `SKILL.md` 与 `--add-dir` 挂载。
 - **Issue → 任务 →** GitHub Issues 提供方，缺陷列表 **AI 修复**，可选自动克隆工作区。
+- **分配 / @提及 →** 工作项指定负责人 Agent 即入队；备注里写 `@Agent名` 可唤醒（不改负责人）。
 - **[自动化](#自动化-webhook入站触发) →** cron 定时，或外部系统 Webhook 触发技能任务 / 流程（需 `oh web` 运行）。
 
 ## 保持知情。

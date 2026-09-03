@@ -650,7 +650,11 @@ paths:
     post:
       tags: [WorkItems]
       operationId: createWorkItemNote
-      summary: Add a manual note on a work item
+      summary: Add a manual note; @Agent mentions wake agents without changing assignee
+      description: |
+        Parses `@AgentName`, `@a_…` ids, and Multica-style `[@Name](mention://agent/<id>)` links.
+        Each mentioned agent gets a skill task (coalesced if that agent already has an active task
+        on this work item). Pass `wake: false` to post a note without waking anyone.
       requestBody:
         required: true
         content:
@@ -662,13 +666,92 @@ paths:
                 body:
                   type: string
                   maxLength: 4000
+                wake:
+                  type: boolean
+                  default: true
+                  description: When false, skip @mention dispatch
       responses:
         "200":
-          description: Created event
+          description: Created event plus mention dispatch result
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/WorkItemEvent"
+                allOf:
+                  - $ref: "#/components/schemas/WorkItemEvent"
+                  - type: object
+                    properties:
+                      mentions:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            agentProfileId:
+                              type: string
+                            label:
+                              type: string
+                      startedTaskIds:
+                        type: array
+                        items:
+                          type: string
+                      coalescedTaskIds:
+                        type: array
+                        items:
+                          type: string
+        "400":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/work-items/{id}/assign:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    post:
+      tags: [WorkItems]
+      operationId: assignWorkItem
+      summary: Assign (or unassign) a work item to an Agent profile
+      description: |
+        Sets `workItem.agentProfileId`. Changing assignee to a new agent starts a run by default
+        (`start` omitted or true). Same assignee only starts when `start: true` (UI「启动」).
+        Cancelled work items update assignee but do not start. Does not cancel in-flight tasks.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                agentProfileId:
+                  type: string
+                  description: Agent id (`a_…`); empty string unassigns
+                start:
+                  type: boolean
+                  description: Default true when assignee changes; force true to re-run same assignee
+                note:
+                  type: string
+                  maxLength: 2000
+                  description: Optional handoff note written to the timeline
+      responses:
+        "200":
+          description: Assign result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  workItem:
+                    $ref: "#/components/schemas/WorkItem"
+                  started:
+                    type: boolean
+                  coalesced:
+                    type: boolean
+                  skippedReason:
+                    type: string
+                    description: unassigned | start_suppressed | cancelled | unchanged | already_active
+                  task:
+                    nullable: true
+                    allOf:
+                      - $ref: "#/components/schemas/Task"
         "400":
           $ref: "#/components/responses/Error"
         "404":
@@ -1751,6 +1834,7 @@ components:
           type: string
         agentProfileId:
           type: string
+          description: Assigned Agent profile id (`a_…`); empty = unassigned
         createdAt:
           type: integer
         updatedAt:

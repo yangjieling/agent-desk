@@ -880,6 +880,12 @@
     </div>
     <div class="work-item-body">
       <div class="work-item-review-bar" id="workItemReviewBar" hidden></div>
+      <div class="work-item-assign-bar" id="workItemAssignBar">
+        <label class="work-item-assign-label" for="workItemAssignee">负责人</label>
+        <select id="workItemAssignee" class="work-item-assignee" title="分配给 Agent；更换后默认启动一次执行"></select>
+        <button type="button" class="btn-outline work-item-assign-run" id="workItemAssignRunBtn"
+          title="用当前负责人再启动一次" onclick="rerunWorkItemAssignee()">启动</button>
+      </div>
       <div class="work-item-detail" id="workItemDetail" hidden></div>
       <div class="work-item-sec-head" id="workItemTasksHead" hidden>
         <h4 class="work-item-runs-title">执行记录</h4>
@@ -888,21 +894,33 @@
       <div id="workItemTasks" class="work-item-tasks" hidden></div>
       <div class="work-item-sec-head">
         <h4 class="work-item-runs-title">讨论与决策</h4>
-        <p class="work-item-sec-hint">备注与闸门确认按时间排列；闸门回复会自动写入</p>
+        <p class="work-item-sec-hint">备注与闸门确认按时间排列；点「@ 提及」或输入 @ 选择 Agent，不改变负责人</p>
       </div>
       <div id="workItemTimeline" class="work-item-timeline">
         <div class="work-item-loading">加载中…</div>
       </div>
-      <div class="work-item-note-row">
-        <textarea id="workItemNoteInput" rows="2" maxlength="4000"
-          placeholder="记下决策、上下文或下一步… Enter 发送，Shift+Enter 换行"
-          onkeydown="onWorkItemNoteKeyDown(event)"></textarea>
-        <button type="button" class="log-icon-btn log-icon-send work-item-note-send" id="workItemNoteBtn"
-          title="添加备注" aria-label="添加备注" onclick="submitWorkItemNote()">
-          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M4.5 11.2L19.2 4.6a.8.8 0 011.1 1L13.8 19.6a.9.9 0 01-1.6.1l-2.6-5.3-5.3-2.6a.9.9 0 01.2-1.6z" fill="currentColor"/>
-          </svg>
-        </button>
+      <div class="work-item-note-composer" id="workItemNoteComposer">
+        <div class="work-item-note-row">
+          <textarea id="workItemNoteInput" rows="2" maxlength="4000"
+            placeholder="备注… 点 @ 提及可唤醒智能体。Enter 发送，Shift+Enter 换行"
+            onkeydown="onWorkItemNoteKeyDown(event)"
+            oninput="onWorkItemNoteInput(event)"></textarea>
+        </div>
+        <div class="work-item-note-toolbar">
+          <button type="button" class="work-item-mention-btn" id="workItemMentionBtn"
+            title="提及 Agent" aria-label="提及 Agent" aria-haspopup="listbox" aria-expanded="false"
+            onclick="toggleWorkItemMentionMenu(event)">
+            <span class="work-item-mention-at" aria-hidden="true">@</span>
+            <span>提及</span>
+          </button>
+          <button type="button" class="log-icon-btn log-icon-send work-item-note-send" id="workItemNoteBtn"
+            title="添加备注" aria-label="添加备注" onclick="submitWorkItemNote()">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4.5 11.2L19.2 4.6a.8.8 0 011.1 1L13.8 19.6a.9.9 0 01-1.6.1l-2.6-5.3-5.3-2.6a.9.9 0 01.2-1.6z" fill="currentColor"/>
+            </svg>
+          </button>
+        </div>
+        <div class="work-item-mention-menu" id="workItemMentionMenu" hidden role="listbox" aria-label="选择 Agent"></div>
       </div>
     </div>
   </div>

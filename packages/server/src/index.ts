@@ -80,6 +80,7 @@ import {
   resolveWebhookDeliveryKey,
   verifyHubSignature256,
 } from "./autopilot-webhook.js";
+import { assignWorkItem, triggerMentionRuns } from "./work-item-dispatch.js";
 
 /** Mask stored secrets in API responses (UI shows placeholder; blank save keeps old). */
 const SECRET_MASK = "********";
@@ -881,7 +882,7 @@ export async function createServer(opts: ServerOptions = {}) {
     return db.listWorkItemEvents(item.id, 200);
   });
 
-  app.post<{ Params: { id: string }; Body: { body?: string } }>(
+  app.post<{ Params: { id: string }; Body: { body?: string; wake?: boolean } }>(
     "/api/work-items/:id/events",
     async (req, reply) => {
       const item = db.getWorkItem(req.params.id);
@@ -896,9 +897,47 @@ export async function createServer(opts: ServerOptions = {}) {
         body,
       });
       if (!event) return reply.code(400).send({ error: "create_failed" });
-      return event;
+      const wake = req.body?.wake !== false;
+      const triggered = triggerMentionRuns(db, runnerOpts, item, body, { wake });
+      return {
+        ...event,
+        mentions: triggered.mentions.map((m) => ({
+          agentProfileId: m.agentProfileId,
+          label: m.label,
+        })),
+        startedTaskIds: triggered.started.map((t) => t.id),
+        coalescedTaskIds: triggered.coalesced.map((t) => t.id),
+      };
     },
   );
+
+  app.post<{
+    Params: { id: string };
+    Body: { agentProfileId?: string; start?: boolean; note?: string };
+  }>("/api/work-items/:id/assign", async (req, reply) => {
+    const item = db.getWorkItem(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    try {
+      const result = assignWorkItem(db, runnerOpts, item.id, {
+        agentProfileId: req.body?.agentProfileId,
+        start: req.body?.start,
+        note: req.body?.note,
+      });
+      return {
+        ok: true,
+        workItem: result.workItem,
+        started: result.started,
+        coalesced: result.coalesced,
+        skippedReason: result.skippedReason || undefined,
+        task: result.task,
+      };
+    } catch (e) {
+      const code = e instanceof Error && "code" in e ? String((e as { code?: string }).code || "") : "";
+      if (code === "agent_not_found") return reply.code(400).send({ error: "agent_not_found" });
+      if (code === "not_found") return reply.code(404).send({ error: "not_found" });
+      return reply.code(500).send({ error: e instanceof Error ? e.message : String(e) });
+    }
+  });
 
   app.post<{ Params: { id: string } }>("/api/work-items/:id/accept", async (req, reply) => {
     const item = db.getWorkItem(req.params.id);

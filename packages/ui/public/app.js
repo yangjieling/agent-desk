@@ -5642,6 +5642,7 @@ function resetWorkItemModalShell(loadingText) {
     reviewBar.innerHTML = "";
   }
   if (noteInput) noteInput.value = "";
+  closeWorkItemMentionMenu();
   WORK_ITEM_TASKS_CACHE = [];
   WORK_ITEM_SHOW_PAST = false;
 }
@@ -5654,6 +5655,7 @@ async function openWorkItemByIssue(code) {
   document.getElementById("workItemMeta").innerHTML = "";
   WORK_ITEM_MODAL_ID = "";
   try {
+    await loadAgentProfiles();
     const data = await api(`/api/issues/${encodeURIComponent(c)}/work-item`);
     renderWorkItemModal(data);
   } catch (e) {
@@ -5670,6 +5672,7 @@ async function openWorkItemById(id) {
   resetWorkItemModalShell();
   WORK_ITEM_MODAL_ID = wid;
   try {
+    await loadAgentProfiles();
     const data = await api(`/api/work-items/${encodeURIComponent(wid)}`);
     renderWorkItemModal(data);
   } catch (e) {
@@ -5928,6 +5931,78 @@ function renderWorkItemReviewBar(item) {
   bar.hidden = false;
 }
 
+function renderWorkItemAssignBar(item) {
+  const sel = document.getElementById("workItemAssignee");
+  const runBtn = document.getElementById("workItemAssignRunBtn");
+  if (!sel) return;
+  const cur = String((item && item.agentProfileId) || "").trim();
+  const opts = agentProfileDropdownOptions(AGENT_PROFILES, true).map((o) => {
+    const emptyLabel = o.id ? o.displayName : "（未分配）";
+    return `<option value="${esc(o.id)}"${o.id === cur ? " selected" : ""}>${esc(emptyLabel)}</option>`;
+  });
+  sel.innerHTML = opts.join("");
+  sel.disabled = item && item.status === "cancelled";
+  if (runBtn) {
+    runBtn.disabled = !cur || (item && item.status === "cancelled");
+  }
+  sel.onchange = () => {
+    void assignWorkItemFromModal(sel.value, { start: true });
+  };
+}
+
+async function assignWorkItemFromModal(agentProfileId, opts = {}) {
+  const id = WORK_ITEM_MODAL_ID;
+  if (!id) return;
+  const start = opts.start !== false;
+  try {
+    const res = await api(`/api/work-items/${encodeURIComponent(id)}/assign`, {
+      method: "POST",
+      body: JSON.stringify({
+        agentProfileId: String(agentProfileId || ""),
+        start,
+      }),
+    });
+    const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+    renderWorkItemModal(data);
+    if (res.started) toast("已分配并启动执行");
+    else if (res.coalesced) toast("已分配；该 Agent 已有进行中的任务");
+    else if (!String(agentProfileId || "").trim()) toast("已取消分配");
+    else if (res.skippedReason === "unchanged") toast("负责人未变更");
+    else if (res.skippedReason === "start_suppressed") toast("已更新负责人");
+    else if (res.skippedReason === "cancelled") toast("已更新负责人（已取消的工作项不会启动）");
+    else toast("已更新负责人");
+  } catch (e) {
+    toast(`分配失败: ${e.message || e}`);
+    try {
+      const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+      renderWorkItemModal(data);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+async function rerunWorkItemAssignee() {
+  const id = WORK_ITEM_MODAL_ID;
+  const sel = document.getElementById("workItemAssignee");
+  if (!id || !sel) return;
+  const agentProfileId = String(sel.value || "").trim();
+  if (!agentProfileId) return toast("请先选择负责人");
+  try {
+    const res = await api(`/api/work-items/${encodeURIComponent(id)}/assign`, {
+      method: "POST",
+      body: JSON.stringify({ agentProfileId, start: true }),
+    });
+    const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
+    renderWorkItemModal(data);
+    if (res.started) toast("已启动执行");
+    else if (res.coalesced) toast("该 Agent 已有进行中的任务");
+    else toast(res.skippedReason === "cancelled" ? "已取消的工作项不会启动" : "未启动");
+  } catch (e) {
+    toast(`启动失败: ${e.message || e}`);
+  }
+}
+
 async function acceptWorkItemFromModal(workItemId) {
   const id = String(workItemId || WORK_ITEM_MODAL_ID || "").trim();
   if (!id) return;
@@ -5961,6 +6036,13 @@ function renderWorkItemModal(data) {
     const stCls = st === "in_review" ? " status-awaiting" : st === "done" ? " status-done" : "";
     chips.push(`<span class="log-meta-chip${stCls}">${esc(WORK_ITEM_STATUS_LABEL[st] || st)}</span>`);
     if (item.issueCode) chips.push(`<span class="log-meta-chip bug-code">${esc(item.issueCode)}</span>`);
+    const assigneeId = String(item.agentProfileId || "").trim();
+    if (assigneeId) {
+      const agent = (AGENT_PROFILES || []).find((a) => a.id === assigneeId);
+      chips.push(
+        `<span class="log-meta-chip" title="${esc(assigneeId)}">@${esc(agent?.name || assigneeId)}</span>`,
+      );
+    }
     const proj = shortPath(item.projectDir || "");
     if (proj && proj !== "-") {
       chips.push(`<span class="log-meta-chip" title="${esc(item.projectDir || "")}">${esc(proj)}</span>`);
@@ -5971,6 +6053,7 @@ function renderWorkItemModal(data) {
     metaEl.innerHTML = chips.join("");
   }
   renderWorkItemReviewBar(item);
+  renderWorkItemAssignBar(item);
   renderWorkItemDetail(item, issue);
   renderWorkItemTasks(tasks);
   renderWorkItemTimeline(tasks, events);
@@ -5983,6 +6066,7 @@ function closeWorkItemModal() {
   WORK_ITEM_NOTE_SENDING = false;
   WORK_ITEM_TASKS_CACHE = [];
   WORK_ITEM_SHOW_PAST = false;
+  closeWorkItemMentionMenu();
   setWorkItemNoteSending(false);
 }
 
@@ -5990,9 +6074,220 @@ function onWorkItemMaskClick(e) {
   if (e.target.id === "workItemMask") closeWorkItemModal();
 }
 
+let WORK_ITEM_MENTION = {
+  open: false,
+  query: "",
+  start: -1,
+  end: -1,
+  index: 0,
+  items: [],
+};
+
+function closeWorkItemMentionMenu() {
+  WORK_ITEM_MENTION = { open: false, query: "", start: -1, end: -1, index: 0, items: [] };
+  const menu = document.getElementById("workItemMentionMenu");
+  const btn = document.getElementById("workItemMentionBtn");
+  if (menu) {
+    menu.hidden = true;
+    menu.innerHTML = "";
+  }
+  if (btn) {
+    btn.classList.remove("is-open");
+    btn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function bindWorkItemMentionOutsideClose() {
+  if (document.body.dataset.wiMentionBound) return;
+  document.body.dataset.wiMentionBound = "1";
+  document.addEventListener("click", (e) => {
+    if (!WORK_ITEM_MENTION.open) return;
+    if (e.target.closest("#workItemNoteComposer")) return;
+    closeWorkItemMentionMenu();
+  });
+}
+
+bindWorkItemMentionOutsideClose();
+
+function workItemMentionToken(agent) {
+  const name = String(agent?.name || agent?.id || "Agent").trim() || "Agent";
+  const safeName = name.replace(/[\[\]]/g, "");
+  return `[@${safeName}](mention://agent/${agent.id})`;
+}
+
+function filterWorkItemMentionAgents(query) {
+  const q = String(query || "").trim().toLowerCase();
+  const list = Array.isArray(AGENT_PROFILES) ? AGENT_PROFILES : [];
+  if (!q) return list.slice(0, 20);
+  return list
+    .filter((a) => {
+      const name = String(a.name || "").toLowerCase();
+      const id = String(a.id || "").toLowerCase();
+      const prov = String(a.provider || "").toLowerCase();
+      return name.includes(q) || id.includes(q) || prov.includes(q);
+    })
+    .slice(0, 20);
+}
+
+function renderWorkItemMentionMenu(items, activeIndex) {
+  const menu = document.getElementById("workItemMentionMenu");
+  const btn = document.getElementById("workItemMentionBtn");
+  if (!menu) return;
+  WORK_ITEM_MENTION.items = items || [];
+  WORK_ITEM_MENTION.index = Math.max(
+    0,
+    Math.min(Number(activeIndex) || 0, Math.max(0, WORK_ITEM_MENTION.items.length - 1)),
+  );
+  WORK_ITEM_MENTION.open = true;
+  if (!WORK_ITEM_MENTION.items.length) {
+    menu.innerHTML = '<div class="work-item-mention-empty">暂无匹配的 Agent</div>';
+  } else {
+    menu.innerHTML = WORK_ITEM_MENTION.items
+      .map((a, i) => {
+        const initial = esc((a.name || a.provider || "?").trim().charAt(0) || "?");
+        const color = ICON_PALETTE[i % ICON_PALETTE.length];
+        const prov = AGENT_PROVIDER_BY_ID.get(a.provider) || a.provider || "";
+        const sub = [prov, a.model || ""].filter(Boolean).join(" · ");
+        return (
+          `<button type="button" class="work-item-mention-item${i === WORK_ITEM_MENTION.index ? " is-active" : ""}" ` +
+          `role="option" data-idx="${i}" aria-selected="${i === WORK_ITEM_MENTION.index ? "true" : "false"}">` +
+          `<span class="work-item-mention-avatar" style="background:${color}">${initial}</span>` +
+          `<span class="work-item-mention-meta">` +
+          `<span class="work-item-mention-name">${esc(a.name || a.id)}</span>` +
+          (sub ? `<span class="work-item-mention-sub">${esc(sub)}</span>` : "") +
+          `</span></button>`
+        );
+      })
+      .join("");
+    menu.querySelectorAll(".work-item-mention-item").forEach((el) => {
+      el.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        const idx = Number(el.dataset.idx);
+        pickWorkItemMention(idx);
+      });
+    });
+  }
+  menu.hidden = false;
+  if (btn) {
+    btn.classList.add("is-open");
+    btn.setAttribute("aria-expanded", "true");
+  }
+  const active = menu.querySelector(".work-item-mention-item.is-active");
+  if (active && typeof active.scrollIntoView === "function") {
+    active.scrollIntoView({ block: "nearest" });
+  }
+}
+
+async function openWorkItemMentionMenu(opts = {}) {
+  if (WORK_ITEM_NOTE_SENDING) return;
+  await loadAgentProfiles();
+  const query = String(opts.query || "");
+  WORK_ITEM_MENTION.start = Number.isFinite(opts.start) ? opts.start : -1;
+  WORK_ITEM_MENTION.end = Number.isFinite(opts.end) ? opts.end : -1;
+  WORK_ITEM_MENTION.query = query;
+  const items = filterWorkItemMentionAgents(query);
+  if (!items.length && !AGENT_PROFILES.length) {
+    closeWorkItemMentionMenu();
+    toast("暂无 Agent，请先在「智能体」页创建");
+    return;
+  }
+  renderWorkItemMentionMenu(items, 0);
+}
+
+function toggleWorkItemMentionMenu(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+  if (WORK_ITEM_MENTION.open) {
+    closeWorkItemMentionMenu();
+    return;
+  }
+  const input = document.getElementById("workItemNoteInput");
+  const caret = input ? input.selectionStart : 0;
+  void openWorkItemMentionMenu({ query: "", start: -1, end: caret });
+  if (input) input.focus();
+}
+
+function insertWorkItemMentionText(token) {
+  const input = document.getElementById("workItemNoteInput");
+  if (!input || input.disabled) return;
+  const value = String(input.value || "");
+  let start = WORK_ITEM_MENTION.start;
+  let end = WORK_ITEM_MENTION.end;
+  if (!(start >= 0)) {
+    start = typeof input.selectionStart === "number" ? input.selectionStart : value.length;
+    end = typeof input.selectionEnd === "number" ? input.selectionEnd : start;
+  }
+  const before = value.slice(0, start);
+  const after = value.slice(end);
+  const needSpaceBefore = before && !/\s$/.test(before);
+  const needSpaceAfter = after && !/^\s/.test(after);
+  const inserted = `${needSpaceBefore ? " " : ""}${token}${needSpaceAfter ? " " : ""}`;
+  input.value = `${before}${inserted}${after}`;
+  const caret = before.length + inserted.length;
+  input.focus();
+  input.setSelectionRange(caret, caret);
+  closeWorkItemMentionMenu();
+}
+
+function pickWorkItemMention(idx) {
+  const agent = WORK_ITEM_MENTION.items[idx];
+  if (!agent) return;
+  insertWorkItemMentionText(workItemMentionToken(agent));
+}
+
+function detectWorkItemMentionQuery(input) {
+  if (!input) return null;
+  const caret = typeof input.selectionStart === "number" ? input.selectionStart : 0;
+  const before = String(input.value || "").slice(0, caret);
+  const m = before.match(/(^|[\s([{（【])@([^\s@]*)$/);
+  if (!m) return null;
+  const query = m[2] || "";
+  const start = caret - query.length - 1;
+  return { query, start, end: caret };
+}
+
+function onWorkItemNoteInput() {
+  const input = document.getElementById("workItemNoteInput");
+  if (!input || WORK_ITEM_NOTE_SENDING) return;
+  const hit = detectWorkItemMentionQuery(input);
+  if (!hit) {
+    if (WORK_ITEM_MENTION.open && WORK_ITEM_MENTION.start >= 0) closeWorkItemMentionMenu();
+    return;
+  }
+  void openWorkItemMentionMenu(hit);
+}
+
 function onWorkItemNoteKeyDown(e) {
+  if (typeof isImeComposingKeyEvent === "function" && isImeComposingKeyEvent(e)) return;
+
+  if (WORK_ITEM_MENTION.open) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeWorkItemMentionMenu();
+      return;
+    }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const next = Math.min(WORK_ITEM_MENTION.index + 1, Math.max(0, WORK_ITEM_MENTION.items.length - 1));
+      renderWorkItemMentionMenu(WORK_ITEM_MENTION.items, next);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      const next = Math.max(WORK_ITEM_MENTION.index - 1, 0);
+      renderWorkItemMentionMenu(WORK_ITEM_MENTION.items, next);
+      return;
+    }
+    if ((e.key === "Enter" || e.key === "Tab") && WORK_ITEM_MENTION.items.length) {
+      e.preventDefault();
+      pickWorkItemMention(WORK_ITEM_MENTION.index);
+      return;
+    }
+  }
+
   if (e.key === "Enter" && !e.shiftKey) {
-    if (typeof isImeComposingKeyEvent === "function" && isImeComposingKeyEvent(e)) return;
     if (WORK_ITEM_NOTE_SENDING) return;
     e.preventDefault();
     void submitWorkItemNote();
@@ -6002,36 +6297,51 @@ function onWorkItemNoteKeyDown(e) {
 function setWorkItemNoteSending(busy) {
   const input = document.getElementById("workItemNoteInput");
   const btn = document.getElementById("workItemNoteBtn");
+  const mentionBtn = document.getElementById("workItemMentionBtn");
   if (input) {
     input.disabled = !!busy;
     input.placeholder = busy
       ? "正在添加备注…"
-      : "记下决策、上下文或下一步… Enter 发送，Shift+Enter 换行";
+      : "备注… 点 @ 提及可唤醒智能体。Enter 发送，Shift+Enter 换行";
   }
   if (btn) {
     btn.disabled = !!busy;
     btn.setAttribute("aria-busy", busy ? "true" : "false");
     btn.title = busy ? "添加中…" : "添加备注";
   }
+  if (mentionBtn) mentionBtn.disabled = !!busy;
+  if (busy) closeWorkItemMentionMenu();
 }
 
 async function submitWorkItemNote() {
   const id = WORK_ITEM_MODAL_ID;
   const input = document.getElementById("workItemNoteInput");
   if (!id || !input || WORK_ITEM_NOTE_SENDING) return;
+  closeWorkItemMentionMenu();
   const body = (input.value || "").trim();
   if (!body) return toast("请填写备注内容");
   WORK_ITEM_NOTE_SENDING = true;
   setWorkItemNoteSending(true);
   try {
-    await api(`/api/work-items/${encodeURIComponent(id)}/events`, {
+    const res = await api(`/api/work-items/${encodeURIComponent(id)}/events`, {
       method: "POST",
       body: JSON.stringify({ body }),
     });
     input.value = "";
     const data = await api(`/api/work-items/${encodeURIComponent(id)}`);
     renderWorkItemModal(data);
-    toast("备注已添加");
+    const started = Array.isArray(res?.startedTaskIds) ? res.startedTaskIds.length : 0;
+    const coalesced = Array.isArray(res?.coalescedTaskIds) ? res.coalescedTaskIds.length : 0;
+    const labels = Array.isArray(res?.mentions)
+      ? res.mentions.map((m) => m.label || m.agentProfileId).filter(Boolean)
+      : [];
+    if (started) {
+      toast(`备注已添加，已唤醒 ${labels.slice(0, 3).join("、") || `${started} 个 Agent`}`);
+    } else if (coalesced) {
+      toast("备注已添加；提及的 Agent 已有进行中的任务");
+    } else {
+      toast("备注已添加");
+    }
   } catch (e) {
     toast(`添加失败: ${e.message || e}`);
   } finally {

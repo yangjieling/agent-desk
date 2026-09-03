@@ -51,6 +51,7 @@ shapes portable.
 - **[Workflows](templates/workflows/) →** `shared` (one session, many steps) or `independent` (parallel child tasks).
 - **[Skills](docs/skills.md) →** Discover, sync, and inject `SKILL.md` + `--add-dir` mounts at task start.
 - **Issue → task →** GitHub Issues provider, **AI 修复** from the defects list, optional auto workspace clone.
+- **Assign / @mention →** assign a work item to an Agent to enqueue a run; `@AgentName` in notes wakes without changing the assignee.
 - **[Autopilot](#autopilot-webhook-inbound) →** cron schedules, or inbound webhooks from CI/alerts (requires `oh web` running).
 
 ## Stay in the loop.

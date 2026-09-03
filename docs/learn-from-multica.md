@@ -29,7 +29,7 @@
 | 1 | Issue ≠ Task | Issue 是持续工作；Task 是一次执行；一个 Issue 可有多次运行 | WorkItem（`wi_`）+ Task 执行记录；缺陷页「工作项」时间线 | **已有**（MVP） | 保留 `issueCode` 与 task API；`workItemId` 可选 |
 | 2 | Agent 是队友身份 | 名字、指令、模型、Skills、Access、绑定 Runtime | 可命名 Agent 配置（provider/model/skill/instructions）+ 任务/workflow 绑定 | **已有** | 设置页 CRUD；新建任务与流程步骤可选 Agent |
 | 3 | 控制面 / 执行面分离 | 服务端排队；本机 daemon claim 再 spawn CLI | 本机 LocalExecutor：入队 → claim → 心跳 → spawn；`GET /api/executor` | **已有**（MVP） | 同进程内分离；远程 daemon 为长期 |
-| 4 | 多种触发入口 | 分配 / @提及 / Chat / Autopilot | 建任务 / 跑 workflow / GitHub 修缺陷 / Autopilot cron | **已有**（弱）/ **可做 MVP**（分配与 @） | Autopilot ✅；Chat/@ 可后置 |
+| 4 | 多种触发入口 | 分配 / @提及 / Chat / Autopilot | 建任务 / 跑 workflow / GitHub 修缺陷 / Autopilot cron+Webhook / **分配 Agent / 备注 @提及** | **已有**（MVP） | Autopilot ✅；`POST …/assign`；备注 `@Name` / `mention://agent/…`；Chat 可后置 |
 | 5 | 人只在关键点出现 | Inbox + `in_review` | 待办聚合闸门 `awaiting` + 工作项 `in_review` 验收 | **已有**（MVP） | 闸门快捷回复；Accept/Reject；任务完成≠工作项完成 |
 
 ---
@@ -50,7 +50,7 @@
 
 | # | 主题 | Multica 要点 | agent-desk 现状 | 状态 | 备注 |
 | --- | --- | --- | --- | --- | --- |
-| 11 | 评论时间线作共享记忆 | 进度、决策、@派活挂在同一 Issue | 工作项事件流（备注 / 闸门决策 / 执行关联）；弹窗内展示 | **已有**（MVP） | 无 @派活与线程；闸门回复自动写入 |
+| 11 | 评论时间线作共享记忆 | 进度、决策、@派活挂在同一 Issue | 工作项事件流（备注 / 闸门决策 / 执行关联 / **@提及派活**）；弹窗内展示 | **已有**（MVP） | 备注 `@` 可唤醒；无回复线程；闸门回复自动写入 |
 | 12 | Squads（队长路由） | Leader 读上下文 → `@` 派成员 → evaluation | workflow `independent` 可并行子任务，无「队长路由」语义 | **长期** | 先把 Agent 身份与触发做稳再引入 |
 | 13 | Autopilot | cron + Webhook + Runbook；建 Issue vs 仅运行 | cron + Webhook 入站 + Runbook；技能任务 / 流程；「自动化」页 | **已有**（MVP） | `POST /api/webhooks/autopilots/:token`；HMAC + 幂等；需 `oh web` |
 | 14 | 双向 Channel | IM 可触发/跟进 Agent，不只通知 | Webhook / 飞书 / 钉钉偏出站通知 | **已有**（通知）/ **长期**（入站触发） | 出站保持；入站需签名校验与幂等 |
@@ -157,6 +157,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | #4 分配 / @提及：`POST /api/work-items/:id/assign`；备注解析 `@Agent` / `mention://agent/…` 入队；同 Agent 进行中任务合流；工作项弹窗负责人选择 |
 | 2026-09-03 | #13 Autopilot Webhook：`POST /api/webhooks/autopilots/:token`；X-Hub-Signature-256；Idempotency-Key / X-GitHub-Delivery 幂等；自动化页可启停/轮换 |
 | 2026-09-03 | #3 控制面/执行面分离 MVP：LocalExecutor claim + 心跳；`dispatched` 状态；`GET /api/executor`；HTTP 仅入队 |
 | 2026-09-03 | 工作面 UI：**W-1–W-5** 已落地（主线完成）；见 [work-surfaces-ui.md](./work-surfaces-ui.md) |
