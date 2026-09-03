@@ -10,6 +10,7 @@ import {
   newAutopilotWebhookToken,
   newWorkItemEventId,
   newWorkItemId,
+  normalizeAgentSkills,
   normalizeIssueCode,
   type AgentProfile,
   type Autopilot,
@@ -88,6 +89,19 @@ function rowToTask(row: Record<string, unknown>): Task {
   };
 }
 
+function parseAgentSkillsJson(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return normalizeAgentSkills(raw);
+  }
+  const text = String(raw ?? "").trim();
+  if (!text) return [];
+  try {
+    return normalizeAgentSkills(JSON.parse(text));
+  } catch {
+    return [];
+  }
+}
+
 function rowToAgent(row: Record<string, unknown>): AgentProfile {
   return {
     id: String(row.id),
@@ -95,6 +109,7 @@ function rowToAgent(row: Record<string, unknown>): AgentProfile {
     provider: String(row.provider ?? ""),
     model: String(row.model ?? ""),
     defaultSkill: String(row.default_skill ?? "default") || "default",
+    skills: parseAgentSkillsJson(row.skills),
     instructions: String(row.instructions ?? ""),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
@@ -249,6 +264,7 @@ export class AgentDeskDb {
         provider TEXT NOT NULL,
         model TEXT NOT NULL DEFAULT '',
         default_skill TEXT NOT NULL DEFAULT 'default',
+        skills TEXT NOT NULL DEFAULT '[]',
         instructions TEXT NOT NULL DEFAULT '',
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
@@ -352,6 +368,7 @@ export class AgentDeskDb {
     this.ensureAutopilotColumn("webhook_enabled", "INTEGER DEFAULT 0");
     this.ensureAutopilotColumn("webhook_token", "TEXT DEFAULT ''");
     this.ensureAutopilotColumn("webhook_secret", "TEXT DEFAULT ''");
+    this.ensureAgentColumn("skills", "TEXT NOT NULL DEFAULT '[]'");
     this.db.exec(
       `CREATE UNIQUE INDEX IF NOT EXISTS idx_autopilots_webhook_token
        ON autopilots(webhook_token) WHERE webhook_token != ''`,
@@ -375,6 +392,7 @@ export class AgentDeskDb {
         provider,
         model: "",
         defaultSkill: preset.defaultSkill,
+        skills: [],
         instructions: "",
         createdAt: now,
         updatedAt: now,
@@ -409,6 +427,13 @@ export class AgentDeskDb {
     const cols = this.db.prepare("PRAGMA table_info(autopilots)").all() as Array<{ name: string }>;
     if (!cols.some((c) => c.name === name)) {
       this.db.exec(`ALTER TABLE autopilots ADD COLUMN ${name} ${ddl}`);
+    }
+  }
+
+  private ensureAgentColumn(name: string, ddl: string): void {
+    const cols = this.db.prepare("PRAGMA table_info(agents)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === name)) {
+      this.db.exec(`ALTER TABLE agents ADD COLUMN ${name} ${ddl}`);
     }
   }
 
@@ -472,17 +497,18 @@ export class AgentDeskDb {
   }
 
   upsertAgent(agent: AgentProfile): void {
+    const skillsJson = JSON.stringify(normalizeAgentSkills(agent.skills));
     this.db
       .prepare(
         `INSERT INTO agents (
-          id, name, provider, model, default_skill, instructions, created_at, updated_at
+          id, name, provider, model, default_skill, skills, instructions, created_at, updated_at
         ) VALUES (
-          @id, @name, @provider, @model, @defaultSkill, @instructions, @createdAt, @updatedAt
+          @id, @name, @provider, @model, @defaultSkill, @skills, @instructions, @createdAt, @updatedAt
         )
         ON CONFLICT(id) DO UPDATE SET
           name=excluded.name, provider=excluded.provider, model=excluded.model,
-          default_skill=excluded.default_skill, instructions=excluded.instructions,
-          updated_at=excluded.updated_at`,
+          default_skill=excluded.default_skill, skills=excluded.skills,
+          instructions=excluded.instructions, updated_at=excluded.updated_at`,
       )
       .run({
         id: agent.id,
@@ -490,6 +516,7 @@ export class AgentDeskDb {
         provider: agent.provider,
         model: agent.model,
         defaultSkill: agent.defaultSkill,
+        skills: skillsJson,
         instructions: agent.instructions,
         createdAt: agent.createdAt,
         updatedAt: agent.updatedAt,

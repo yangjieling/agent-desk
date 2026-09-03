@@ -33,7 +33,13 @@ export interface AgentProfile {
   /** Provider id: claude, codex, cursor, … */
   provider: string;
   model: string;
+  /** Primary skill id used when creating tasks for this agent. */
   defaultSkill: string;
+  /**
+   * Extra skill ids always mounted with this agent (in addition to the task skill).
+   * Does not replace defaultSkill; duplicates of defaultSkill are ignored at mount.
+   */
+  skills: string[];
   instructions: string;
   createdAt: number;
   updatedAt: number;

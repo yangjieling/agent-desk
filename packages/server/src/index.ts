@@ -3,7 +3,7 @@ import fastifyStatic from "@fastify/static";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, newAutopilotWebhookSecret, newAutopilotWebhookToken, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
+import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, newAutopilotWebhookSecret, newAutopilotWebhookToken, normalizeAgentSkills, parseGate, type AgentProfile, type Autopilot } from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -613,6 +613,7 @@ export async function createServer(opts: ServerOptions = {}) {
       provider?: string;
       model?: string;
       defaultSkill?: string;
+      skills?: string[];
       instructions?: string;
     };
   }>("/api/agents", async (req, reply) => {
@@ -632,6 +633,7 @@ export async function createServer(opts: ServerOptions = {}) {
       provider,
       model: String(req.body.model || "").trim(),
       defaultSkill: String(req.body.defaultSkill || "default").trim() || "default",
+      skills: normalizeAgentSkills(req.body.skills),
       instructions: String(req.body.instructions || "").trim(),
       createdAt: now,
       updatedAt: now,
@@ -647,6 +649,7 @@ export async function createServer(opts: ServerOptions = {}) {
       provider?: string;
       model?: string;
       defaultSkill?: string;
+      skills?: string[];
       instructions?: string;
     };
   }>("/api/agents/:id", async (req, reply) => {
@@ -665,6 +668,10 @@ export async function createServer(opts: ServerOptions = {}) {
       provider,
       model: String(req.body.model ?? current.model).trim(),
       defaultSkill: String(req.body.defaultSkill ?? current.defaultSkill).trim() || "default",
+      skills:
+        req.body.skills !== undefined
+          ? normalizeAgentSkills(req.body.skills)
+          : normalizeAgentSkills(current.skills),
       instructions: String(req.body.instructions ?? current.instructions).trim(),
       updatedAt: now,
     };

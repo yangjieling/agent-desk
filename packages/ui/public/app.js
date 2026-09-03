@@ -3960,7 +3960,8 @@ async function renderAgentsPageList() {
     const meta = [
       AGENT_PROVIDER_BY_ID.get(a.provider) || a.provider,
       a.model || "CLI 默认模型",
-      a.defaultSkill && a.defaultSkill !== "default" ? `skill: ${a.defaultSkill}` : "",
+      a.defaultSkill && a.defaultSkill !== "default" ? `主技能: ${a.defaultSkill}` : "",
+      Array.isArray(a.skills) && a.skills.length ? `+${a.skills.length} 附加` : "",
     ]
       .filter(Boolean)
       .join(" · ");
@@ -4578,6 +4579,62 @@ async function fillAgentSkillOptions(selectedId) {
   }
   sel.innerHTML = opts.map((o) => `<option value="${esc(o.id)}">${esc(o.label)}</option>`).join("");
   sel.value = current;
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function fillAgentExtraSkills(selectedIds) {
+  const box = document.getElementById("agent-ed-skills");
+  if (!box) return;
+  let rows = [];
+  try {
+    rows = await api("/api/skills");
+  } catch {
+    rows = [];
+  }
+  const selected = new Set(
+    (Array.isArray(selectedIds) ? selectedIds : [])
+      .map((id) => String(id || "").trim())
+      .filter((id) => id && id !== "default"),
+  );
+  const packs = (Array.isArray(rows) ? rows : [])
+    .map((s) => {
+      const id = String(s.id || "").trim();
+      if (!id || id === "default") return null;
+      return { id, description: String(s.description || "").trim() };
+    })
+    .filter(Boolean);
+  for (const id of selected) {
+    if (!packs.some((p) => p.id === id)) packs.push({ id, description: "" });
+  }
+  if (!packs.length) {
+    box.innerHTML = "";
+    return;
+  }
+  box.innerHTML = packs
+    .map((p) => {
+      const on = selected.has(p.id);
+      const title = p.description ? `${p.id} · ${p.description}` : p.id;
+      return (
+        `<label class="agent-skill-chip${on ? " is-on" : ""}" title="${esc(title)}">` +
+        `<input type="checkbox" value="${esc(p.id)}"${on ? " checked" : ""}>` +
+        `<span>${esc(p.id)}</span></label>`
+      );
+    })
+    .join("");
+  box.querySelectorAll("input[type=checkbox]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const label = input.closest(".agent-skill-chip");
+      if (label) label.classList.toggle("is-on", !!input.checked);
+    });
+  });
+}
+
+function getAgentEditorExtraSkills() {
+  const box = document.getElementById("agent-ed-skills");
+  if (!box) return [];
+  return [...box.querySelectorAll("input[type=checkbox]:checked")]
+    .map((el) => String(el.value || "").trim())
+    .filter((id) => id && id !== "default");
 }
 
 async function mountAgentEditorModelDropdown(providerId, currentModel) {
@@ -4618,6 +4675,7 @@ async function openAgentEditor(id) {
   if (sel) sel.value = provider;
   await mountAgentEditorModelDropdown(provider, existing?.model || "");
   await fillAgentSkillOptions(existing?.defaultSkill || "default");
+  await fillAgentExtraSkills(existing?.skills || []);
   document.getElementById("agent-ed-instructions").value = existing?.instructions || "";
   bindAgentInstructionsEditor();
   syncAgentInstructionsUi();
@@ -4630,10 +4688,11 @@ async function saveAgentEditor() {
   const provider = (document.getElementById("agent-ed-provider").value || "").trim();
   const model = (document.getElementById("agent-ed-model")?.dataset.value || "").trim();
   const defaultSkill = (document.getElementById("agent-ed-skill").value || "default").trim() || "default";
+  const skills = getAgentEditorExtraSkills().filter((id) => id !== defaultSkill);
   const instructions = (document.getElementById("agent-ed-instructions").value || "").trim();
   if (!name) return toast("请填写 Agent 名称");
   if (!provider) return toast("请选择提供方");
-  const body = { name, provider, model, defaultSkill, instructions };
+  const body = { name, provider, model, defaultSkill, skills, instructions };
   try {
     if (AGENT_EDIT.isNew) {
       await api("/api/agents", { method: "POST", body: JSON.stringify(body) });
@@ -4693,11 +4752,17 @@ async function refreshTaskAgentPickers(settings) {
       profile?.model || s.defaultModel || "",
       () => {},
     );
+    const skillId = (profile?.defaultSkill || "default").trim() || "default";
+    await fillSkillOptions(skillId);
   };
 
   const taskAgentEl = document.getElementById("t-agent");
   if (taskAgentEl) {
     mountSettingDropdown(taskAgentEl, opts, defaultId, onTaskAgentChange);
+    const profile = AGENT_PROFILES.find((a) => a.id === defaultId);
+    if (profile?.defaultSkill) {
+      await fillSkillOptions(profile.defaultSkill);
+    }
   }
 }
 

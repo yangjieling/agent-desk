@@ -76,6 +76,45 @@ export function mountSkill(skillId: string, opts: SkillLookupOptions = {}): Skil
   };
 }
 
+/**
+ * Mount a primary skill plus optional extras (agent-bound packs).
+ * Primary prompt comes first; extra packs append. Dirs are de-duplicated.
+ */
+export function mountSkills(
+  primarySkillId: string,
+  extraSkillIds: string[] = [],
+  opts: SkillLookupOptions = {},
+): SkillMount {
+  const primary = mountSkill(primarySkillId, opts);
+  const seen = new Set<string>();
+  if (primary.skillId && primary.skillId !== "default") seen.add(primary.skillId);
+
+  const prefixes: string[] = [];
+  if (primary.promptPrefix) prefixes.push(primary.promptPrefix);
+  const dirs = [...primary.extraSkillDirs];
+  const dirSeen = new Set(dirs);
+
+  for (const raw of extraSkillIds) {
+    const id = normalizeSkillId(raw) || "";
+    if (!id || id === "default" || seen.has(id)) continue;
+    seen.add(id);
+    const extra = mountSkill(id, opts);
+    if (extra.promptPrefix) prefixes.push(extra.promptPrefix);
+    for (const d of extra.extraSkillDirs) {
+      if (dirSeen.has(d)) continue;
+      dirSeen.add(d);
+      dirs.push(d);
+    }
+  }
+
+  return {
+    skillId: primary.skillId,
+    promptPrefix: prefixes.join("\n"),
+    extraSkillDirs: dirs,
+    descriptor: primary.descriptor,
+  };
+}
+
 export function listSkillSummaries(opts: SkillLookupOptions = {}) {
   return listSkillDescriptors(opts).map((s) => ({
     id: s.id,

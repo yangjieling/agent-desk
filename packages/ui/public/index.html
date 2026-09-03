@@ -840,14 +840,20 @@
         </div>
         <label class="wf-field wf-field-span2">
           <span class="wf-field-label">默认技能</span>
-          <select id="agent-ed-skill"></select>
+          <select id="agent-ed-skill" title="创建任务 / 分配 / @提及时作为主技能"></select>
+          <span class="wf-field-hint">主技能：新建任务或唤醒时默认使用；可在任务页临时覆盖。</span>
         </label>
+        <div class="wf-field wf-field-span2">
+          <span class="wf-field-label">附加技能</span>
+          <div id="agent-ed-skills" class="agent-skills-picker" role="group" aria-label="附加技能"></div>
+          <span class="wf-field-hint">身份之外的「怎么做」：运行时与主技能一并注入（不含 default）。</span>
+        </div>
       </div>
       <div class="agent-instructions-block">
         <div class="agent-instructions-head">
           <div class="agent-instructions-meta">
-            <span class="agent-instructions-title">系统指令</span>
-            <span class="agent-instructions-hint">定义这名 Agent 的角色与约束；仅在每次<strong>新任务</strong>启动时注入到提示词开头（续跑会话不会重复追加）。</span>
+            <span class="agent-instructions-title">系统指令（身份）</span>
+            <span class="agent-instructions-hint">定义这名 Agent 的角色与约束；仅在每次<strong>新任务</strong>启动时注入到提示词开头（续跑会话不会重复追加）。技能负责「怎么做」，指令负责「是谁」。</span>
           </div>
           <span class="agent-instructions-count" id="agent-ed-instructions-count" aria-live="polite">0 字</span>
         </div>

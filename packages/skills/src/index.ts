@@ -16,7 +16,7 @@ export {
   skillRoots,
   userSkillsDir,
 } from "./registry.js";
-export { listSkillSummaries, mountSkill, renderPromptBlock } from "./mount.js";
+export { listSkillSummaries, mountSkill, mountSkills, renderPromptBlock } from "./mount.js";
 export {
   SKILL_META_FILE,
   compareVersions,

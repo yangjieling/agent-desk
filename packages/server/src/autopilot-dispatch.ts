@@ -141,12 +141,15 @@ export async function dispatchAutopilot(
       });
     } else {
       const skill = String(ap.skill || "").trim() || "default";
+      const agent = ap.agentProfileId ? db.getAgent(ap.agentProfileId) : null;
+      const resolvedSkill =
+        skill !== "default" ? skill : agent?.defaultSkill || skill;
       const task = createTask(
         {
           title,
           prompt,
           projectDir,
-          skill,
+          skill: resolvedSkill,
           workItemId: workItemId || undefined,
           agentProfileId: ap.agentProfileId || undefined,
           model: ap.model || undefined,

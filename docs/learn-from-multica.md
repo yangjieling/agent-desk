@@ -66,7 +66,7 @@
 | 17 | 插件契约 | Manifest：surfaces / hooks / MCP / skills；能力矩阵显式失败 | Provider 可插拔；无统一 plugin manifest | **长期** | 先稳 OpenAPI 与 provider，再考虑插件宿主 |
 | 18 | Public API + OpenAPI | 较完整的 public API | `schemas/openapi.yaml` + `GET /api/docs` / `/openapi.yaml` | **已有**（MVP） | 本地契约；无 PAT/OAuth/幂等账本 |
 | 19 | VCS 多后端 | GitHub / GitLab / Gitea / Forgejo | GitHub Issues ✅；GitLab Issues MVP ✅ | **已有**（GitLab MVP）/ **长期**（Gitea/Forgejo） | `provider-issue-gitlab`；无自动 clone |
-| 20 | Skills 工作区共享 | Skill 挂多 Agent；指令=身份、Skill=怎么做 | Skills 已可同步/挂载到任务 | **已有** | 可加强「绑定到 Agent 配置」而非仅任务级 |
+| 20 | Skills 工作区共享 | Skill 挂多 Agent；指令=身份、Skill=怎么做 | Skills 可同步；**Agent 绑默认技能 + 附加技能**；运行时一并挂载 | **已有**（MVP） | `AgentProfile.defaultSkill` + `skills[]`；任务页随 Agent 继承主技能 |
 | 21 | 项目与资源绑定 | Project 挂仓库/目录 | 任务选工作区目录；GitHub 可自动 clone | **已有**（弱）/ **可做 MVP** | 显式 Project 实体可选 |
 | 22 | 桌面端 / daemon UX | 打开即注册本机 Runtime | `oh web` + 浏览器 | **长期** | 产品成熟后再做 |
 
@@ -157,6 +157,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | #20 Agent 绑定 Skills：`skills[]` 附加挂载；智能体页多选；任务页随 Agent 继承 `defaultSkill`；`mountSkills` |
 | 2026-09-03 | #4 分配 / @提及：`POST /api/work-items/:id/assign`；备注解析 `@Agent` / `mention://agent/…` 入队；同 Agent 进行中任务合流；工作项弹窗负责人选择 |
 | 2026-09-03 | #13 Autopilot Webhook：`POST /api/webhooks/autopilots/:token`；X-Hub-Signature-256；Idempotency-Key / X-GitHub-Delivery 幂等；自动化页可启停/轮换 |
 | 2026-09-03 | #3 控制面/执行面分离 MVP：LocalExecutor claim + 心跳；`dispatched` 状态；`GET /api/executor`；HTTP 仅入队 |

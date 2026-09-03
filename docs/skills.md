@@ -14,6 +14,16 @@ Portable **instruction packs** for coding agents. Inspired by common harness pat
 
 Workflow nodes and tasks still store a **skill id string**. The runner resolves that id when spawning the agent — skill bodies are **not** stored in SQLite.
 
+## Agent binding
+
+| Field | Meaning |
+|-------|---------|
+| **`instructions`** | Identity — role / constraints; prepended once on new runs |
+| **`defaultSkill`** | Primary how-to — used when creating tasks, assign, @mention (task page inherits on Agent change) |
+| **`skills[]`** | Extra packs — always mounted with the agent at run time (in addition to the task skill) |
+
+At spawn the runner calls `mountSkills(task.skill, agent.skills)` so the primary pack and any agent-bound extras share one prompt prefix + `--add-dir` list.
+
 ## Bundled skills
 
 **Built-in (CLI-managed)** — `templates/skills/`: `triage`, `fix`, `test`
@@ -90,7 +100,7 @@ description: …
 
 ## Injection (Claude)
 
-On `startTask`: `mountSkill` → prompt prefix + `--add-dir`. Missing skill → hint, no hard fail.
+On `startTask`: `mountSkills(task.skill, agent.skills)` → prompt prefix + `--add-dir`. Missing skill → hint, no hard fail.
 
 ## API / CLI
 

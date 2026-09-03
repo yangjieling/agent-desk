@@ -1644,6 +1644,12 @@ components:
           type: string
         defaultSkill:
           type: string
+          description: Primary skill id for new tasks / assign / @mention
+        skills:
+          type: array
+          items:
+            type: string
+          description: Extra skill ids always mounted with this agent at run time
         instructions:
           type: string
         createdAt:
@@ -1662,6 +1668,10 @@ components:
           type: string
         defaultSkill:
           type: string
+        skills:
+          type: array
+          items:
+            type: string
         instructions:
           type: string
 

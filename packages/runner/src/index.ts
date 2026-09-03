@@ -32,7 +32,7 @@ import {
   restoreManagedAutoWorkspaceIfMissing,
 } from "@agent-desk/provider-issue-github";
 import { getNotifyProvider } from "@agent-desk/provider-notify";
-import { mountSkill } from "@agent-desk/skills";
+import { mountSkills } from "@agent-desk/skills";
 import {
   createLogLinePrefixer,
   formatActivityLogLine,
@@ -489,16 +489,16 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     const controller = new AbortController();
     running.set(taskId, controller);
 
-    const skillMount = mountSkill(task.skill || "default", { cwd });
+    const profile = task.agentProfileId ? opts.db.getAgent(task.agentProfileId) : null;
+    const skillMount = mountSkills(task.skill || "default", profile?.skills || [], { cwd });
     const runPrompt = agentPromptBodyForRun(task.prompt, Boolean(task.sessionId));
     let promptBody = task.sessionId
       ? runPrompt
       : skillMount.promptPrefix
         ? `${skillMount.promptPrefix}\n${task.prompt}`
         : task.prompt;
-    if (!task.sessionId && task.agentProfileId) {
-      const profile = opts.db.getAgent(task.agentProfileId);
-      promptBody = prependAgentInstructions(promptBody, profile?.instructions || "");
+    if (!task.sessionId && profile) {
+      promptBody = prependAgentInstructions(promptBody, profile.instructions || "");
     }
     const promptFile = promptPath(task.id);
     fs.writeFileSync(promptFile, promptBody, "utf8");

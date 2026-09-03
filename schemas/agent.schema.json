@@ -10,6 +10,11 @@
     "provider": { "type": "string" },
     "model": { "type": "string" },
     "defaultSkill": { "type": "string" },
+    "skills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Extra skill ids mounted with the agent in addition to the task skill"
+    },
     "instructions": { "type": "string" },
     "createdAt": { "type": "integer" },
     "updatedAt": { "type": "integer" }
