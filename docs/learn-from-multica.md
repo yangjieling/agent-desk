@@ -127,7 +127,7 @@
 
 当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。
 
-任务运行会话区的 UI 优化方案见 [task-session-ui.md](./task-session-ui.md)（**P0 已落地**；P2 布局收窄等可后置）。
+任务运行会话区的 UI 优化方案见 [task-session-ui.md](./task-session-ui.md)（**P0–P3 必做项已落地**；可选 P3-4/5 视痛感）。
 
 ### agent-desk UI 目标
 
@@ -156,6 +156,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | 任务会话 UI：P0–P3 必做项已落地（含转录密度）；见 [task-session-ui.md](./task-session-ui.md) |
 | 2026-09-02 | #18 OpenAPI MVP：`schemas/openapi.yaml` 覆盖本机 Fastify API；`GET /openapi.yaml`、`/api/openapi.yaml`、`/api/docs`（Swagger UI） |
 | 2026-09-02 | #8/#9：Claude 用量 meta chip；`docs/security.md` 说明本地用户边界（不假装沙箱） |
 | 2026-09-02 | #13 Autopilot MVP：cron 调度、Runbook→技能任务/流程、自动化页、立即运行/暂停；无 Webhook |
