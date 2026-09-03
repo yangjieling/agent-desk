@@ -77,6 +77,10 @@ function rowToTask(row: Record<string, unknown>): Task {
     failureCode: (String(row.failure_code ?? "") || "") as Task["failureCode"],
     failureMessage: String(row.failure_message ?? ""),
     nextRetryAt: Number(row.next_retry_at ?? 0),
+    claimToken: String(row.claim_token ?? ""),
+    claimedBy: String(row.claimed_by ?? ""),
+    claimedAt: Number(row.claimed_at ?? 0),
+    heartbeatAt: Number(row.heartbeat_at ?? 0),
     createdAt: Number(row.created_at),
     updatedAt: Number(row.updated_at),
     lastActivityAt: Number(row.last_activity_at),
@@ -176,7 +180,13 @@ export interface ResolveWorkItemInput {
   agentProfileId?: string;
 }
 
-const ACTIVE_TASK_STATUSES = new Set(["created", "queued", "running", "awaiting"]);
+const ACTIVE_TASK_STATUSES = new Set(["created", "queued", "dispatched", "running", "awaiting"]);
+
+function appendClaimStamp(prev: string | undefined, message: string): string {
+  const stamp = `\n\n${new Date().toISOString()} [claim] ${message}`;
+  const body = (prev || "").trim();
+  return body ? `${body}${stamp}` : stamp.trimStart();
+}
 
 const AGENT_PRESETS: Record<string, { name: string; defaultSkill: string }> = {
   claude: { name: "Claude", defaultSkill: "default" },
@@ -248,6 +258,10 @@ export class AgentDeskDb {
     this.ensureTaskColumn("failure_message", "TEXT DEFAULT ''");
     this.ensureTaskColumn("next_retry_at", "INTEGER DEFAULT 0");
     this.ensureTaskColumn("work_item_id", "TEXT");
+    this.ensureTaskColumn("claim_token", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("claimed_by", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("claimed_at", "INTEGER DEFAULT 0");
+    this.ensureTaskColumn("heartbeat_at", "INTEGER DEFAULT 0");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS work_items (
         id TEXT PRIMARY KEY,
@@ -472,12 +486,14 @@ export class AgentDeskDb {
           workflow_mode, workflow_step, workflow_step_total, parent_task_id,
           workflow_node_index, project_dir, work_item_id, issue_code, title, prompt, agent_profile_id, coding_agent, model,
           session_id, result, gate_notify_hash, retry_count, failure_code, failure_message, next_retry_at,
+          claim_token, claimed_by, claimed_at, heartbeat_at,
           created_at, updated_at, last_activity_at
         ) VALUES (
           @id, @taskType, @status, @skill, @workflowId, @workflowRunId, @workflowName,
           @workflowMode, @workflowStep, @workflowStepTotal, @parentTaskId,
           @workflowNodeIndex, @projectDir, @workItemId, @issueCode, @title, @prompt, @agentProfileId, @codingAgent, @model,
           @sessionId, @result, @gateNotifyHash, @retryCount, @failureCode, @failureMessage, @nextRetryAt,
+          @claimToken, @claimedBy, @claimedAt, @heartbeatAt,
           @createdAt, @updatedAt, @lastActivityAt
         )
         ON CONFLICT(id) DO UPDATE SET
@@ -491,6 +507,8 @@ export class AgentDeskDb {
           session_id=excluded.session_id, result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
           retry_count=excluded.retry_count, failure_code=excluded.failure_code,
           failure_message=excluded.failure_message, next_retry_at=excluded.next_retry_at,
+          claim_token=excluded.claim_token, claimed_by=excluded.claimed_by,
+          claimed_at=excluded.claimed_at, heartbeat_at=excluded.heartbeat_at,
           updated_at=excluded.updated_at, last_activity_at=excluded.last_activity_at`,
       )
       .run({
@@ -521,6 +539,10 @@ export class AgentDeskDb {
         failureCode: task.failureCode,
         failureMessage: task.failureMessage,
         nextRetryAt: task.nextRetryAt,
+        claimToken: task.claimToken ?? "",
+        claimedBy: task.claimedBy ?? "",
+        claimedAt: task.claimedAt ?? 0,
+        heartbeatAt: task.heartbeatAt ?? 0,
         createdAt: task.createdAt,
         updatedAt: task.updatedAt,
         lastActivityAt: task.lastActivityAt,
@@ -874,18 +896,170 @@ export class AgentDeskDb {
       .run("work_items_backfill_v1", "1");
   }
 
-  /** Tasks still using a workspace (created / running / awaiting). */
+  /** Tasks still using a workspace (created / dispatched / running / awaiting). */
   countActiveTasksForProjectDir(projectDir: string, exceptId?: string): number {
     const resolved = path.resolve(projectDir);
     const row = this.db
       .prepare(
         `SELECT COUNT(*) AS n FROM tasks
          WHERE project_dir = @projectDir
-           AND status IN ('created', 'running', 'awaiting')
+           AND status IN ('created', 'dispatched', 'running', 'awaiting')
            AND (@exceptId = '' OR id != @exceptId)`,
       )
       .get({ projectDir: resolved, exceptId: exceptId ?? "" }) as { n: number };
     return row?.n ?? 0;
+  }
+
+  /** Count dispatched+running slots held by an executor (awaiting does not count). */
+  countExecutorSlots(executorId: string): number {
+    const id = (executorId || "").trim();
+    if (!id) return 0;
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+         WHERE claimed_by = ?
+           AND status IN ('dispatched', 'running')`,
+      )
+      .get(id) as { n: number };
+    return row?.n ?? 0;
+  }
+
+  listTasksByStatus(statuses: TaskStatus[], limit = 500): Task[] {
+    if (!statuses.length) return [];
+    const placeholders = statuses.map(() => "?").join(", ");
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks WHERE status IN (${placeholders})
+         ORDER BY updated_at DESC LIMIT ?`,
+      )
+      .all(...statuses, limit) as Record<string, unknown>[];
+    return rows.map(rowToTask);
+  }
+
+  /**
+   * Atomically claim the next ready queued task for an executor.
+   * Skips tasks whose projectDir already has an active task when workspaceLock is on.
+   */
+  claimNextQueuedTask(input: {
+    executorId: string;
+    claimToken: string;
+    workspaceLockEnabled: boolean;
+    now?: number;
+  }): Task | null {
+    const executorId = (input.executorId || "").trim();
+    const claimToken = (input.claimToken || "").trim();
+    if (!executorId || !claimToken) return null;
+    const now = input.now ?? Date.now();
+
+    const claimTx = this.db.transaction((): Task | null => {
+      const rows = this.db
+        .prepare(
+          `SELECT * FROM tasks
+           WHERE status = 'queued'
+             AND (next_retry_at IS NULL OR next_retry_at = 0 OR next_retry_at <= ?)
+           ORDER BY
+             CASE WHEN next_retry_at > 0 THEN next_retry_at ELSE created_at END ASC,
+             created_at ASC
+           LIMIT 50`,
+        )
+        .all(now) as Record<string, unknown>[];
+
+      for (const row of rows) {
+        const candidate = rowToTask(row);
+        const dir = path.resolve(candidate.projectDir || process.cwd());
+        if (input.workspaceLockEnabled) {
+          const busy = this.countActiveTasksForProjectDir(dir, candidate.id);
+          if (busy > 0) continue;
+        }
+
+        const result = this.db
+          .prepare(
+            `UPDATE tasks SET
+               status = 'dispatched',
+               claimed_by = @claimedBy,
+               claim_token = @claimToken,
+               claimed_at = @now,
+               heartbeat_at = @now,
+               failure_code = '',
+               failure_message = '',
+               next_retry_at = 0,
+               updated_at = @now,
+               last_activity_at = @now
+             WHERE id = @id AND status = 'queued'`,
+          )
+          .run({
+            id: candidate.id,
+            claimedBy: executorId,
+            claimToken,
+            now,
+          });
+        if (result.changes === 1) {
+          return this.getTask(candidate.id);
+        }
+      }
+      return null;
+    });
+
+    return claimTx();
+  }
+
+  /** Refresh lease heartbeat for a claimed task. */
+  heartbeatTaskClaim(taskId: string, claimToken: string, executorId: string, now = Date.now()): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE tasks SET heartbeat_at = @now, updated_at = @now
+         WHERE id = @id
+           AND claim_token = @claimToken
+           AND claimed_by = @executorId
+           AND status IN ('dispatched', 'running')`,
+      )
+      .run({ id: taskId, claimToken, executorId, now });
+    return result.changes > 0;
+  }
+
+  /** Clear claim fields (used when re-queueing or finishing). */
+  clearTaskClaim(taskId: string): Task | null {
+    return this.updateTask(taskId, {
+      claimToken: "",
+      claimedBy: "",
+      claimedAt: 0,
+      heartbeatAt: 0,
+    });
+  }
+
+  /**
+   * Requeue dispatched tasks whose heartbeat lease expired.
+   * Running tasks are left to orphan reclaim (need live process check).
+   */
+  reclaimStaleDispatchedClaims(leaseTtlMs: number, now = Date.now()): Task[] {
+    const cutoff = now - Math.max(5_000, leaseTtlMs);
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM tasks
+         WHERE status = 'dispatched'
+           AND (heartbeat_at = 0 OR heartbeat_at < ?)`,
+      )
+      .all(cutoff) as Record<string, unknown>[];
+
+    const reclaimed: Task[] = [];
+    const msg = "执行器心跳超时，已重新入队等待领取";
+    for (const row of rows) {
+      const task = rowToTask(row);
+      const updated = this.updateTask(task.id, {
+        status: "queued",
+        claimToken: "",
+        claimedBy: "",
+        claimedAt: 0,
+        heartbeatAt: 0,
+        failureCode: "claim_expired",
+        failureMessage: msg,
+        nextRetryAt: 0,
+        result: appendClaimStamp(task.result, msg),
+        lastActivityAt: now,
+      });
+      if (updated) reclaimed.push(updated);
+    }
+    return reclaimed;
   }
 
   listAutopilots(limit = 200): Autopilot[] {

@@ -29,11 +29,14 @@ import {
   bootstrapTaskQueue,
   createTask,
   enqueueStartTask,
+  getLocalExecutor,
   isTaskRunning,
   processWorkspaceQueue,
   resumeTask,
+  startLocalExecutor,
   startTask,
   startTaskWatchdog,
+  stopLocalExecutor,
   stopTask,
   stopTaskWatchdog,
   subscribeTaskUpdates,
@@ -92,7 +95,14 @@ function keepSecret(incoming: string | undefined, current: string): string {
 }
 
 function isTaskStreamLive(task: Task): boolean {
-  return task.status === "running" || task.status === "awaiting" || isTaskRunning(task.id);
+  return (
+    task.status === "running" ||
+    task.status === "awaiting" ||
+    task.status === "queued" ||
+    task.status === "dispatched" ||
+    task.status === "created" ||
+    isTaskRunning(task.id)
+  );
 }
 
 function taskForSseStream(task: Task, omitResult: boolean): Task {
@@ -261,6 +271,10 @@ export async function createServer(opts: ServerOptions = {}) {
   const runnerOpts = { db, settings, dataDir };
   registerWorkflowHooks(dataDir, runnerOpts);
   bootstrapTaskQueue(runnerOpts, startTask, { isLive: isTaskRunning });
+  startLocalExecutor({
+    ...runnerOpts,
+    startTask,
+  });
   startTaskWatchdog(
     runnerOpts,
     startTask,
@@ -313,6 +327,7 @@ export async function createServer(opts: ServerOptions = {}) {
   app.get("/api/health", async () => {
     const runtimes = listAgentRuntimes();
     const installed = runtimes.filter((r) => r.installed);
+    const executor = getLocalExecutor()?.getStatus() ?? null;
     return {
       ok: true,
       version: "0.2.0",
@@ -321,7 +336,20 @@ export async function createServer(opts: ServerOptions = {}) {
         total: runtimes.length,
         providers: installed.map((r) => r.id),
       },
+      executor,
     };
+  });
+
+  app.get("/api/executor", async () => {
+    const executor = getLocalExecutor()?.getStatus();
+    if (!executor) {
+      return {
+        online: false,
+        mode: "in_process",
+        hint: "local executor not started",
+      };
+    }
+    return executor;
   });
 
   app.get("/api/dashboard", async () => {
@@ -332,7 +360,8 @@ export async function createServer(opts: ServerOptions = {}) {
       (t) =>
         t.status === "running" ||
         t.status === "created" ||
-        t.status === "queued",
+        t.status === "queued" ||
+        t.status === "dispatched",
     );
     const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
     const inReview = db.listWorkItemsByStatus("in_review", 100);
@@ -1066,18 +1095,24 @@ export async function createServer(opts: ServerOptions = {}) {
     if (isTaskRunning(task.id) || task.status === "running") {
       return reply.code(409).send({ error: "already_running", task });
     }
+    if (task.status === "dispatched") {
+      return reply.code(409).send({ error: "already_dispatched", task });
+    }
     if (!["created", "failed", "stopped", "queued"].includes(task.status)) {
       return reply.code(409).send({ error: "not_startable", status: task.status, task });
     }
-    if (task.status === "queued") {
-      db.updateTask(task.id, {
-        status: "created",
-        nextRetryAt: 0,
-        failureMessage: "",
-      });
-    }
-    const updated = await startTask(runnerOpts, task.id);
-    return updated;
+    db.updateTask(task.id, {
+      status: "queued",
+      nextRetryAt: 0,
+      failureMessage: "",
+      failureCode: "",
+      claimToken: "",
+      claimedBy: "",
+      claimedAt: 0,
+      heartbeatAt: 0,
+    });
+    enqueueStartTask(runnerOpts, task.id);
+    return db.getTask(task.id);
   });
 
   async function handleResume(taskId: string, replyText: string, model?: string) {
@@ -1177,7 +1212,14 @@ export async function createServer(opts: ServerOptions = {}) {
       db.updateTask(req.params.id, {
         status: "stopped",
         nextRetryAt: 0,
-        failureMessage: task.status === "queued" && task.retryCount > 0 ? "已取消自动重试" : task.failureMessage,
+        claimToken: "",
+        claimedBy: "",
+        claimedAt: 0,
+        heartbeatAt: 0,
+        failureMessage:
+          (task.status === "queued" || task.status === "dispatched") && task.retryCount > 0
+            ? "已取消自动重试"
+            : task.failureMessage,
       });
       if (projectDir) {
         void processWorkspaceQueue(runnerOpts, projectDir, startTask);
@@ -1565,6 +1607,7 @@ export async function createServer(opts: ServerOptions = {}) {
     setImmediate(async () => {
       try {
         stopTaskWatchdog();
+        stopLocalExecutor();
         stopAutopilotScheduler();
         await app.close();
       } finally {

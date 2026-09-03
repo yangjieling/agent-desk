@@ -47,11 +47,20 @@ import {
   maybeScheduleAutoRetry,
   processWorkspaceQueue,
 } from "./queue.js";
+import { requestExecutorWake } from "./executor.js";
 
 export { bootstrapTaskQueue } from "./queue.js";
 export { processWorkspaceQueue } from "./queue.js";
 export { reclaimOrphanActiveTasks, startTaskWatchdog, stopTaskWatchdog } from "./queue.js";
 export { subscribeTaskUpdates, type TaskStreamUpdate } from "./task-events.js";
+export {
+  getLocalExecutor,
+  requestExecutorWake,
+  startLocalExecutor,
+  stopLocalExecutor,
+  type LocalExecutorHandle,
+  type LocalExecutorStatus,
+} from "./executor.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -197,6 +206,10 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     failureCode: "",
     failureMessage: "",
     nextRetryAt: 0,
+    claimToken: "",
+    claimedBy: "",
+    claimedAt: 0,
+    heartbeatAt: 0,
     createdAt: now,
     updatedAt: now,
     lastActivityAt: now,
@@ -249,6 +262,10 @@ async function markTaskQueued(
     failureCode: code,
     failureMessage: message,
     nextRetryAt: 0,
+    claimToken: "",
+    claimedBy: "",
+    claimedAt: 0,
+    heartbeatAt: 0,
     result,
     lastActivityAt: Date.now(),
   });
@@ -258,6 +275,7 @@ async function markTaskQueued(
     publishTaskUpdate({ task, resultAppend: undefined });
   }
   if (!task) throw new Error(`Task not found after queue: ${taskId}`);
+  requestExecutorWake();
   return task;
 }
 
@@ -278,6 +296,10 @@ async function markTaskFailed(
     failureCode: code,
     failureMessage: msg,
     nextRetryAt: 0,
+    claimToken: "",
+    claimedBy: "",
+    claimedAt: 0,
+    heartbeatAt: 0,
     result,
     lastActivityAt: Date.now(),
   });
@@ -413,6 +435,8 @@ async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<vo
 
 /**
  * Launch (or re-launch) a task's coding agent.
+ * Prefer the control-plane path (`enqueueStartTask`) from HTTP / Autopilot;
+ * the local executor claims queued work then calls this. CLI may call directly.
  * Launch failures are recorded as status=failed and do not reject, so
  * fire-and-forget callers cannot crash the web process.
  */
@@ -504,13 +528,19 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     );
     output += formatCommandLogLine(args);
 
+    const now = Date.now();
     const runningTask = opts.db.updateTask(taskId, {
       status: "running",
       failureCode: "",
       failureMessage: "",
       nextRetryAt: 0,
+      // Keep existing claim if executor owns this task; otherwise mark inline CLI ownership.
+      claimToken: task.claimToken || "inline",
+      claimedBy: task.claimedBy || "inline",
+      claimedAt: task.claimedAt || now,
+      heartbeatAt: now,
       result: output,
-      lastActivityAt: Date.now(),
+      lastActivityAt: now,
     });
     resetPublishedResultLen(taskId, output.length);
     notifyTaskUpdate(opts, runningTask ?? taskId, true);
@@ -526,6 +556,13 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     const events: import("@agent-desk/provider-agent").AgentEvent[] = [];
     let settled = false;
     const approvedCommandIds = parseApprovedDangerousCommandIds(task.prompt);
+
+    const clearClaimPatch = (): Partial<Task> => ({
+      claimToken: "",
+      claimedBy: "",
+      claimedAt: 0,
+      heartbeatAt: 0,
+    });
 
     const finishDangerousCommandGate = async (
       match: import("@agent-desk/core").DangerousCommandMatch,
@@ -552,6 +589,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         sessionId,
         result: output,
         lastActivityAt: Date.now(),
+        ...clearClaimPatch(),
       });
       if (updated) {
         notifyTaskUpdate(opts, updated, true);
@@ -616,6 +654,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         status,
         sessionId,
         result: output,
+        ...clearClaimPatch(),
       };
       if (idleAbort) {
         patch.status = "failed";
@@ -661,11 +700,38 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
   }
 }
 
-/** Fire-and-forget start that never surfaces as an unhandled rejection. */
+/**
+ * Control plane: ensure the task is queued and wake the local executor.
+ * Does not spawn the coding agent CLI.
+ */
 export function enqueueStartTask(opts: RunnerOptions, taskId: string): void {
-  void startTask(opts, taskId).catch((err) => {
-    console.error(`[agent-desk] enqueueStartTask ${taskId}:`, errMessage(err));
+  const task = opts.db.getTask(taskId);
+  if (!task) {
+    console.error(`[agent-desk] enqueueStartTask: task not found ${taskId}`);
+    return;
+  }
+  if (running.has(taskId) || task.status === "running" || task.status === "awaiting") {
+    return;
+  }
+  if (task.status === "dispatched" && task.claimedBy && task.claimToken) {
+    requestExecutorWake();
+    return;
+  }
+
+  const now = Date.now();
+  const updated = opts.db.updateTask(taskId, {
+    status: "queued",
+    nextRetryAt: task.status === "queued" ? task.nextRetryAt : 0,
+    claimToken: "",
+    claimedBy: "",
+    claimedAt: 0,
+    heartbeatAt: 0,
+    lastActivityAt: now,
   });
+  if (updated) {
+    publishTaskUpdate({ task: updated, resultAppend: undefined });
+  }
+  requestExecutorWake();
 }
 
 export function stopTask(taskId: string, reason = "user_stop"): boolean {
@@ -735,13 +801,18 @@ export async function resumeTask(
     status: "created",
     prompt: nextPrompt,
     result: `${task.result || ""}\n\n## user\n${prompt}\n`,
+    claimToken: "",
+    claimedBy: "",
+    claimedAt: 0,
+    heartbeatAt: 0,
   };
   if (resumeOpts && "model" in resumeOpts) {
     patch.model = resumeOpts.model ?? "";
   }
   opts.db.updateTask(taskId, patch);
 
-  return startTask(opts, taskId);
+  enqueueStartTask(opts, taskId);
+  return opts.db.getTask(taskId)!;
 }
 
 export function isTaskRunning(taskId: string): boolean {

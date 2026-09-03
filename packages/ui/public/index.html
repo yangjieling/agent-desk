@@ -620,7 +620,8 @@
 
           <div class="settings-section">
             <h3 class="settings-subtitle">本机 Agent 运行时</h3>
-            <p class="settings-section-desc">启动时探测 PATH 中的 CLI；创建 Agent 时仅列出已安装的后端</p>
+            <p class="settings-section-desc">启动时探测 PATH 中的 CLI；本机执行器通过「队列领取 + 心跳」再 spawn</p>
+            <div id="executorStatusStrip" class="runtime-strip" hidden></div>
             <div class="runtime-panel" id="runtimeStatusPanel">
               <div class="runtime-loading">正在探测本机 CLI…</div>
             </div>
@@ -677,6 +678,13 @@
               <input type="checkbox" checked>
               <span class="track"><span class="thumb"></span></span>
             </label>
+          </div>
+          <div class="setting-row" data-key="executorMaxConcurrent" data-type="number">
+            <div class="setting-meta">
+              <p class="st">执行器并发上限</p>
+              <p class="sd">本机执行器同时领取/运行的任务数；0 表示不限制（仍受工作区互斥约束）</p>
+            </div>
+            <input class="setting-select setting-number" type="number" min="0" max="32" step="1" value="4">
           </div>
           <div class="setting-row" data-key="autoRetryEnabled">
             <div class="setting-meta">

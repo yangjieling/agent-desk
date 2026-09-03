@@ -1,6 +1,8 @@
 export type TaskStatus =
   | "created"
   | "queued"
+  | /** Claimed by local executor; spawn not started yet (control/exec split). */
+    "dispatched"
   | "running"
   | "awaiting"
   | "done"
@@ -17,7 +19,9 @@ export type TaskFailureCode =
   /** DB still running/created but no in-process runner (restart / crashed CLI). */
   | "orphan_after_restart"
   /** Live runner aborted after idleTimeoutSec with no activity. */
-  | "idle_timeout";
+  | "idle_timeout"
+  /** Dispatched claim lease expired (executor heartbeat missing). */
+  | "claim_expired";
 
 export type TaskType = "skill" | "workflow";
 
@@ -149,6 +153,13 @@ export interface Task {
   failureMessage: string;
   /** When > 0, queued task should not start before this timestamp. */
   nextRetryAt: number;
+  /** Opaque claim token set by the executor that owns this task. */
+  claimToken: string;
+  /** Executor id that claimed this task (empty when unclaimed). */
+  claimedBy: string;
+  claimedAt: number;
+  /** Last executor heartbeat while claimed / running under lease. */
+  heartbeatAt: number;
   createdAt: number;
   updatedAt: number;
   lastActivityAt: number;
@@ -205,6 +216,11 @@ export interface Settings {
   retryDelaySec: number;
   /** When workspace is busy, queue the task instead of failing immediately. */
   queueWhenWorkspaceBusy: boolean;
+  /**
+   * Max tasks the in-process local executor may hold as dispatched+running.
+   * Awaiting / done do not count. 0 or negative = unlimited (workspace lock still applies).
+   */
+  executorMaxConcurrent: number;
   idleTimeoutSec: number;
   awaitingIdleTimeoutSec: number;
   webBaseUrl: string;
@@ -318,6 +334,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxRetries: 2,
   retryDelaySec: 30,
   queueWhenWorkspaceBusy: true,
+  executorMaxConcurrent: 4,
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,
   webBaseUrl: "http://127.0.0.1:19877",
@@ -358,6 +375,7 @@ export type WorkflowRunNodeStatus =
   | "pending"
   | "running"
   | "queued"
+  | "dispatched"
   | "awaiting"
   | "done"
   | "failed"

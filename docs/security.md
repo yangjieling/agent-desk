@@ -25,11 +25,12 @@ Out of scope for this doc: multi-tenant SaaS, remote daemon claim, Multica-style
 Typical path:
 
 1. UI / Autopilot / CLI creates a **Task** with `projectDir` + prompt.
-2. Runner resolves the agent provider and builds argv (`buildExecCommand`).
-3. `spawn(cli, args, { cwd: projectDir, env: process.env, … })` starts the CLI.
-4. Stream-json / stdout is appended to `task.result` for the session UI.
+2. Control plane **enqueues** the task (`queued`); it does not spawn the CLI.
+3. In-process **LocalExecutor** claims under a heartbeat lease (`dispatched`), then the runner resolves the agent provider and builds argv (`buildExecCommand`).
+4. `spawn(cli, args, { cwd: projectDir, env: process.env, … })` starts the CLI.
+5. Stream-json / stdout is appended to `task.result` for the session UI.
 
-There is **no** separate agent OS user, **no** per-task `HOME`, and **no** nested Multica control-plane token.
+There is **no** separate agent OS user, **no** per-task `HOME`, and **no** nested Multica control-plane token. Remote daemon claim is out of scope for this local-first MVP.
 
 ## Provider permission flags (soft, not boundaries)
 

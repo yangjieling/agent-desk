@@ -81,7 +81,7 @@ paths:
     get:
       tags: [Health]
       operationId: getHealth
-      summary: Liveness and installed agent runtimes
+      summary: Liveness, installed agent runtimes, and local executor
       responses:
         "200":
           description: OK
@@ -89,6 +89,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+
+  /api/executor:
+    get:
+      tags: [Runtimes]
+      operationId: getLocalExecutor
+      summary: In-process local executor status (claim + heartbeat)
+      responses:
+        "200":
+          description: Executor status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LocalExecutorStatus"
 
   /api/dashboard:
     get:
@@ -1414,6 +1427,8 @@ components:
               type: array
               items:
                 type: string
+        executor:
+          $ref: "#/components/schemas/LocalExecutorStatus"
 
     ProviderInfo:
       type: object
@@ -1488,7 +1503,7 @@ components:
           enum: [skill, workflow]
         status:
           type: string
-          enum: [created, queued, running, awaiting, done, failed, stopped]
+          enum: [created, queued, dispatched, running, awaiting, done, failed, stopped]
         skill:
           type: string
         workflowId:
@@ -1538,6 +1553,14 @@ components:
           type: string
         nextRetryAt:
           type: integer
+        claimToken:
+          type: string
+        claimedBy:
+          type: string
+        claimedAt:
+          type: integer
+        heartbeatAt:
+          type: integer
         createdAt:
           type: integer
         updatedAt:
@@ -1548,6 +1571,37 @@ components:
           type: object
           description: Optional Claude usage parsed from result JSONL
           additionalProperties: true
+
+    LocalExecutorStatus:
+      type: object
+      properties:
+        id:
+          type: string
+        mode:
+          type: string
+          enum: [in_process]
+        online:
+          type: boolean
+        hostname:
+          type: string
+        pid:
+          type: integer
+        startedAt:
+          type: integer
+        lastHeartbeatAt:
+          type: integer
+        lastPollAt:
+          type: integer
+        maxConcurrent:
+          type: integer
+        slotCount:
+          type: integer
+        claimedTaskIds:
+          type: array
+          items:
+            type: string
+        hint:
+          type: string
 
     CreateTaskRequest:
       type: object

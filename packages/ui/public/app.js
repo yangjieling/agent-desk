@@ -3,7 +3,7 @@ const TITLE_MAX = 80;
 const PROMPT_MAX = 8000;
 const TASK_PAGE_SIZE = 15;
 /** queued / preparing / running / created — list filter「进行中」 */
-const ACTIVE_TASK_FILTER_STATUSES = new Set(["created", "preparing", "queued", "running"]);
+const ACTIVE_TASK_FILTER_STATUSES = new Set(["created", "preparing", "queued", "dispatched", "running"]);
 const URL_PARAMS = new URLSearchParams(location.search);
 let DEEP_LINK_REPLY = (URL_PARAMS.get("reply") || "").trim();
 let DEEP_LINK_REPLY_SENT = false;
@@ -82,6 +82,7 @@ const STATUS_LABEL = {
   created: "待执行",
   preparing: "准备中",
   queued: "排队中",
+  dispatched: "已领取",
   running: "运行中",
   awaiting: "待确认",
   done: "已完成",
@@ -118,6 +119,7 @@ const FAILURE_CODE_LABEL = {
   start_error: "启动错误",
   orphan_after_restart: "进程丢失",
   idle_timeout: "空闲超时",
+  claim_expired: "领取超时",
 };
 
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
@@ -225,6 +227,9 @@ function taskPhaseLabel(t) {
     if (retry > 0) return `排队重试 (${retry})`;
     return STATUS_LABEL.queued;
   }
+  if (t.status === "dispatched") {
+    return STATUS_LABEL.dispatched;
+  }
   return STATUS_LABEL[t.status] || t.status || "-";
 }
 
@@ -260,7 +265,9 @@ function taskListSignature(tasks) {
 }
 
 function hasActiveTasks(tasks) {
-  return (tasks || []).some((t) => ["running", "awaiting", "created", "queued"].includes(t.status || ""));
+  return (tasks || []).some((t) =>
+    ["running", "awaiting", "created", "queued", "dispatched"].includes(t.status || ""),
+  );
 }
 
 function buildTaskGroups(tasks) {
@@ -779,7 +786,7 @@ function renderLogTimeline(items) {
       box.innerHTML = "";
       return;
     }
-    if (LOG_TASK_STATUS === "queued" || LOG_TASK_STATUS === "created") {
+    if (LOG_TASK_STATUS === "queued" || LOG_TASK_STATUS === "created" || LOG_TASK_STATUS === "dispatched") {
       box.innerHTML = '<div class="log-empty">任务已创建，等待开始执行…</div>';
       return;
     }
@@ -1213,6 +1220,7 @@ function normalizeTaskFilter(filter) {
     next === "running" ||
     next === "created" ||
     next === "queued" ||
+    next === "dispatched" ||
     next === "preparing"
   ) {
     return "active";
@@ -1300,7 +1308,7 @@ function openWorkflowRunTask(taskId, status) {
   const st = String(status || "").trim();
   let filter;
   if (st === "awaiting") filter = "awaiting";
-  else if (st === "running" || st === "created" || st === "queued" || st === "preparing") filter = "active";
+  else if (st === "running" || st === "created" || st === "queued" || st === "dispatched" || st === "preparing") filter = "active";
   else if (st === "failed" || st === "stopped") filter = "failed";
   openTaskView(taskId, { filter });
 }
@@ -1421,7 +1429,7 @@ function renderListRow(t, opts = {}) {
   const act = esc(fmtTime(t.lastActivityAt || t.last_activity_at || t.updatedAt || t.updated_at));
   const running = t.status === "running";
   const awaiting = t.status === "awaiting";
-  const queued = t.status === "queued";
+  const queued = t.status === "queued" || t.status === "dispatched";
   const canContinue = canContinueTask(t);
   const needsFreshStart = taskNeedsFreshStart(t);
   const metaParts = [];
@@ -1762,7 +1770,13 @@ function closeLogStream() {
 }
 
 function isLogStreamStatus(status) {
-  return status === "running" || status === "awaiting";
+  return (
+    status === "running" ||
+    status === "awaiting" ||
+    status === "queued" ||
+    status === "dispatched" ||
+    status === "created"
+  );
 }
 
 function updateLogStream(taskOrStatus) {
@@ -2039,7 +2053,7 @@ async function dispatchReply(reply, model) {
     LOG_REPLY_SENDING = false;
     const cur = TASKS.find((t) => t.id === LOG_ID);
     const st = (cur && cur.status) || LOG_TASK_STATUS || "";
-    const running = st === "running" || st === "queued" || st === "created";
+    const running = st === "running" || st === "queued" || st === "dispatched" || st === "created";
     const canChat = !running && ["awaiting", "done", "failed", "stopped"].includes(st);
     updateReplyComposerState(st === "running", canChat);
   }
@@ -4729,7 +4743,31 @@ async function refreshRuntimeStatusUI(fresh = false) {
   renderRuntimePanel(panel, data);
   if (probedEl) probedEl.textContent = formatRuntimeProbedAt(data.probedAt);
   renderAgentsRuntimeStrip(data);
+  await refreshExecutorStatusUI();
   return data;
+}
+
+async function refreshExecutorStatusUI() {
+  const strip = document.getElementById("executorStatusStrip");
+  if (!strip) return;
+  try {
+    const ex = await api("/api/executor");
+    if (!ex || ex.online === false) {
+      strip.hidden = false;
+      strip.className = "runtime-strip is-warn";
+      strip.textContent = "本机执行器未在线（控制面无法领取任务）";
+      return;
+    }
+    strip.hidden = false;
+    strip.className = "runtime-strip is-ok";
+    const max = Number(ex.maxConcurrent) || 0;
+    const slots = Number(ex.slotCount) || 0;
+    const cap = max > 0 ? `${slots}/${max}` : `${slots}/∞`;
+    const hb = ex.lastHeartbeatAt ? fmtTime(ex.lastHeartbeatAt) : "-";
+    strip.textContent = `本机执行器在线 · ${ex.id || ""} · 槽位 ${cap} · 心跳 ${hb}`;
+  } catch {
+    strip.hidden = true;
+  }
 }
 
 function bindRuntimeStatusUI() {
@@ -4965,6 +5003,7 @@ async function initSettingsUI() {
             return;
           }
           if (key === "maxRetries") nextVal = String(Math.min(10, Math.max(0, Math.round(n))));
+          else if (key === "executorMaxConcurrent") nextVal = String(Math.min(32, Math.max(0, Math.round(n))));
           else if (key === "retryDelaySec") nextVal = String(Math.max(5, Math.round(n)));
           else nextVal = String(n);
         }
@@ -5364,7 +5403,7 @@ function relatedTaskForIssue(code) {
   const rows = tasksForIssue(code);
   if (!rows.length) return null;
   const busy = rows.find((t) =>
-    ["running", "awaiting", "created", "preparing", "queued"].includes(String(t.status || "")),
+    ["running", "awaiting", "created", "preparing", "queued", "dispatched"].includes(String(t.status || "")),
   );
   if (busy) return busy;
   return rows
@@ -5393,7 +5432,9 @@ function bugLiveRunChip(related) {
 }
 
 function isActiveWorkItemTask(t) {
-  return ["created", "preparing", "queued", "running", "awaiting"].includes(String(t.status || ""));
+  return ["created", "preparing", "queued", "dispatched", "running", "awaiting"].includes(
+    String(t.status || ""),
+  );
 }
 
 function sortWorkItemTasksByActivity(tasks) {
@@ -5916,7 +5957,7 @@ function renderBugs() {
         : `<span class="bug-code">${code}</span>`;
       const execCount = executionCountForIssue(b.code);
       const related = relatedTaskForIssue(b.code);
-      const busy = related && ["running", "awaiting", "created", "preparing", "queued"].includes(String(related.status || ""));
+      const busy = related && ["running", "awaiting", "created", "preparing", "queued", "dispatched"].includes(String(related.status || ""));
       const liveChip = bugLiveRunChip(related);
       let ops = `<span class="bug-ops">`;
       if (busy) {

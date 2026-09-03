@@ -28,7 +28,7 @@
 | --- | --- | --- | --- | --- | --- |
 | 1 | Issue ≠ Task | Issue 是持续工作；Task 是一次执行；一个 Issue 可有多次运行 | WorkItem（`wi_`）+ Task 执行记录；缺陷页「工作项」时间线 | **已有**（MVP） | 保留 `issueCode` 与 task API；`workItemId` 可选 |
 | 2 | Agent 是队友身份 | 名字、指令、模型、Skills、Access、绑定 Runtime | 可命名 Agent 配置（provider/model/skill/instructions）+ 任务/workflow 绑定 | **已有** | 设置页 CRUD；新建任务与流程步骤可选 Agent |
-| 3 | 控制面 / 执行面分离 | 服务端排队；本机 daemon claim 再 spawn CLI | 单机 Fastify 直跑 | **可做 MVP** | 即使仍本地优先，也可引入「队列领取 + 心跳」；远程机为长期 |
+| 3 | 控制面 / 执行面分离 | 服务端排队；本机 daemon claim 再 spawn CLI | 本机 LocalExecutor：入队 → claim → 心跳 → spawn；`GET /api/executor` | **已有**（MVP） | 同进程内分离；远程 daemon 为长期 |
 | 4 | 多种触发入口 | 分配 / @提及 / Chat / Autopilot | 建任务 / 跑 workflow / GitHub 修缺陷 / Autopilot cron | **已有**（弱）/ **可做 MVP**（分配与 @） | Autopilot ✅；Chat/@ 可后置 |
 | 5 | 人只在关键点出现 | Inbox + `in_review` | 待办聚合闸门 `awaiting` + 工作项 `in_review` 验收 | **已有**（MVP） | 闸门快捷回复；Accept/Reject；任务完成≠工作项完成 |
 
@@ -75,7 +75,7 @@
 ## 建议落地顺序
 
 1. **对象模型**：Agent 身份配置 → Issue/工作项 与 Task/执行 拆分（#2 → #1）。
-2. **执行底座**：队列 / 重试 / 并发与目录锁 / Runtime 探测（#6、#7、#10）。
+2. **执行底座**：队列 / 重试 / 并发与目录锁 / Runtime 探测（#6、#7、#10）；控制面/执行面 claim+心跳（#3 ✅）。
 3. **人机界面**：Inbox + 验收态；评论流承接闸门与决策（#5、#11）。
 4. **触发面**：Autopilot（cron/Webhook）（#13）。
 5. **生态**：OpenAPI ✅ → GitLab Issues MVP ✅ → 更多 agent provider（#16）、Gitea/Forgejo（#19 长期）。
@@ -123,7 +123,7 @@
 | 近期 | 待办 / Inbox（#5） | 侧栏「待办」+ 角标，聚合闸门待确认与工作项待验收 ✅ |
 | 近期 | Issue ≠ Task（#1） | 「工作项详情 + 执行记录时间线」，而非单条 task 行塞一切 |
 | 中期 | Autopilot（#13） | 独立「自动化」列表 + Runbook 编辑，不硬塞进流程页 ✅ |
-| 长期 | Runtime / daemon（#3、#10） | 「本机运行时」状态页，类似 Multica 运行时但保持本地单用户 |
+| 长期 | Runtime / daemon（#3 ✅ 本机 claim、#10） | 「本机运行时」状态页 + 执行器心跳；远程 daemon 仍属长期 |
 
 当前侧栏（总览 · 缺陷 · 任务 · 流程 · 技能 · 设置）在 harness 阶段**仍然合理**；不必为对齐 Multica 提前塞入「项目 / 小队 / Chat」等空壳入口。总览偏「第二 Inbox」时可按 [work-surfaces-ui.md](./work-surfaces-ui.md) 瘦身，而不是改成 Multica 导航。
 
@@ -157,6 +157,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | #3 控制面/执行面分离 MVP：LocalExecutor claim + 心跳；`dispatched` 状态；`GET /api/executor`；HTTP 仅入队 |
 | 2026-09-03 | 工作面 UI：**W-1–W-5** 已落地（主线完成）；见 [work-surfaces-ui.md](./work-surfaces-ui.md) |
 | 2026-09-03 | #19 GitLab Issues MVP：`@agent-desk/provider-issue-gitlab`；设置页 / CLI / `/api/issues`；无自动 clone |
 | 2026-09-03 | 任务会话 UI：P0–P3 必做项已落地（含转录密度）；见 [task-session-ui.md](./task-session-ui.md) |

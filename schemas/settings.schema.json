@@ -45,6 +45,13 @@
       "default": true,
       "description": "Queue tasks when the workspace directory is busy"
     },
+    "executorMaxConcurrent": {
+      "type": "integer",
+      "default": 4,
+      "minimum": 0,
+      "maximum": 32,
+      "description": "Max dispatched+running tasks for the in-process local executor; 0 = unlimited"
+    },
     "idleTimeoutSec": { "type": "integer", "default": 3600 },
     "awaitingIdleTimeoutSec": { "type": "integer", "default": 86400 },
     "webBaseUrl": { "type": "string", "default": "http://127.0.0.1:19877" },

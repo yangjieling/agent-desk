@@ -43,17 +43,23 @@ See [skills.md](./skills.md). Workflow nodes reference a skill **id**; `@agent-d
 ```mermaid
 stateDiagram-v2
   [*] --> created
-  created --> running: start
+  created --> queued: enqueue (control plane)
+  queued --> dispatched: local executor claim
+  dispatched --> running: spawn CLI
+  queued --> queued: workspace busy / retry delay
   running --> awaiting: agent asks gate
   running --> done: success
   running --> failed: error/exit!=0
   running --> stopped: user stop / abort reply
-  awaiting --> running: resume(reply)
+  dispatched --> queued: claim lease expired
+  awaiting --> queued: resume(reply) → enqueue
   awaiting --> stopped: abort reply
   done --> [*]
-  failed --> [*]
-  stopped --> running: resume("继续")
+  failed --> queued: auto-retry / manual start
+  stopped --> queued: resume("继续") / start
 ```
+
+Control plane (HTTP / Autopilot) **enqueues** only. The in-process **LocalExecutor** claims under a heartbeat lease (`dispatched`), then calls `startTask` to spawn the CLI. See `GET /api/executor`. Remote multi-machine daemons remain out of scope for the local-first MVP.
 
 ## Gate protocol
 

@@ -8,7 +8,7 @@
     "id": { "type": "string", "pattern": "^t_" },
     "taskType": { "enum": ["skill", "workflow"] },
     "status": {
-      "enum": ["created", "queued", "running", "awaiting", "done", "failed", "stopped"]
+      "enum": ["created", "queued", "dispatched", "running", "awaiting", "done", "failed", "stopped"]
     },
     "skill": { "type": "string" },
     "workflowId": { "type": "string" },
@@ -34,6 +34,10 @@
     "failureCode": { "type": "string" },
     "failureMessage": { "type": "string" },
     "nextRetryAt": { "type": "integer" },
+    "claimToken": { "type": "string" },
+    "claimedBy": { "type": "string" },
+    "claimedAt": { "type": "integer" },
+    "heartbeatAt": { "type": "integer" },
     "createdAt": { "type": "integer" },
     "updatedAt": { "type": "integer" },
     "lastActivityAt": { "type": "integer" }

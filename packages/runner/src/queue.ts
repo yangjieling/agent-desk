@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { Settings, Task, TaskFailureCode } from "@agent-desk/core";
 import type { AgentDeskDb } from "@agent-desk/db";
+import { requestExecutorWake } from "./executor.js";
 import { publishTaskUpdate } from "./task-events.js";
 
 export interface QueueRunnerOptions {
@@ -45,19 +46,18 @@ export function clearRetryTimer(taskId: string): void {
   retryTimers.delete(taskId);
 }
 
+/** After delay, wake the executor so it can claim the queued task. */
 export function scheduleDelayedStart(
-  opts: QueueRunnerOptions,
+  _opts: QueueRunnerOptions,
   taskId: string,
   delayMs: number,
-  startTask: StartTaskFn,
+  _startTask?: StartTaskFn,
 ): void {
   clearRetryTimer(taskId);
   const wait = Math.max(0, delayMs);
   const timer = setTimeout(() => {
     retryTimers.delete(taskId);
-    void startTask(opts, taskId).catch((err) => {
-      console.error(`[agent-desk] delayed start ${taskId}:`, err);
-    });
+    requestExecutorWake();
   }, wait);
   retryTimers.set(taskId, timer);
 }
@@ -74,26 +74,16 @@ export function listQueuedForDir(db: AgentDeskDb, projectDir: string): Task[] {
     });
 }
 
+/**
+ * Control-plane nudge: ask the executor to claim any ready queued work
+ * for this workspace (or globally). Does not spawn CLI itself.
+ */
 export async function processWorkspaceQueue(
-  opts: QueueRunnerOptions,
-  projectDir: string,
-  startTask: StartTaskFn,
+  _opts: QueueRunnerOptions,
+  _projectDir: string,
+  _startTask?: StartTaskFn,
 ): Promise<void> {
-  const dir = path.resolve(projectDir || process.cwd());
-  if (opts.db.countActiveTasksForProjectDir(dir)) return;
-
-  const queued = listQueuedForDir(opts.db, dir);
-  if (!queued.length) return;
-
-  const now = Date.now();
-  const ready = queued.find((t) => !t.nextRetryAt || t.nextRetryAt <= now);
-  if (!ready) {
-    const next = queued.find((t) => t.nextRetryAt > now);
-    if (next) scheduleDelayedStart(opts, next.id, next.nextRetryAt - now, startTask);
-    return;
-  }
-
-  await startTask(opts, ready.id);
+  requestExecutorWake();
 }
 
 export function retryPolicy(settings: Settings): { enabled: boolean; max: number; delaySec: number } {
@@ -117,34 +107,38 @@ export function isNonRetryableFailure(code: TaskFailureCode | string | undefined
 export async function maybeScheduleAutoRetry(
   opts: QueueRunnerOptions,
   task: Task,
-  startTask: StartTaskFn,
+  startTask?: StartTaskFn,
 ): Promise<Task> {
   const settings = opts.db.getSettings();
   const policy = retryPolicy(settings);
-  if (!policy.enabled || task.retryCount >= policy.max || isNonRetryableFailure(task.failureCode)) {
-    await processWorkspaceQueue(opts, task.projectDir, startTask);
-    return task;
+  if (policy.enabled && task.retryCount < policy.max && !isNonRetryableFailure(task.failureCode)) {
+    const nextRetryAt = Date.now() + policy.delaySec * 1000;
+    const attempt = task.retryCount + 1;
+    const baseMsg = task.failureMessage || "任务失败";
+    const message = `${baseMsg} · 将于 ${policy.delaySec}s 后重试 (${attempt}/${policy.max})`;
+    const updated =
+      opts.db.updateTask(task.id, {
+        status: "queued",
+        retryCount: attempt,
+        nextRetryAt,
+        failureMessage: message,
+        claimToken: "",
+        claimedBy: "",
+        claimedAt: 0,
+        heartbeatAt: 0,
+      }) ?? task;
+
+    scheduleDelayedStart(opts, updated.id, policy.delaySec * 1000, startTask);
+    await processWorkspaceQueue(opts, updated.projectDir, startTask);
+    return updated;
   }
 
-  const nextRetryAt = Date.now() + policy.delaySec * 1000;
-  const attempt = task.retryCount + 1;
-  const baseMsg = task.failureMessage || "任务失败";
-  const message = `${baseMsg} · 将于 ${policy.delaySec}s 后重试 (${attempt}/${policy.max})`;
-  const updated =
-    opts.db.updateTask(task.id, {
-      status: "queued",
-      retryCount: attempt,
-      nextRetryAt,
-      failureMessage: message,
-    }) ?? task;
-
-  scheduleDelayedStart(opts, updated.id, policy.delaySec * 1000, startTask);
-  await processWorkspaceQueue(opts, updated.projectDir, startTask);
-  return updated;
+  await processWorkspaceQueue(opts, task.projectDir, startTask);
+  return task;
 }
 
 /**
- * Mark DB `running`/`created` tasks with no in-process runner as failed.
+ * Mark DB `running`/`created`/`dispatched` tasks with no in-process runner as failed.
  * Releases workspace locks so queued siblings can start after restart / crash.
  */
 export function reclaimOrphanActiveTasks(
@@ -154,14 +148,22 @@ export function reclaimOrphanActiveTasks(
   const reclaimed: Task[] = [];
   const msg = "进程已丢失（服务重启或 CLI 异常退出），已自动结束以释放工作区";
   for (const task of opts.db.listTasks(500)) {
-    if (task.status !== "running" && task.status !== "created") continue;
+    if (task.status !== "running" && task.status !== "created" && task.status !== "dispatched") {
+      continue;
+    }
     if (isLive(task.id)) continue;
+    // Fresh dispatched claims are owned by the executor lease, not orphaned yet.
+    if (task.status === "dispatched") continue;
     const now = Date.now();
     const updated = opts.db.updateTask(task.id, {
       status: "failed",
       failureCode: "orphan_after_restart",
       failureMessage: msg,
       nextRetryAt: 0,
+      claimToken: "",
+      claimedBy: "",
+      claimedAt: 0,
+      heartbeatAt: 0,
       result: appendResultStamp(task.result, "orphan", msg),
       lastActivityAt: now,
     });
@@ -211,9 +213,13 @@ export function sweepIdleAndOrphanTasks(
 
 function kickQueuesForTasks(
   opts: QueueRunnerOptions,
-  startTask: StartTaskFn,
+  startTask: StartTaskFn | undefined,
   tasks: Task[],
 ): void {
+  if (!tasks.length) {
+    requestExecutorWake();
+    return;
+  }
   const dirs = new Set(tasks.map((t) => resolveProjectDir(t)));
   for (const dir of dirs) {
     void processWorkspaceQueue(opts, dir, startTask);
@@ -232,18 +238,11 @@ export function bootstrapTaskQueue(
   const now = Date.now();
   for (const task of opts.db.listTasks(500)) {
     if (task.status !== "queued") continue;
-    const delay = task.nextRetryAt > now ? task.nextRetryAt - now : 0;
-    scheduleDelayedStart(opts, task.id, delay, startTask);
-  }
-  const dirs = new Set<string>();
-  for (const task of opts.db.listTasks(500)) {
-    if (task.status === "queued" && (!task.nextRetryAt || task.nextRetryAt <= now)) {
-      dirs.add(resolveProjectDir(task));
+    if (task.nextRetryAt > now) {
+      scheduleDelayedStart(opts, task.id, task.nextRetryAt - now, startTask);
     }
   }
-  for (const dir of dirs) {
-    void processWorkspaceQueue(opts, dir, startTask);
-  }
+  requestExecutorWake();
 }
 
 /** Periodic orphan reclaim + idle abort. Safe to call once per process. */

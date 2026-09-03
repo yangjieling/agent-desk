@@ -154,6 +154,10 @@ export function createWorkflowTask(
     failureCode: "",
     failureMessage: "",
     nextRetryAt: 0,
+    claimToken: "",
+    claimedBy: "",
+    claimedAt: 0,
+    heartbeatAt: 0,
     createdAt: now,
     updatedAt: now,
     lastActivityAt: now,
@@ -193,7 +197,7 @@ async function waitForTaskEnd(db: AgentDeskDb, taskId: string, timeoutMs = 3_600
       continue;
     }
     if (["awaiting", "done", "failed", "stopped"].includes(task.status)) return task;
-    if (task.status === "queued" || task.status === "created") {
+    if (task.status === "queued" || task.status === "created" || task.status === "dispatched") {
       await sleep(800);
       continue;
     }
@@ -222,7 +226,7 @@ function syncIndependentRun(dataDir: string, db: AgentDeskDb, run: WorkflowRun):
     }
     const task = db.getTask(tid);
     const st = task?.status ?? "failed";
-    if (st === "queued" || st === "created") {
+    if (st === "queued" || st === "created" || st === "dispatched") {
       anyRunning = true;
       statuses.push(st);
       if (node.status !== st) run = updateRunNode(dataDir, run, i, { status: st as WorkflowRunNode["status"] });
