@@ -25,6 +25,7 @@ import { listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider, setNotifyWebhookSettingsSource } from "@agent-desk/provider-notify-webhook";
 import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
 import {
+  abortRunningTask,
   bootstrapTaskQueue,
   createTask,
   enqueueStartTask,
@@ -32,7 +33,9 @@ import {
   processWorkspaceQueue,
   resumeTask,
   startTask,
+  startTaskWatchdog,
   stopTask,
+  stopTaskWatchdog,
   subscribeTaskUpdates,
 } from "@agent-desk/runner";
 import type { TaskStreamUpdate } from "@agent-desk/runner";
@@ -257,7 +260,16 @@ export async function createServer(opts: ServerOptions = {}) {
   const settings = db.getSettings();
   const runnerOpts = { db, settings, dataDir };
   registerWorkflowHooks(dataDir, runnerOpts);
-  bootstrapTaskQueue(runnerOpts, startTask);
+  bootstrapTaskQueue(runnerOpts, startTask, { isLive: isTaskRunning });
+  startTaskWatchdog(
+    runnerOpts,
+    startTask,
+    {
+      isLive: isTaskRunning,
+      abortLive: abortRunningTask,
+    },
+    30_000,
+  );
 
   const app = Fastify({ logger: true });
 
@@ -320,8 +332,7 @@ export async function createServer(opts: ServerOptions = {}) {
       (t) =>
         t.status === "running" ||
         t.status === "created" ||
-        t.status === "queued" ||
-        t.status === "preparing",
+        t.status === "queued",
     );
     const doneWeek = tasks.filter((t) => t.status === "done" && Number(t.updatedAt) >= weekAgo);
     const inReview = db.listWorkItemsByStatus("in_review", 100);
@@ -1553,6 +1564,7 @@ export async function createServer(opts: ServerOptions = {}) {
     void reply.send({ ok: true });
     setImmediate(async () => {
       try {
+        stopTaskWatchdog();
         stopAutopilotScheduler();
         await app.close();
       } finally {

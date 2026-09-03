@@ -1,6 +1,7 @@
 import path from "node:path";
 import type { Settings, Task, TaskFailureCode } from "@agent-desk/core";
 import type { AgentDeskDb } from "@agent-desk/db";
+import { publishTaskUpdate } from "./task-events.js";
 
 export interface QueueRunnerOptions {
   db: AgentDeskDb;
@@ -10,10 +11,32 @@ export interface QueueRunnerOptions {
 
 type StartTaskFn = (opts: QueueRunnerOptions, taskId: string) => Promise<Task>;
 
+/** True when this process still owns a live AbortController for the task. */
+export type LiveTaskCheck = (taskId: string) => boolean;
+
+/** Abort a live runner (e.g. idle timeout). Returns false if not running here. */
+export type AbortLiveTaskFn = (taskId: string, reason: string) => boolean;
+
+export interface TaskQueueHooks {
+  isLive?: LiveTaskCheck;
+  abortLive?: AbortLiveTaskFn;
+}
+
 const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let watchdogTimer: ReturnType<typeof setInterval> | null = null;
 
 function resolveProjectDir(task: Task): string {
   return path.resolve(task.projectDir || process.cwd());
+}
+
+function appendResultStamp(prev: string | undefined, tag: string, message: string): string {
+  const stamp = `\n\n${new Date().toISOString()} [${tag}] ${message}`;
+  const body = (prev || "").trim();
+  return body ? `${body}${stamp}` : stamp.trimStart();
+}
+
+function publishReclaimed(task: Task): void {
+  publishTaskUpdate({ task, resultAppend: undefined });
 }
 
 export function clearRetryTimer(taskId: string): void {
@@ -81,9 +104,14 @@ export function retryPolicy(settings: Settings): { enabled: boolean; max: number
   };
 }
 
-/** Failures that won't clear by waiting (missing CLI / backend). */
+/** Failures that won't clear by waiting (missing CLI / backend / ghost status). */
 export function isNonRetryableFailure(code: TaskFailureCode | string | undefined): boolean {
-  return code === "spawn_error" || code === "backend_unavailable";
+  return (
+    code === "spawn_error" ||
+    code === "backend_unavailable" ||
+    code === "orphan_after_restart" ||
+    code === "idle_timeout"
+  );
 }
 
 export async function maybeScheduleAutoRetry(
@@ -115,7 +143,92 @@ export async function maybeScheduleAutoRetry(
   return updated;
 }
 
-export function bootstrapTaskQueue(opts: QueueRunnerOptions, startTask: StartTaskFn): void {
+/**
+ * Mark DB `running`/`created` tasks with no in-process runner as failed.
+ * Releases workspace locks so queued siblings can start after restart / crash.
+ */
+export function reclaimOrphanActiveTasks(
+  opts: QueueRunnerOptions,
+  isLive: LiveTaskCheck = () => false,
+): Task[] {
+  const reclaimed: Task[] = [];
+  const msg = "进程已丢失（服务重启或 CLI 异常退出），已自动结束以释放工作区";
+  for (const task of opts.db.listTasks(500)) {
+    if (task.status !== "running" && task.status !== "created") continue;
+    if (isLive(task.id)) continue;
+    const now = Date.now();
+    const updated = opts.db.updateTask(task.id, {
+      status: "failed",
+      failureCode: "orphan_after_restart",
+      failureMessage: msg,
+      nextRetryAt: 0,
+      result: appendResultStamp(task.result, "orphan", msg),
+      lastActivityAt: now,
+    });
+    if (!updated) continue;
+    console.warn(`[agent-desk] reclaimed orphan task ${task.id}`);
+    publishReclaimed(updated);
+    reclaimed.push(updated);
+  }
+  return reclaimed;
+}
+
+/**
+ * Abort live runners that have had no activity past idleTimeoutSec,
+ * and reclaim any DB-active tasks that are no longer live in this process.
+ */
+export function sweepIdleAndOrphanTasks(
+  opts: QueueRunnerOptions,
+  hooks: TaskQueueHooks = {},
+): { reclaimed: Task[]; aborted: string[] } {
+  const isLive = hooks.isLive ?? (() => false);
+  const abortLive = hooks.abortLive;
+  const reclaimed = reclaimOrphanActiveTasks(opts, isLive);
+  const aborted: string[] = [];
+
+  const settings = opts.db.getSettings();
+  const idleSec = Math.max(60, Number(settings.idleTimeoutSec ?? 3600) || 3600);
+  const idleMs = idleSec * 1000;
+  const now = Date.now();
+
+  if (abortLive) {
+    for (const task of opts.db.listTasks(500)) {
+      if (task.status !== "running") continue;
+      if (!isLive(task.id)) continue;
+      const last = Number(task.lastActivityAt || task.updatedAt || 0);
+      if (!last || now - last < idleMs) continue;
+      if (abortLive(task.id, "idle_timeout")) {
+        aborted.push(task.id);
+        console.warn(
+          `[agent-desk] aborted idle task ${task.id} (no activity for ${idleSec}s)`,
+        );
+      }
+    }
+  }
+
+  return { reclaimed, aborted };
+}
+
+function kickQueuesForTasks(
+  opts: QueueRunnerOptions,
+  startTask: StartTaskFn,
+  tasks: Task[],
+): void {
+  const dirs = new Set(tasks.map((t) => resolveProjectDir(t)));
+  for (const dir of dirs) {
+    void processWorkspaceQueue(opts, dir, startTask);
+  }
+}
+
+export function bootstrapTaskQueue(
+  opts: QueueRunnerOptions,
+  startTask: StartTaskFn,
+  hooks: TaskQueueHooks = {},
+): void {
+  const isLive = hooks.isLive ?? (() => false);
+  const reclaimed = reclaimOrphanActiveTasks(opts, isLive);
+  kickQueuesForTasks(opts, startTask, reclaimed);
+
   const now = Date.now();
   for (const task of opts.db.listTasks(500)) {
     if (task.status !== "queued") continue;
@@ -130,6 +243,35 @@ export function bootstrapTaskQueue(opts: QueueRunnerOptions, startTask: StartTas
   }
   for (const dir of dirs) {
     void processWorkspaceQueue(opts, dir, startTask);
+  }
+}
+
+/** Periodic orphan reclaim + idle abort. Safe to call once per process. */
+export function startTaskWatchdog(
+  opts: QueueRunnerOptions,
+  startTask: StartTaskFn,
+  hooks: TaskQueueHooks,
+  intervalMs = 30_000,
+): () => void {
+  stopTaskWatchdog();
+  const tick = () => {
+    try {
+      const { reclaimed } = sweepIdleAndOrphanTasks(opts, hooks);
+      kickQueuesForTasks(opts, startTask, reclaimed);
+    } catch (err) {
+      console.error(`[agent-desk] task watchdog:`, err);
+    }
+  };
+  watchdogTimer = setInterval(tick, Math.max(5_000, intervalMs));
+  // Unref so watchdog alone does not keep the process alive in tests / short CLI.
+  if (typeof watchdogTimer.unref === "function") watchdogTimer.unref();
+  return stopTaskWatchdog;
+}
+
+export function stopTaskWatchdog(): void {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
   }
 }
 

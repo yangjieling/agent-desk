@@ -13,7 +13,11 @@ export type TaskFailureCode =
   | "spawn_error"
   | "exit_nonzero"
   | "backend_unavailable"
-  | "start_error";
+  | "start_error"
+  /** DB still running/created but no in-process runner (restart / crashed CLI). */
+  | "orphan_after_restart"
+  /** Live runner aborted after idleTimeoutSec with no activity. */
+  | "idle_timeout";
 
 export type TaskType = "skill" | "workflow";
 

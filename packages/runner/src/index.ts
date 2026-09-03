@@ -50,6 +50,7 @@ import {
 
 export { bootstrapTaskQueue } from "./queue.js";
 export { processWorkspaceQueue } from "./queue.js";
+export { reclaimOrphanActiveTasks, startTaskWatchdog, stopTaskWatchdog } from "./queue.js";
 export { subscribeTaskUpdates, type TaskStreamUpdate } from "./task-events.js";
 
 export interface CreateTaskInput {
@@ -605,6 +606,10 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       const tail = linePrefixer.flush();
       if (tail) output += tail;
       const sessionId = backend.extractSessionId(events) ?? taskSessionId;
+      const abortReason = controller.signal.aborted
+        ? String(controller.signal.reason ?? "aborted")
+        : "";
+      const idleAbort = abortReason === "idle_timeout";
       const status = resolveTaskStatusAfterRun(output, code ?? 1, controller.signal.aborted);
 
       const patch: Partial<Task> = {
@@ -612,7 +617,13 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         sessionId,
         result: output,
       };
-      if (status === "failed") {
+      if (idleAbort) {
+        patch.status = "failed";
+        patch.failureCode = "idle_timeout";
+        patch.failureMessage = "空闲超时：长时间无输出，已自动中止";
+        patch.nextRetryAt = 0;
+        patch.result = `${output}\n\n${formatLogTimestamp()} [idle] ${patch.failureMessage}`;
+      } else if (status === "failed") {
         patch.failureCode = "exit_nonzero";
         patch.failureMessage = `进程退出码 ${code ?? 1}`;
         patch.nextRetryAt = 0;
@@ -621,10 +632,10 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       const updated = opts.db.updateTask(taskId, patch);
       if (updated) {
         notifyTaskUpdate(opts, updated, true);
-        if (status === "awaiting") {
+        if (updated.status === "awaiting") {
           const sent = await maybeNotifyGate(updated, settings);
           if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
-        } else if (status === "failed") {
+        } else if (updated.status === "failed") {
           const retried = await maybeScheduleAutoRetry(opts, updated, startTask);
           if (retried.status === "failed") {
             await maybeNotifyTaskUpdate(retried, settings);
@@ -636,7 +647,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         } else {
           await maybeNotifyTaskUpdate(updated, settings);
         }
-        await maybeReleaseTaskWorkspace(opts, updated, status);
+        await maybeReleaseTaskWorkspace(opts, updated, updated.status);
         await emitTaskComplete(updated);
         await processWorkspaceQueue(opts, updated.projectDir, startTask);
       }
@@ -735,4 +746,16 @@ export async function resumeTask(
 
 export function isTaskRunning(taskId: string): boolean {
   return running.has(taskId);
+}
+
+/** Abort a live runner (watchdog idle timeout). Returns false if not owned here. */
+export function abortRunningTask(taskId: string, reason = "idle_timeout"): boolean {
+  const controller = running.get(taskId);
+  if (!controller) return false;
+  try {
+    controller.abort(reason);
+  } catch {
+    /* ignore */
+  }
+  return true;
 }

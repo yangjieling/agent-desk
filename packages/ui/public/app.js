@@ -116,6 +116,8 @@ const FAILURE_CODE_LABEL = {
   exit_nonzero: "异常退出",
   backend_unavailable: "CLI 不可用",
   start_error: "启动错误",
+  orphan_after_restart: "进程丢失",
+  idle_timeout: "空闲超时",
 };
 
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
