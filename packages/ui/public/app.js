@@ -5841,11 +5841,12 @@ function renderBugs() {
       if (busy) {
         ops +=
           `<button type="button" class="btn-fix" disabled title="已有关联任务进行中">AI 修复</button>` +
-          `<button type="button" class="btn-task" data-issue="${codeAttr}">工作项</button>`;
+          `<button type="button" class="btn-task" data-issue="${codeAttr}" title="查看关联工作项">工作项</button>`;
       } else {
         ops += `<button type="button" class="btn-fix" data-code="${codeAttr}">AI 修复</button>`;
         if (execCount > 0) {
-          ops += `<button type="button" class="btn-task" data-issue="${codeAttr}">工作项 (${execCount})</button>`;
+          // Count already shown in「执行」; keep ops as a single-line pair of actions.
+          ops += `<button type="button" class="btn-task" data-issue="${codeAttr}" title="查看关联工作项 (${execCount})">工作项</button>`;
         }
       }
       ops += `</span>`;
@@ -5857,7 +5858,7 @@ function renderBugs() {
         `<td>${link}</td>` +
         `<td>${statusBadge(b.status)}</td>` +
         `<td>${severityBadge(b.severity)}</td>` +
-        `<td title="${title}">${title}</td>` +
+        `<td><span class="bug-title" title="${title}">${title}</span></td>` +
         `<td>${relatedCell}</td>` +
         `<td>${when}</td>` +
         `<td>${ops}</td>` +
