@@ -277,6 +277,15 @@ Web **设置** 持久化到 `~/.agent-desk/agent-desk.db`。非空的 `AD_*` 环
 | `AD_GITHUB_PROJECT_DIR` | 默认检出路径 |
 | `AD_GITHUB_API_BASE` | API 地址（默认 `https://api.github.com`） |
 
+### Issue — GitLab
+
+| 变量 | 说明 |
+|----------|-------------|
+| `AD_GITLAB_TOKEN` | GitLab PAT（`api` / `read_api`） |
+| `AD_GITLAB_PROJECT` | `group/project` 或数字项目 ID |
+| `AD_GITLAB_PROJECT_DIR` | 默认检出路径（建议填写；暂无自动 clone） |
+| `AD_GITLAB_API_BASE` | API 地址（默认 `https://gitlab.com/api/v4`） |
+
 ### 通知 — 飞书 / Lark
 
 | 变量 | 说明 |

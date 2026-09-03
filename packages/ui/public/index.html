@@ -543,11 +543,11 @@
 
           <div class="settings-section">
             <h3 class="settings-subtitle">缺陷与仓库</h3>
-            <p class="settings-section-desc">缺陷列表来源与 GitHub 凭据</p>
+            <p class="settings-section-desc">缺陷列表来源与 GitHub / GitLab 凭据</p>
           <div class="setting-row" data-key="providers.issue" data-type="select">
             <div class="setting-meta">
               <p class="st">缺陷来源</p>
-              <p class="sd">任务关联的 Issue Provider（如 GitHub Issues）；切换后显示对应配置</p>
+              <p class="sd">任务关联的 Issue Provider（如 GitHub / GitLab Issues）；切换后显示对应配置</p>
             </div>
             <div class="setting-dropdown" id="setIssueProvider" data-value=""></div>
           </div>
@@ -593,6 +593,51 @@
                   <p class="sd">GitHub Enterprise 时填写，默认 https://api.github.com</p>
                 </div>
                 <input class="setting-select" type="text" placeholder="https://api.github.com">
+              </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="setting-subconfig" data-issue-panel="gitlab" hidden>
+              <div class="setting-subconfig-card">
+                <button type="button" class="setting-subconfig-head" aria-expanded="false">
+                  <svg class="setting-subconfig-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M9 6l6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                  <span class="setting-subconfig-title">GitLab 配置</span>
+                </button>
+                <div class="setting-subconfig-body">
+                  <p class="setting-subconfig-desc">保存在 ~/.agent-desk；环境变量 AD_GITLAB_* 非空时优先。</p>
+              <div class="setting-row is-stack" data-key="gitlab.project" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">项目</p>
+                  <p class="sd">group/project 或数字项目 ID，例如 acme/my-app</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="group/project">
+              </div>
+              <div class="setting-row is-stack" data-key="gitlab.token" data-type="secret">
+                <div class="setting-meta">
+                  <p class="st">Personal Access Token</p>
+                  <p class="sd">需要 api 或 read_api 权限；已保存时显示掩码，留空不修改</p>
+                </div>
+                <div class="setting-secret-wrap">
+                  <input class="setting-select" type="password" autocomplete="off" placeholder="glpat-…">
+                  <button type="button" class="setting-secret-toggle" aria-label="显示密钥" title="显示/隐藏"></button>
+                </div>
+              </div>
+              <div class="setting-row is-stack" data-key="gitlab.projectDir" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">本地仓库路径（可选）</p>
+                  <p class="sd">AI 修复时优先使用该目录；MVP 请手动填写（暂不自动 clone）</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="/path/to/checkout">
+              </div>
+              <div class="setting-row is-stack" data-key="gitlab.apiBase" data-type="text">
+                <div class="setting-meta">
+                  <p class="st">API Base（可选）</p>
+                  <p class="sd">自建 GitLab 时填写，默认 https://gitlab.com/api/v4</p>
+                </div>
+                <input class="setting-select" type="text" placeholder="https://gitlab.com/api/v4">
               </div>
                 </div>
               </div>

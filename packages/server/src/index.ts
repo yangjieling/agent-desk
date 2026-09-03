@@ -11,6 +11,7 @@ import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
 import { getAgentBackend, listAgentRuntimes, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
+import { registerGitLabIssueProvider, setGitLabSettingsSource } from "@agent-desk/provider-issue-gitlab";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
 import {
   createDingTalkGateResumeHandler,
@@ -50,9 +51,11 @@ import {
 import {
   DEFAULT_DINGTALK_SETTINGS,
   DEFAULT_GITHUB_SETTINGS,
+  DEFAULT_GITLAB_SETTINGS,
   DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
   type DingTalkSettings,
   type GitHubSettings,
+  type GitLabSettings,
   type NotifyWebhookSettings,
   type Settings,
   type Task,
@@ -74,7 +77,9 @@ function redactSettings(settings: Settings): Settings {
   if (dt.appSecret) dt.appSecret = SECRET_MASK;
   const gh = { ...settings.github };
   if (gh.token) gh.token = SECRET_MASK;
-  return { ...settings, dingtalk: dt, github: gh };
+  const gl = { ...settings.gitlab };
+  if (gl.token) gl.token = SECRET_MASK;
+  return { ...settings, dingtalk: dt, github: gh, gitlab: gl };
 }
 
 function keepSecret(incoming: string | undefined, current: string): string {
@@ -117,6 +122,18 @@ function mergeGitHubSettings(
   };
 }
 
+function mergeGitLabSettings(
+  cur: GitLabSettings,
+  patch: Partial<GitLabSettings>,
+): GitLabSettings {
+  return {
+    ...DEFAULT_GITLAB_SETTINGS,
+    ...cur,
+    ...patch,
+    token: keepSecret(patch.token, cur.token),
+  };
+}
+
 function mergeNotifyWebhookSettings(
   cur: NotifyWebhookSettings,
   patch: Partial<NotifyWebhookSettings>,
@@ -140,6 +157,7 @@ function registerProviders(): void {
   registerCursorBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
+  registerGitLabIssueProvider();
   registerWebhookNotifyProvider();
   registerFeishuNotifyProvider();
   registerDingTalkNotifyProvider();
@@ -234,6 +252,7 @@ export async function createServer(opts: ServerOptions = {}) {
   const db = openDb(dataDir);
   setDingTalkSettingsSource(() => db.getSettings());
   setGitHubSettingsSource(() => db.getSettings());
+  setGitLabSettingsSource(() => db.getSettings());
   setNotifyWebhookSettingsSource(() => db.getSettings());
   const settings = db.getSettings();
   const runnerOpts = { db, settings, dataDir };
@@ -468,6 +487,14 @@ export async function createServer(opts: ServerOptions = {}) {
       );
     } else {
       next.github = cur.github;
+    }
+    if (body.gitlab && typeof body.gitlab === "object") {
+      next.gitlab = mergeGitLabSettings(
+        cur.gitlab ?? DEFAULT_GITLAB_SETTINGS,
+        body.gitlab as Partial<GitLabSettings>,
+      );
+    } else {
+      next.gitlab = cur.gitlab ?? DEFAULT_GITLAB_SETTINGS;
     }
     if (body.notifyWebhook && typeof body.notifyWebhook === "object") {
       next.notifyWebhook = mergeNotifyWebhookSettings(

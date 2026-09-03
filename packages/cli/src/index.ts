@@ -7,6 +7,7 @@ import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
+import { registerGitLabIssueProvider, setGitLabSettingsSource } from "@agent-desk/provider-issue-gitlab";
 import { registerManualIssueProvider } from "@agent-desk/provider-issue-manual";
 import {
   createDingTalkGateResumeHandler,
@@ -33,6 +34,7 @@ function registerProviders(): void {
   registerCursorBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
+  registerGitLabIssueProvider();
   registerWebhookNotifyProvider();
   registerFeishuNotifyProvider();
   registerDingTalkNotifyProvider();
@@ -42,6 +44,7 @@ function wireSettingsSources(dataDir: string) {
   const db = openDb(dataDir);
   setDingTalkSettingsSource(() => db.getSettings());
   setGitHubSettingsSource(() => db.getSettings());
+  setGitLabSettingsSource(() => db.getSettings());
   setNotifyWebhookSettingsSource(() => db.getSettings());
   return db;
 }

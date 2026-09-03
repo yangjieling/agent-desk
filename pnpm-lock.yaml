@@ -41,6 +41,9 @@ importers:
       '@agent-desk/provider-issue-github':
         specifier: workspace:*
         version: link:../provider-issue-github
+      '@agent-desk/provider-issue-gitlab':
+        specifier: workspace:*
+        version: link:../provider-issue-gitlab
       '@agent-desk/provider-issue-manual':
         specifier: workspace:*
         version: link:../provider-issue-manual
@@ -110,6 +113,15 @@ importers:
   packages/provider-issue: {}
 
   packages/provider-issue-github:
+    dependencies:
+      '@agent-desk/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agent-desk/provider-issue':
+        specifier: workspace:*
+        version: link:../provider-issue
+
+  packages/provider-issue-gitlab:
     dependencies:
       '@agent-desk/core':
         specifier: workspace:*
@@ -200,6 +212,9 @@ importers:
       '@agent-desk/provider-issue-github':
         specifier: workspace:*
         version: link:../provider-issue-github
+      '@agent-desk/provider-issue-gitlab':
+        specifier: workspace:*
+        version: link:../provider-issue-gitlab
       '@agent-desk/provider-issue-manual':
         specifier: workspace:*
         version: link:../provider-issue-manual

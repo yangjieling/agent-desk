@@ -4802,6 +4802,7 @@ async function initSettingsUI() {
   const issueOpts = await loadProviderOptions("/api/issue-providers", [
     { id: "manual", displayName: "Manual (local JSON)" },
     { id: "github", displayName: "GitHub Issues" },
+    { id: "gitlab", displayName: "GitLab Issues" },
   ]);
 
   const saveSelect = async (key, nextVal) => {

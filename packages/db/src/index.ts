@@ -389,6 +389,10 @@ export class AgentDeskDb {
         ...DEFAULT_SETTINGS.github,
         ...(parsed.github || {}),
       },
+      gitlab: {
+        ...DEFAULT_SETTINGS.gitlab,
+        ...(parsed.gitlab || {}),
+      },
       notifyWebhook: {
         ...DEFAULT_SETTINGS.notifyWebhook,
         ...(parsed.notifyWebhook || {}),

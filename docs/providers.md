@@ -18,6 +18,7 @@ Bug / ticket **source of truth**. Selected by `Settings.providers.issue`.
 |----|---------|-------|
 | `manual` | `@agent-desk/provider-issue-manual` | In-memory store for demos (default) |
 | `github` | `@agent-desk/provider-issue-github` | GitHub Issues via REST API |
+| `gitlab` | `@agent-desk/provider-issue-gitlab` | GitLab Issues via REST API |
 
 ### GitHub setup
 
@@ -49,6 +50,27 @@ curl 'http://127.0.0.1:19877/api/issues?state=open'
 ```
 
 `issueCode` on tasks uses `#<number>` (e.g. `#12`).
+
+### GitLab setup
+
+配置优先级：**非空的 `AD_GITLAB_*` 环境变量** > **Web 设置页「GitLab」**（`Settings.gitlab`）。
+
+在 Web：**设置 → 缺陷来源选 GitLab → 填写项目与 Token**。也可继续用环境变量（非空时覆盖设置页）。
+
+```bash
+export AD_GITLAB_TOKEN=glpat_xxx        # PAT with api or read_api
+export AD_GITLAB_PROJECT=group/project  # or numeric project id
+# optional:
+# export AD_GITLAB_PROJECT_DIR=/path/to/checkout   # recommended for AI 修复 (no auto-clone yet)
+# export AD_GITLAB_API_BASE=https://gitlab.com/api/v4
+
+# point settings at gitlab (PUT /api/settings):
+# { "providers": { "issue": "gitlab" } }
+```
+
+Then the same `oh issues list` / `GET /api/issues` commands work. `issueCode` still uses project-local `#<iid>`.
+
+Self-managed GitLab: set `AD_GITLAB_API_BASE` to `https://your.gitlab.host/api/v4`.
 
 ## Notify providers
 

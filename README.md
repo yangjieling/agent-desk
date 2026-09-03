@@ -280,6 +280,15 @@ Web **Settings** persist to `~/.agent-desk/agent-desk.db`. Non-empty `AD_*` env 
 | `AD_GITHUB_PROJECT_DIR` | Default checkout path |
 | `AD_GITHUB_API_BASE` | API host (default `https://api.github.com`) |
 
+### Issue — GitLab
+
+| Variable | Description |
+|----------|-------------|
+| `AD_GITLAB_TOKEN` | GitLab PAT (`api` / `read_api`) |
+| `AD_GITLAB_PROJECT` | `group/project` or numeric project id |
+| `AD_GITLAB_PROJECT_DIR` | Default checkout path (recommended; no auto-clone yet) |
+| `AD_GITLAB_API_BASE` | API host (default `https://gitlab.com/api/v4`) |
+
 ### Notify — Feishu / Lark
 
 | Variable | Description |

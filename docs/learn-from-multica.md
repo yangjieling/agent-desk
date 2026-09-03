@@ -65,7 +65,7 @@
 | 16 | 更多 Agent Provider | ~26 种 CLI | Claude / Codex / Cursor | **可做 MVP** | 按 `@agent-desk/provider-agent` 接口按需扩 |
 | 17 | 插件契约 | Manifest：surfaces / hooks / MCP / skills；能力矩阵显式失败 | Provider 可插拔；无统一 plugin manifest | **长期** | 先稳 OpenAPI 与 provider，再考虑插件宿主 |
 | 18 | Public API + OpenAPI | 较完整的 public API | `schemas/openapi.yaml` + `GET /api/docs` / `/openapi.yaml` | **已有**（MVP） | 本地契约；无 PAT/OAuth/幂等账本 |
-| 19 | VCS 多后端 | GitHub / GitLab / Gitea / Forgejo | GitHub Issues ✅ | **可做 MVP**（GitLab）/ **长期**（全覆盖） | 沿 `provider-issue-*` 扩展 |
+| 19 | VCS 多后端 | GitHub / GitLab / Gitea / Forgejo | GitHub Issues ✅；GitLab Issues MVP ✅ | **已有**（GitLab MVP）/ **长期**（Gitea/Forgejo） | `provider-issue-gitlab`；无自动 clone |
 | 20 | Skills 工作区共享 | Skill 挂多 Agent；指令=身份、Skill=怎么做 | Skills 已可同步/挂载到任务 | **已有** | 可加强「绑定到 Agent 配置」而非仅任务级 |
 | 21 | 项目与资源绑定 | Project 挂仓库/目录 | 任务选工作区目录；GitHub 可自动 clone | **已有**（弱）/ **可做 MVP** | 显式 Project 实体可选 |
 | 22 | 桌面端 / daemon UX | 打开即注册本机 Runtime | `oh web` + 浏览器 | **长期** | 产品成熟后再做 |
@@ -78,7 +78,7 @@
 2. **执行底座**：队列 / 重试 / 并发与目录锁 / Runtime 探测（#6、#7、#10）。
 3. **人机界面**：Inbox + 验收态；评论流承接闸门与决策（#5、#11）。
 4. **触发面**：Autopilot（cron/Webhook）（#13）。
-5. **生态**：OpenAPI ✅ → 更多 provider、GitLab（#16、#19）。
+5. **生态**：OpenAPI ✅ → GitLab Issues MVP ✅ → 更多 agent provider（#16）、Gitea/Forgejo（#19 长期）。
 6. **协作加深**：Squads、双向 IM、多 workspace（#12、#14、#15）。
 
 ---
@@ -156,6 +156,7 @@
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-09-03 | #19 GitLab Issues MVP：`@agent-desk/provider-issue-gitlab`；设置页 / CLI / `/api/issues`；无自动 clone |
 | 2026-09-03 | 任务会话 UI：P0–P3 必做项已落地（含转录密度）；见 [task-session-ui.md](./task-session-ui.md) |
 | 2026-09-02 | #18 OpenAPI MVP：`schemas/openapi.yaml` 覆盖本机 Fastify API；`GET /openapi.yaml`、`/api/openapi.yaml`、`/api/docs`（Swagger UI） |
 | 2026-09-02 | #8/#9：Claude 用量 meta chip；`docs/security.md` 说明本地用户边界（不假装沙箱） |

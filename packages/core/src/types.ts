@@ -224,6 +224,11 @@ export interface Settings {
    */
   github: GitHubSettings;
   /**
+   * GitLab Issues credentials stored under ~/.agent-desk (SQLite settings).
+   * Environment variables AD_GITLAB_* still override when set.
+   */
+  gitlab: GitLabSettings;
+  /**
    * Generic HTTP webhook notify URL stored under ~/.agent-desk.
    * Environment variable AD_NOTIFY_WEBHOOK_URL still overrides when set.
    */
@@ -282,6 +287,22 @@ export const DEFAULT_GITHUB_SETTINGS: GitHubSettings = {
   apiBase: "",
 };
 
+/** Persisted GitLab issue provider settings (no env required). */
+export interface GitLabSettings {
+  token: string;
+  /** group/project path or numeric id, e.g. "acme/app" */
+  project: string;
+  projectDir: string;
+  apiBase: string;
+}
+
+export const DEFAULT_GITLAB_SETTINGS: GitLabSettings = {
+  token: "",
+  project: "",
+  projectDir: "",
+  apiBase: "",
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   notifyEnabled: true,
   autoConfirmGates: false,
@@ -305,6 +326,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   dingtalk: { ...DEFAULT_DINGTALK_SETTINGS },
   github: { ...DEFAULT_GITHUB_SETTINGS },
+  gitlab: { ...DEFAULT_GITLAB_SETTINGS },
   notifyWebhook: { ...DEFAULT_NOTIFY_WEBHOOK_SETTINGS },
 };
 
