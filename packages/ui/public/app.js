@@ -2583,8 +2583,14 @@ function syncWorkspaceLabel() {
     label.removeAttribute("title");
     if (btn) btn.classList.remove("has-value");
   } else {
-    label.textContent = shortProjectPath(dir);
-    label.title = dir;
+    const project = typeof findProjectByDir === "function" ? findProjectByDir(dir) : null;
+    if (project?.name) {
+      label.textContent = project.name;
+      label.title = `${project.name}\n${dir}`;
+    } else {
+      label.textContent = shortProjectPath(dir);
+      label.title = dir;
+    }
     if (btn) btn.classList.add("has-value");
   }
   syncComposerState();
@@ -2595,8 +2601,14 @@ function syncWsSelected() {
   const btn = document.getElementById("wsConfirmBtn");
   const path = FS_BROWSER_PATH || "";
   if (el) {
-    el.textContent = path || "未选择";
-    el.title = path;
+    const project = path && typeof findProjectByDir === "function" ? findProjectByDir(path) : null;
+    if (project?.name) {
+      el.textContent = `${project.name} · ${shortProjectPath(path) || path}`;
+      el.title = `${project.name}\n${path}`;
+    } else {
+      el.textContent = path || "未选择";
+      el.title = path;
+    }
   }
   if (btn) btn.disabled = !path;
 }
@@ -2892,6 +2904,9 @@ async function confirmWorkspacePath(path) {
 
   setTaskDir(dir);
   clearTaskDirErr();
+  pushRecentDir(dir);
+  const matched = findProjectByDir(dir);
+  if (matched) void touchProject(matched.id);
 
   if (purpose && purpose.type === "workflow" && purpose.workflowId) {
     try {
@@ -2968,6 +2983,31 @@ function findProjectByDir(dir) {
   const key = normalizeDirKey(dir);
   if (!key) return null;
   return PROJECT_PROFILES.find((p) => normalizeDirKey(p.projectDir) === key) || null;
+}
+
+/** Bump updatedAt so the project rises in lists (fire-and-forget). */
+async function touchProject(id) {
+  const p = PROJECT_PROFILES.find((x) => x.id === id);
+  if (!p?.id) return;
+  try {
+    const updated = await api(`/api/projects/${encodeURIComponent(p.id)}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        name: p.name,
+        projectDir: p.projectDir,
+        repoUrl: p.repoUrl || "",
+      }),
+    });
+    const idx = PROJECT_PROFILES.findIndex((x) => x.id === p.id);
+    if (idx >= 0 && updated) {
+      PROJECT_PROFILES[idx] = updated;
+      PROJECT_PROFILES.sort(
+        (a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0),
+      );
+    }
+  } catch {
+    /* ignore */
+  }
 }
 
 async function saveWorkspaceAsProject() {
@@ -3063,6 +3103,7 @@ function useProjectAsWorkspace(id) {
   setTaskDir(p.projectDir);
   clearTaskDirErr();
   pushRecentDir(p.projectDir);
+  void touchProject(p.id);
   toast(`已选用「${p.name}」`);
   switchView("tasks-new");
 }
@@ -3195,6 +3236,7 @@ function bindTaskNewFormOnce() {
 async function initTaskNewPage() {
   bindTaskNewFormOnce();
   onTaskTypeChange();
+  void loadProjectProfiles().then(() => syncWorkspaceLabel());
   syncWorkspaceLabel();
   fillSkillOptions();
   try {
@@ -4564,13 +4606,22 @@ async function fillAutopilotEditorSelects(ap) {
     } catch {
       skills = [];
     }
-    const cur = (ap && ap.skill) || "default";
+    await loadAgentProfiles();
+    const agentId = (ap && ap.agentProfileId) || "";
+    const agent = AGENT_PROFILES.find((a) => a.id === agentId);
+    const inheritSkill = (agent?.defaultSkill || "").trim();
+    const cur = (ap && ap.skill) || inheritSkill || "default";
     const ids = new Set(skills.map((s) => s.id || s.name).filter(Boolean));
     if (cur && !ids.has(cur)) skills = [{ id: cur, name: cur }, ...skills];
-    skillSel.innerHTML = (skills.length ? skills : [{ id: "default", name: "default" }])
+    const rows = skills.length ? skills : [{ id: "default", name: "default" }];
+    skillSel.innerHTML = rows
       .map((s) => {
         const id = s.id || s.name || "default";
-        return `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(s.name || id)}</option>`;
+        const label =
+          inheritSkill && id === inheritSkill && id !== "default"
+            ? `${s.name || id}（Agent 默认）`
+            : s.name || id;
+        return `<option value="${esc(id)}"${id === cur ? " selected" : ""}>${esc(label)}</option>`;
       })
       .join("");
   }
@@ -6188,6 +6239,60 @@ function buildWorkItemDiscussionItems(tasks, events) {
     .sort((a, b) => Number(a.createdAt || 0) - Number(b.createdAt || 0));
 }
 
+function stripMentionMarkdown(text) {
+  return String(text || "").replace(
+    /\\?\[(@?)((?:\\.|[^\]])+)\]\(mention:\/\/\w+\/[^)]+\)/g,
+    (full, prefix, rawLabel) => {
+      if (full.startsWith("\\")) return full;
+      const label = String(rawLabel).replace(/\\\[/g, "[").replace(/\\\]/g, "]");
+      return `${prefix}${label}`;
+    },
+  );
+}
+
+/** Escape body text and highlight @Agent mentions for the timeline. */
+function formatWorkItemEventBodyHtml(body) {
+  const plain = stripMentionMarkdown(body);
+  const markers = [];
+  let work = plain;
+
+  const markRange = (start, end) => {
+    if (start < 0 || end <= start || end > work.length) return;
+    const token = work.slice(start, end);
+    const key = `%%ADMENTION${markers.length}%%`;
+    markers.push(token);
+    work = `${work.slice(0, start)}${key}${work.slice(end)}`;
+  };
+
+  const names = (AGENT_PROFILES || [])
+    .map((a) => String(a.name || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    const re = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\w-])`, "g");
+    let m;
+    const hits = [];
+    while ((m = re.exec(work)) !== null) hits.push([m.index, m.index + m[0].length]);
+    for (let i = hits.length - 1; i >= 0; i -= 1) markRange(hits[i][0], hits[i][1]);
+  }
+
+  const idRe = /@a_[a-zA-Z0-9]+\b/g;
+  {
+    let m;
+    const hits = [];
+    while ((m = idRe.exec(work)) !== null) hits.push([m.index, m.index + m[0].length]);
+    for (let i = hits.length - 1; i >= 0; i -= 1) markRange(hits[i][0], hits[i][1]);
+  }
+
+  let html = esc(work);
+  markers.forEach((token, i) => {
+    html = html.split(`%%ADMENTION${i}%%`).join(
+      `<span class="work-item-mention-chip">${esc(token)}</span>`,
+    );
+  });
+  return html;
+}
+
 function renderWorkItemTimeline(tasks, events) {
   const box = document.getElementById("workItemTimeline");
   if (!box) return;
@@ -6196,7 +6301,7 @@ function renderWorkItemTimeline(tasks, events) {
     box.innerHTML =
       `<div class="work-item-empty">` +
       `<strong>还没有讨论记录</strong>` +
-      `<p class="work-item-empty-sub">闸门确认会自动写入；也可以在下方记下决策或下一步。</p>` +
+      `<p class="work-item-empty-sub">闸门确认会自动写入；也可点「@ 提及」唤醒 Agent，或记下决策与下一步。</p>` +
       `</div>`;
     return;
   }
@@ -6223,7 +6328,7 @@ function renderWorkItemTimeline(tasks, events) {
             <span class="work-item-event-kind">${esc(kindLabel)}</span>
             <span>${esc(when)}</span>
           </div>
-          <div class="work-item-event-body">${esc(ev.body || "")}</div>
+          <div class="work-item-event-body">${formatWorkItemEventBodyHtml(ev.body || "")}</div>
           ${taskBtn}
         </div>
       </div>`;
