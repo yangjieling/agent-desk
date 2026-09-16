@@ -48,6 +48,8 @@ export interface AgentBackend {
   buildResumeCommand(params: AgentResumeParams): string[];
   parseEventLine(line: string): AgentEvent | null;
   extractSessionId(events: AgentEvent[]): string | null;
+  /** Optional fallback when session id only appears in raw stdout/stderr text. */
+  extractSessionFromOutput?(output: string): string | null;
 }
 
 import { probeAllAgentProviders, probeInstalledAgentProviders } from "./probe.js";

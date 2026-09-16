@@ -225,6 +225,7 @@ const AGENT_PRESETS: Record<string, { name: string; defaultSkill: string }> = {
   claude: { name: "Claude", defaultSkill: "default" },
   codex: { name: "Codex", defaultSkill: "default" },
   cursor: { name: "Cursor", defaultSkill: "default" },
+  hermes: { name: "Hermes", defaultSkill: "default" },
 };
 
 export class AgentDeskDb {

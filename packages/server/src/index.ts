@@ -8,6 +8,7 @@ import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
+import { registerHermesBackend } from "@agent-desk/provider-agent-hermes";
 import { getAgentBackend, listAgentRuntimes, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
@@ -178,6 +179,7 @@ function registerProviders(): void {
   registerClaudeBackend();
   registerCodexBackend();
   registerCursorBackend();
+  registerHermesBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
   registerGitLabIssueProvider();

@@ -26,7 +26,8 @@
     const bin = (cmd.split(/\s+/)[0] || "").replace(/^.*\//, "");
     if (/claude/i.test(bin)) return "Claude";
     if (/codex/i.test(bin)) return "Codex";
-    if (/cursor|agent/i.test(bin)) return "Cursor";
+    if (/hermes/i.test(bin)) return "Hermes";
+    if (/cursor|^agent$/i.test(bin)) return "Cursor";
     return bin || "Agent";
   }
 

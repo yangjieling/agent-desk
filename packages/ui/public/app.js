@@ -5340,7 +5340,7 @@ function renderAgentsRuntimeStrip(data) {
   if (!installed) {
     strip.className = "runtime-strip is-warn";
     strip.innerHTML =
-      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code>）。' +
+      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code> / <code>hermes</code>）。' +
       '请安装并登录后再创建任务。可在<a href="#" onclick="showView(\'settings\');return false;">设置 → 本机 Agent 运行时</a>查看详情。';
     return;
   }

@@ -61,6 +61,14 @@ export function cursorStaticModels(): AgentModel[] {
   return [{ id: "auto", label: "Auto", provider: "cursor", default: true }];
 }
 
+export function hermesStaticModels(current?: string): AgentModel[] {
+  const cur = (current || "").trim();
+  if (cur) {
+    return [{ id: cur, label: cur, provider: "hermes", default: true }];
+  }
+  return [{ id: "default", label: "Hermes default", provider: "hermes", default: true }];
+}
+
 interface CodexDebugModel {
   slug?: string;
   display_name?: string;
@@ -139,6 +147,25 @@ function discoverCursorModels(bin: string): AgentModelCatalog {
   return { supported: true, models };
 }
 
+function discoverHermesModels(bin: string): AgentModelCatalog {
+  const r = spawnSync(bin, ["config", "get", "model"], {
+    encoding: "utf8",
+    timeout: 8_000,
+  });
+  const raw = `${r.stdout || ""}${r.stderr || ""}`.trim();
+  let current = "";
+  if (!r.error && r.status === 0 && raw) {
+    const line = raw.split(/\r?\n/).map((l) => l.trim()).find(Boolean) || "";
+    const m = line.match(/model\s*[:=]\s*(.+)$/i);
+    current = (m?.[1] || line).trim().replace(/^["']|["']$/g, "");
+  }
+  return {
+    supported: true,
+    models: hermesStaticModels(current),
+    fallback: !current,
+  };
+}
+
 /** True when a saved model id is absent from the target agent's discovered catalog. */
 export function isModelIncompatibleWithAgent(model: string, catalog: AgentModel[]): boolean {
   const trimmed = model.trim();
@@ -162,6 +189,8 @@ export function listModelsForAgent(agentId: string, bin?: string): AgentModelCat
         return discoverCodexModels(bin || resolveAgentBin("codex"));
       case "cursor":
         return discoverCursorModels(bin || resolveAgentBin("cursor"));
+      case "hermes":
+        return discoverHermesModels(bin || resolveAgentBin("hermes"));
       default:
         return { supported: false, models: [] };
     }

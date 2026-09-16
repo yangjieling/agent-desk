@@ -54,6 +54,20 @@ import {
 } from "./queue.js";
 import { requestExecutorWake } from "./executor.js";
 
+function resolveBackendSessionId(
+  backend: import("@agent-desk/provider-agent").AgentBackend,
+  events: import("@agent-desk/provider-agent").AgentEvent[],
+  output: string,
+  fallback: string,
+): string {
+  return (
+    backend.extractSessionId(events) ||
+    backend.extractSessionFromOutput?.(output) ||
+    fallback ||
+    ""
+  );
+}
+
 export { bootstrapTaskQueue } from "./queue.js";
 export { processWorkspaceQueue } from "./queue.js";
 export { reclaimOrphanActiveTasks, startTaskWatchdog, stopTaskWatchdog } from "./queue.js";
@@ -596,7 +610,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       const tail = linePrefixer.flush();
       if (tail) output += tail;
       output += `\n\n${formatDangerousCommandGate(match)}\n`;
-      const sessionId = backend.extractSessionId(events) ?? taskSessionId;
+      const sessionId = resolveBackendSessionId(backend, events, output, taskSessionId);
       try {
         controller.abort("dangerous_command_gate");
       } catch {
@@ -668,7 +682,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       running.delete(taskId);
       const tail = linePrefixer.flush();
       if (tail) output += tail;
-      const sessionId = backend.extractSessionId(events) ?? taskSessionId;
+      const sessionId = resolveBackendSessionId(backend, events, output, taskSessionId);
       const abortReason = controller.signal.aborted
         ? String(controller.signal.reason ?? "aborted")
         : "";
