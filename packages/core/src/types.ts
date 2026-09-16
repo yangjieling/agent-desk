@@ -178,6 +178,15 @@ export interface Task {
   pendingGateId: string;
   /** Condensed briefing for the next fresh session after executor switch. */
   pendingHandoffBriefing: string;
+  /**
+   * Original git repo root when this task runs in a parallel worktree.
+   * Empty when executing directly in projectDir.
+   */
+  workspaceRoot: string;
+  /** Absolute path of the task's git worktree (under `<repo>/.worktrees/`). */
+  worktreePath: string;
+  /** Branch name for the parallel worktree (e.g. ad/t_…). */
+  worktreeBranch: string;
   /** Completed auto-retry attempts (not including the first run). */
   retryCount: number;
   failureCode: TaskFailureCode;
@@ -247,6 +256,11 @@ export interface Settings {
   retryDelaySec: number;
   /** When workspace is busy, queue the task instead of failing immediately. */
   queueWhenWorkspaceBusy: boolean;
+  /**
+   * When workspace is busy and the dir is a git repo, create an in-repo worktree
+   * under `.worktrees/` and run there instead of only queueing/failing.
+   */
+  worktreeParallelEnabled: boolean;
   /**
    * Max tasks the in-process local executor may hold as dispatched+running.
    * Awaiting / done do not count. 0 or negative = unlimited (workspace lock still applies).
@@ -365,6 +379,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxRetries: 2,
   retryDelaySec: 30,
   queueWhenWorkspaceBusy: true,
+  worktreeParallelEnabled: true,
   executorMaxConcurrent: 4,
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,

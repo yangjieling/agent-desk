@@ -45,6 +45,11 @@
       "default": true,
       "description": "Queue tasks when the workspace directory is busy"
     },
+    "worktreeParallelEnabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "When workspace is busy, create a same-repo git worktree under .worktrees/ for parallel runs"
+    },
     "executorMaxConcurrent": {
       "type": "integer",
       "default": 4,

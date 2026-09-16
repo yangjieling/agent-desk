@@ -38,6 +38,7 @@ import {
 } from "@agent-desk/provider-issue-github";
 import { getNotifyProvider } from "@agent-desk/provider-notify";
 import { mountSkills } from "@agent-desk/skills";
+import { cleanupWorktree, prepareWorktree } from "./worktree.js";
 import {
   createLogLinePrefixer,
   formatActivityLogLine,
@@ -51,6 +52,7 @@ import {
   failureCodeFromError,
   maybeScheduleAutoRetry,
   processWorkspaceQueue,
+  scheduleDelayedStart,
 } from "./queue.js";
 import { requestExecutorWake } from "./executor.js";
 
@@ -80,6 +82,13 @@ export {
   type LocalExecutorHandle,
   type LocalExecutorStatus,
 } from "./executor.js";
+export {
+  cleanupWorktree,
+  gitToplevel,
+  prepareWorktree,
+  worktreeBranchFor,
+  worktreeDirFor,
+} from "./worktree.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -223,6 +232,9 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     gateNotifyHash: "",
     pendingGateId: "",
     pendingHandoffBriefing: "",
+    workspaceRoot: "",
+    worktreePath: "",
+    worktreeBranch: "",
     retryCount: 0,
     failureCode: "",
     failureMessage: "",
@@ -272,6 +284,7 @@ async function markTaskQueued(
   taskId: string,
   code: TaskFailureCode,
   message: string,
+  nextRetryAt = 0,
 ): Promise<Task> {
   const prev = opts.db.getTask(taskId);
   const stamp = `\n\n${formatLogTimestamp()} [queued] ${message}`;
@@ -282,7 +295,7 @@ async function markTaskQueued(
     status: "queued",
     failureCode: code,
     failureMessage: message,
-    nextRetryAt: 0,
+    nextRetryAt,
     claimToken: "",
     claimedBy: "",
     claimedAt: 0,
@@ -296,7 +309,11 @@ async function markTaskQueued(
     publishTaskUpdate({ task, resultAppend: undefined });
   }
   if (!task) throw new Error(`Task not found after queue: ${taskId}`);
-  requestExecutorWake();
+  if (nextRetryAt > Date.now()) {
+    scheduleDelayedStart(opts, taskId, nextRetryAt - Date.now());
+  } else {
+    requestExecutorWake();
+  }
   return task;
 }
 
@@ -331,6 +348,7 @@ async function markTaskFailed(
     const retried = await maybeScheduleAutoRetry(opts, task, startTask);
     if (retried.status === "failed") {
       await maybeNotifyTaskUpdate(retried, resolveSettings(opts));
+      await maybeReleaseTaskWorkspace(opts, retried, retried.status);
     }
     await emitTaskComplete(retried);
   }
@@ -376,10 +394,22 @@ async function maybeReleaseTaskWorkspace(
   task: Task,
   status: Task["status"],
 ): Promise<void> {
-  if (!opts.dataDir || !task.projectDir) return;
   if (!["done", "failed", "stopped"].includes(status)) return;
-  const active = opts.db.countActiveTasksForProjectDir(task.projectDir, task.id);
-  await maybeReleaseAutoWorkspace(opts.dataDir, task.projectDir, active);
+
+  if ((task.worktreePath || "").trim()) {
+    cleanupWorktree({
+      worktreePath: task.worktreePath,
+      worktreeBranch: task.worktreeBranch,
+      workspaceRoot: task.workspaceRoot,
+      taskId: task.id,
+    });
+  }
+
+  if (!opts.dataDir) return;
+  const releaseDir = (task.workspaceRoot || task.projectDir || "").trim();
+  if (!releaseDir) return;
+  const active = opts.db.countActiveTasksForWorkspace(releaseDir, task.id);
+  await maybeReleaseAutoWorkspace(opts.dataDir, releaseDir, active);
 }
 
 async function ensureTaskWorkspace(
@@ -472,7 +502,8 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     const taskSessionId = task.sessionId;
 
     const settings = resolveSettings(opts);
-    const cwd = task.projectDir || process.cwd();
+    let cwd = task.projectDir || process.cwd();
+    let worktreeLog = "";
 
     if (!fs.existsSync(cwd)) {
       return markTaskFailed(
@@ -486,22 +517,77 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     }
 
     if (settings.workspaceLockEnabled !== false) {
-      const busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
+      let busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
       if (busy > 0) {
-        if (settings.queueWhenWorkspaceBusy !== false) {
-          return markTaskQueued(
+        const canWorktree =
+          settings.worktreeParallelEnabled !== false &&
+          (!(task.sessionId || "").trim() || Boolean((task.worktreePath || "").trim()));
+        if (canWorktree) {
+          const sourceDir = (task.workspaceRoot || cwd).trim() || cwd;
+          const prep = prepareWorktree({
+            taskId,
+            sourceDir,
+            existingPath: task.worktreePath,
+            existingBranch: task.worktreeBranch,
+            existingRoot: task.workspaceRoot,
+          });
+          if (prep.ok) {
+            const patch: Partial<Task> = {
+              projectDir: prep.path,
+              workspaceRoot: prep.workspaceRoot || sourceDir,
+              worktreePath: prep.path,
+              worktreeBranch: prep.branch,
+              lastActivityAt: Date.now(),
+            };
+            task = opts.db.updateTask(taskId, patch) ?? { ...task, ...patch };
+            cwd = prep.path;
+            worktreeLog = formatActivityLogLine(
+              "workspace",
+              prep.reused
+                ? `复用并行 worktree：${prep.path}`
+                : `已创建并行 worktree：${prep.path}（分支 ${prep.branch}）`,
+              "done",
+            );
+            notifyTaskUpdate(opts, task, true);
+            busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
+          } else {
+            const permanent = /不是 Git|目录不可用/.test(prep.error);
+            if (permanent || settings.queueWhenWorkspaceBusy === false) {
+              return markTaskFailed(
+                opts,
+                taskId,
+                new Error(
+                  `工作区正被其他任务占用，且无法创建并行 worktree：${prep.error}`,
+                ),
+                "workspace_busy",
+              );
+            }
+            return markTaskQueued(
+              opts,
+              taskId,
+              "workspace_busy",
+              `工作区占用且无法创建 worktree（${prep.error}），已加入队列：${cwd}`,
+              Date.now() + 30_000,
+            );
+          }
+        }
+
+        if (busy > 0) {
+          if (settings.queueWhenWorkspaceBusy !== false) {
+            return markTaskQueued(
+              opts,
+              taskId,
+              "workspace_busy",
+              `工作区正被其他任务占用，已加入队列：${cwd}`,
+            );
+          }
+          return markTaskFailed(
             opts,
             taskId,
+            new Error(`工作区正被其他任务占用：${cwd}。请等待完成或停止后再试。`),
             "workspace_busy",
-            `工作区正被其他任务占用，已加入队列：${cwd}`,
           );
         }
-        return markTaskFailed(
-          opts,
-          taskId,
-          new Error(`工作区正被其他任务占用：${cwd}。请等待完成或停止后再试。`),
-          "workspace_busy",
-        );
       }
     }
 
@@ -543,6 +629,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
 
     const agentLabel = agentStartupLabel(backend.displayName || backend.id || task.codingAgent || "");
     let output = task.result ? `${task.result}\n` : "";
+    if (worktreeLog) output += worktreeLog;
     if (consumeHandoff) {
       output += `\n[handoff] 已注入交接说明并开启新会话\n`;
     }

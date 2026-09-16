@@ -317,6 +317,8 @@ function groupMatchesFilter(group) {
 
 
 function workspaceKeyOf(t) {
+  const root = String(tField(t, "workspaceRoot", "workspace_root") || "").trim();
+  if (root) return root;
   return String(tField(t, "projectDir", "project_dir") || "").trim();
 }
 
@@ -517,6 +519,10 @@ function renderLogMeta(task) {
   const proj = shortPath(projFull);
   if (proj && proj !== "-") {
     primary.push(`<span class="log-meta-chip" title="${esc(projFull)}">${esc(proj)}</span>`);
+  }
+  const wtBranch = String(tField(task, "worktreeBranch", "worktree_branch") || "").trim();
+  if (wtBranch) {
+    primary.push(`<span class="log-meta-chip" title="并行 worktree 分支">worktree ${esc(wtBranch)}</span>`);
   }
 
   const skill = tField(task, "skill", "skill");
@@ -1436,6 +1442,8 @@ function renderListRow(t, opts = {}) {
   const needsFreshStart = taskNeedsFreshStart(t);
   const metaParts = [];
   if (!LOG_ID && proj && proj !== "-") metaParts.push(proj);
+  const wtBranch = String(tField(t, "worktreeBranch", "worktree_branch") || "").trim();
+  if (wtBranch) metaParts.push(`<span class="tr-retry-hint">worktree ${esc(wtBranch)}</span>`);
   if (issue) metaParts.push(`<span class="bug-code">${issue}</span>`);
   const wfName = String(tField(t, "workflowName", "workflow_name") || "").trim();
   const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
