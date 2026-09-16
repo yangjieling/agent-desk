@@ -171,6 +171,13 @@ export interface Task {
   sessionId: string;
   result: string;
   gateNotifyHash: string;
+  /**
+   * One-shot token for the current awaiting gate (cross-channel claim).
+   * Empty when not awaiting or after successful claim.
+   */
+  pendingGateId: string;
+  /** Condensed briefing for the next fresh session after executor switch. */
+  pendingHandoffBriefing: string;
   /** Completed auto-retry attempts (not including the first run). */
   retryCount: number;
   failureCode: TaskFailureCode;

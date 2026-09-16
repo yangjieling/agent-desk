@@ -30,6 +30,8 @@
     "sessionId": { "type": "string" },
     "result": { "type": "string" },
     "gateNotifyHash": { "type": "string" },
+    "pendingGateId": { "type": "string" },
+    "pendingHandoffBriefing": { "type": "string" },
     "retryCount": { "type": "integer", "minimum": 0 },
     "failureCode": { "type": "string" },
     "failureMessage": { "type": "string" },

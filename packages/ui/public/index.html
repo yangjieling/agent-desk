@@ -196,6 +196,12 @@
             </div>
             <div class="modal-reply" id="replyBox">
               <div class="reply-choices" id="replyChoices"></div>
+              <div class="reply-executor-row" id="replyExecutorRow" hidden>
+                <label class="reply-executor-label" for="reply-executor">切换执行者</label>
+                <select id="reply-executor" class="reply-executor-select"></select>
+                <button type="button" class="btn ghost sm" id="reply-executor-btn" onclick="switchLogExecutor()">应用</button>
+                <span class="reply-executor-hint" id="replyExecutorHint"></span>
+              </div>
               <div class="reply-row">
                 <textarea id="replyInput" rows="1" placeholder="继续本次会话，Enter 发送，Shift+Enter 换行…"
                   onkeydown="onReplyKeyDown(event)" oninput="fitReplyInputHeight(this)"></textarea>

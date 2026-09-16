@@ -7,6 +7,7 @@ const ACTIVE_TASK_FILTER_STATUSES = new Set(["created", "preparing", "queued", "
 const URL_PARAMS = new URLSearchParams(location.search);
 let DEEP_LINK_REPLY = (URL_PARAMS.get("reply") || "").trim();
 let DEEP_LINK_REPLY_SENT = false;
+let DEEP_LINK_GATE_ID = (URL_PARAMS.get("gateId") || URL_PARAMS.get("gate_id") || "").trim();
 
 let TASKS = [];
 let TASK_FILTER = "all";
@@ -1189,7 +1190,7 @@ async function api(path, opts = {}) {
   } catch {
     /* ignore */
   }
-  if (!res.ok) throw new Error(data.error || data.message || res.statusText);
+  if (!res.ok) throw new Error(data.message || data.error || res.statusText);
   return data;
 }
 
@@ -1663,7 +1664,11 @@ async function continueTask(id) {
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply: "继续", model: getReplyModel() }),
+      body: JSON.stringify({
+        reply: "继续",
+        model: getReplyModel(),
+        gateId: tField(TASKS.find((t) => t.id === id) || {}, "pendingGateId", "pending_gate_id") || undefined,
+      }),
     });
     toast("已继续本次会话");
     await loadTasks();
@@ -2015,6 +2020,67 @@ function updateReplyComposerState(running, canChat) {
   });
 }
 
+function currentLogGateId() {
+  const fromTask = tField(TASKS.find((t) => t.id === LOG_ID) || {}, "pendingGateId", "pending_gate_id");
+  return (fromTask || DEEP_LINK_GATE_ID || "").trim();
+}
+
+async function switchLogExecutor() {
+  if (!LOG_ID) return;
+  const sel = document.getElementById("reply-executor");
+  if (!sel) return;
+  const agentProfileId = (sel.value || "").trim();
+  if (!agentProfileId) {
+    toast("请选择智能体");
+    return;
+  }
+  try {
+    const res = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/executor`, {
+      method: "POST",
+      body: JSON.stringify({ agentProfileId }),
+    });
+    toast(res.message || (res.noop ? "执行者未变化" : "已切换执行者"));
+    await loadTasks();
+    await pollLog();
+  } catch (e) {
+    toast(`切换失败: ${e.message || e}`);
+  }
+}
+
+async function syncReplyExecutorRow(task) {
+  const row = document.getElementById("replyExecutorRow");
+  const sel = document.getElementById("reply-executor");
+  const hint = document.getElementById("replyExecutorHint");
+  if (!row || !sel) return;
+  const awaiting = (task && task.status) === "awaiting";
+  const canSwitch = awaiting && !isTaskRunningLocal(task);
+  row.hidden = !canSwitch;
+  if (!canSwitch) return;
+  let agents = [];
+  try {
+    agents = (await api("/api/agents")) || [];
+  } catch {
+    agents = [];
+  }
+  const cur = tField(task, "agentProfileId", "agent_profile_id") || "";
+  sel.innerHTML = agents
+    .map(
+      (a) =>
+        `<option value="${esc(a.id)}"${a.id === cur ? " selected" : ""}>${esc(a.name || a.id)} · ${esc(a.provider || "")}</option>`,
+    )
+    .join("");
+  if (hint) {
+    hint.textContent = tField(task, "pendingHandoffBriefing", "pending_handoff_briefing")
+      ? "下轮将注入交接说明"
+      : "";
+  }
+}
+
+function isTaskRunningLocal(task) {
+  const st = (task && task.status) || "";
+  return st === "running" || st === "queued" || st === "dispatched";
+}
+
 async function dispatchReply(reply, model) {
   if (!LOG_ID || !reply) return;
   if (LOG_REPLY_SENDING || LOG_TASK_STATUS === "running") return;
@@ -2035,10 +2101,16 @@ async function dispatchReply(reply, model) {
     /* ignore */
   }
   try {
+    const gateId = currentLogGateId() || undefined;
     await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply, model: model || getReplyModel() }),
+      body: JSON.stringify({
+        reply,
+        model: model || getReplyModel(),
+        gateId,
+      }),
     });
+    DEEP_LINK_GATE_ID = "";
     // Optimistically lock until stream/poll reports running (or terminal).
     LOG_TASK_STATUS = "running";
     toast("已发送");
@@ -2148,6 +2220,7 @@ async function renderLogTask(d, opts = {}) {
     renderLogMeta(d);
     renderLogTaskDetail(d);
     void ensureReplyModelDropdown(d);
+    void syncReplyExecutorRow(d);
     renderLogGateCard(gate, awaiting);
     applyLogViewMode();
   } else if (sig !== LOG_RENDER_SIG) {

@@ -150,6 +150,8 @@ export function createWorkflowTask(
     sessionId: "",
     result: "",
     gateNotifyHash: "",
+    pendingGateId: "",
+    pendingHandoffBriefing: "",
     retryCount: 0,
     failureCode: "",
     failureMessage: "",

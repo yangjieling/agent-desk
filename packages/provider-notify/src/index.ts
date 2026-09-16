@@ -5,6 +5,8 @@ export interface GateNotifyPayload {
   choices: { label: string; value: string }[];
   webUrl: string;
   issueCode?: string;
+  /** Current awaiting gate token for one-shot deep-link resume. */
+  gateId?: string;
 }
 
 export interface TaskNotifyPayload {

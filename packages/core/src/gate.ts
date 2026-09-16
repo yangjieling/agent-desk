@@ -5,6 +5,7 @@ const CLOSED_GATE_STATUS_RE = /已(确认|通过|收口|记录)/;
 const OH_CHOICES_MARKER = "## oh-choices";
 const LEGACY_HB_CHOICES_MARKER = "## hb-choices";
 const CHOICES_MARKERS = [OH_CHOICES_MARKER, LEGACY_HB_CHOICES_MARKER];
+const TASK_END_MARKERS = ["## oh-task-end", "## hb-task-end"];
 
 const NOT_QUESTION_HINTS = [
   "等待编排器",
@@ -181,6 +182,11 @@ export function looksLikeQuestion(text: string): boolean {
   return /请确认|是否|请选择|等待您|等待你/.test(plain);
 }
 
+export function containsTaskEndMarker(text: string): boolean {
+  const body = text || "";
+  return TASK_END_MARKERS.some((m) => body.includes(m));
+}
+
 export function resolveTaskStatusAfterRun(
   output: string,
   exitCode: number,
@@ -191,6 +197,10 @@ export function resolveTaskStatusAfterRun(
   if (exitCode !== 0) return "failed";
 
   const segment = extractLastRunSegment(output);
+  // Explicit end marker wins over open-gate / question heuristics (A0).
+  if (containsTaskEndMarker(segment) || containsTaskEndMarker(output)) {
+    return "done";
+  }
   if (containsOpenGate(segment)) return "awaiting";
   if (looksLikeQuestion(output)) return "awaiting";
   return "done";

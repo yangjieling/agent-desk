@@ -40,6 +40,7 @@ import {
   stopTask,
   stopTaskWatchdog,
   subscribeTaskUpdates,
+  switchExecutor,
 } from "@agent-desk/runner";
 import type { TaskStreamUpdate } from "@agent-desk/runner";
 import {
@@ -59,6 +60,7 @@ import {
   DEFAULT_GITHUB_SETTINGS,
   DEFAULT_GITLAB_SETTINGS,
   DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
+  newGateId,
   type DingTalkSettings,
   type GitHubSettings,
   type GitLabSettings,
@@ -1086,13 +1088,36 @@ export async function createServer(opts: ServerOptions = {}) {
     },
   );
 
+  function ensureAwaitingGateId(task: Task): Task {
+    if (task.status !== "awaiting") return task;
+    if ((task.pendingGateId || "").trim()) return task;
+    return (
+      db.updateTask(task.id, { pendingGateId: newGateId() }) ?? {
+        ...task,
+        pendingGateId: newGateId(),
+      }
+    );
+  }
+
   app.get("/api/tasks", async () => db.listTasks());
 
   app.get<{ Params: { id: string } }>("/api/tasks/:id", async (req, reply) => {
-    const task = db.getTask(req.params.id);
-    if (!task) return reply.code(404).send({ error: "not_found" });
+    const raw = db.getTask(req.params.id);
+    if (!raw) return reply.code(404).send({ error: "not_found" });
+    const task = ensureAwaitingGateId(raw);
     const usage = extractTaskUsageFromLog(task.result || "", task.codingAgent);
-    return usage ? { ...task, usage } : task;
+    return usage
+      ? {
+          ...task,
+          usage,
+          pendingHandoff: Boolean((task.pendingHandoffBriefing || "").trim()),
+          canSwitchExecutor: task.status === "awaiting" && !isTaskRunning(task.id),
+        }
+      : {
+          ...task,
+          pendingHandoff: Boolean((task.pendingHandoffBriefing || "").trim()),
+          canSwitchExecutor: task.status === "awaiting" && !isTaskRunning(task.id),
+        };
   });
 
   app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(
@@ -1247,37 +1272,64 @@ export async function createServer(opts: ServerOptions = {}) {
     return db.getTask(task.id);
   });
 
-  async function handleResume(taskId: string, replyText: string, model?: string) {
+  async function handleResume(taskId: string, replyText: string, model?: string, gateId?: string) {
     const task = db.getTask(taskId);
     if (!task) return { ok: false as const, error: "not_found" as const };
     if (isTaskRunning(task.id) || task.status === "running") {
       return { ok: false as const, error: "already_running" as const, task };
     }
-    const updated = await resumeTask(
-      runnerOpts,
-      taskId,
-      replyText,
-      model !== undefined ? { model } : undefined,
-    );
-    if (task.workflowRunId && updated?.status === "stopped") {
-      try {
-        stopRun(dataDir, runnerOpts, task.workflowRunId);
-      } catch {
-        // ignore
+    try {
+      const updated = await resumeTask(runnerOpts, taskId, replyText, {
+        ...(model !== undefined ? { model } : {}),
+        ...(gateId !== undefined ? { gateId } : {}),
+      });
+      if (task.workflowRunId && updated?.status === "stopped") {
+        try {
+          stopRun(dataDir, runnerOpts, task.workflowRunId);
+        } catch {
+          // ignore
+        }
       }
+      return { ok: true as const, task: updated };
+    } catch (err) {
+      const e = err as Error & { code?: string; statusCode?: number };
+      return {
+        ok: false as const,
+        error: "gate_claim" as const,
+        code: e.code || "invalid",
+        message: e.message || String(err),
+        statusCode: e.statusCode || 400,
+        task,
+      };
     }
-    return { ok: true as const, task: updated };
   }
 
-  app.post<{ Params: { id: string }; Body: { reply?: string; model?: string } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { reply?: string; model?: string; gateId?: string; gate_id?: string };
+  }>(
     "/api/tasks/:id/resume",
     async (req, reply) => {
       const model =
         typeof req.body.model === "string" ? req.body.model.trim() : undefined;
-      const result = await handleResume(req.params.id, req.body.reply ?? "继续", model);
+      const gateIdRaw =
+        typeof req.body.gateId === "string"
+          ? req.body.gateId
+          : typeof req.body.gate_id === "string"
+            ? req.body.gate_id
+            : undefined;
+      const gateId = gateIdRaw !== undefined ? gateIdRaw.trim() : undefined;
+      const result = await handleResume(req.params.id, req.body.reply ?? "继续", model, gateId);
       if (!result.ok) {
         if (result.error === "already_running") {
           return reply.code(409).send({ error: "already_running", task: result.task });
+        }
+        if (result.error === "gate_claim") {
+          return reply.code(result.statusCode || 400).send({
+            error: result.code,
+            message: result.message,
+            task: result.task,
+          });
         }
         return reply.code(404).send({ error: "not_found" });
       }
@@ -1286,11 +1338,16 @@ export async function createServer(opts: ServerOptions = {}) {
   );
 
   /** Feishu / browser deep-link: open URL to confirm a gate choice without POST body. */
-  app.get<{ Params: { id: string }; Querystring: { reply?: string } }>(
+  app.get<{
+    Params: { id: string };
+    Querystring: { reply?: string; gateId?: string; gate_id?: string };
+  }>(
     "/api/tasks/:id/resume",
     async (req, reply) => {
       const replyText = (req.query.reply ?? "继续").trim() || "继续";
-      const result = await handleResume(req.params.id, replyText);
+      const gateIdRaw = req.query.gateId ?? req.query.gate_id;
+      const gateId = gateIdRaw !== undefined ? String(gateIdRaw).trim() : undefined;
+      const result = await handleResume(req.params.id, replyText, undefined, gateId);
       if (!result.ok) {
         if (result.error === "already_running") {
           return reply
@@ -1300,6 +1357,18 @@ export async function createServer(opts: ServerOptions = {}) {
               htmlPage(
                 "任务进行中",
                 `<h1>任务已在运行</h1><p>请勿重复提交回复。<code>${escHtml(req.params.id)}</code></p>
+                 <p><a href="/?task=${encodeURIComponent(req.params.id)}">打开面板</a></p>`,
+              ),
+            );
+        }
+        if (result.error === "gate_claim") {
+          return reply
+            .code(result.statusCode || 400)
+            .type("text/html; charset=utf-8")
+            .send(
+              htmlPage(
+                "闸门无效",
+                `<h1>无法确认闸门</h1><p>${escHtml(result.message || "")}</p>
                  <p><a href="/?task=${encodeURIComponent(req.params.id)}">打开面板</a></p>`,
               ),
             );
@@ -1328,6 +1397,38 @@ export async function createServer(opts: ServerOptions = {}) {
       );
     },
   );
+
+  app.post<{
+    Params: { id: string };
+    Body: { codingAgent?: string; agentProfileId?: string; agent_id?: string; coding_agent?: string };
+  }>("/api/tasks/:id/executor", async (req, reply) => {
+    const codingAgent =
+      typeof req.body.codingAgent === "string"
+        ? req.body.codingAgent
+        : typeof req.body.coding_agent === "string"
+          ? req.body.coding_agent
+          : undefined;
+    const agentProfileId =
+      typeof req.body.agentProfileId === "string"
+        ? req.body.agentProfileId
+        : typeof req.body.agent_id === "string"
+          ? req.body.agent_id
+          : undefined;
+    const result = switchExecutor(runnerOpts, req.params.id, {
+      codingAgent,
+      agentProfileId,
+    });
+    if (!result.ok) {
+      return reply.code(result.status).send({ ok: false, error: result.error });
+    }
+    return {
+      ok: true,
+      noop: result.noop === true,
+      message: result.message,
+      task: result.task,
+      pendingHandoff: Boolean((result.task.pendingHandoffBriefing || "").trim()),
+    };
+  });
 
   app.post<{ Params: { id: string } }>("/api/tasks/:id/stop", async (req, reply) => {
     const task = db.getTask(req.params.id);
@@ -1895,15 +1996,22 @@ export async function startServer(opts: ServerOptions = {}) {
                 message: `task status is ${task.status}, expected awaiting`,
               };
             }
-            const updated = await resumeTask(runnerOpts, taskId, reply);
-            if (task.workflowRunId && updated?.status === "stopped") {
-              try {
-                stopRun(dataDir, runnerOpts, task.workflowRunId);
-              } catch {
-                /* ignore */
+            try {
+              const updated = await resumeTask(runnerOpts, taskId, reply, {
+                gateId: task.pendingGateId || undefined,
+              });
+              if (task.workflowRunId && updated?.status === "stopped") {
+                try {
+                  stopRun(dataDir, runnerOpts, task.workflowRunId);
+                } catch {
+                  /* ignore */
+                }
               }
+              return { ok: true, message: `status=${updated?.status ?? "?"}` };
+            } catch (err) {
+              const msg = err instanceof Error ? err.message : String(err);
+              return { ok: false, message: msg };
             }
-            return { ok: true, message: `status=${updated?.status ?? "?"}` };
           },
         }),
       });

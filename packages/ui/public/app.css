@@ -781,6 +781,17 @@
                 line-height: 1.4; max-width: 100%; }
   .reply-chip:hover { border-color: #2f6feb; color: #1a73e8; background: #e7f0ff; }
   .reply-chip:disabled { opacity: .5; cursor: not-allowed; }
+  .reply-executor-row {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-bottom: 8px; font-size: 12px; color: #5f6368;
+  }
+  .reply-executor-row[hidden] { display: none !important; }
+  .reply-executor-label { flex-shrink: 0; }
+  .reply-executor-select {
+    min-width: 160px; max-width: 280px; padding: 4px 8px;
+    border: 1px solid #dadce0; border-radius: 6px; background: #fff;
+  }
+  .reply-executor-hint { color: #2f6feb; }
   .reply-row { display: flex; gap: 8px; align-items: flex-end; }
   .reply-model-wrap { flex-shrink: 1; min-width: 0; max-width: min(200px, 36vw); }
   .reply-model-dd { position: relative; min-width: 0; width: 100%; }

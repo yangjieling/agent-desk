@@ -31,11 +31,20 @@ function originOf(webUrl: string): string {
 }
 
 /** Deep link that resumes a gate choice via local GET (opens in browser). */
-export function gateChoiceUrl(webUrl: string, taskId: string, reply: string): string {
+export function gateChoiceUrl(
+  webUrl: string,
+  taskId: string,
+  reply: string,
+  gateId?: string,
+): string {
   const base = originOf(webUrl);
   const tid = encodeURIComponent(taskId);
   const r = encodeURIComponent(reply);
-  return `${base}/api/tasks/${tid}/resume?reply=${r}`;
+  const gid = (gateId || "").trim();
+  const q = gid
+    ? `reply=${r}&gateId=${encodeURIComponent(gid)}`
+    : `reply=${r}`;
+  return `${base}/api/tasks/${tid}/resume?${q}`;
 }
 
 function button(label: string, url: string, type: "default" | "primary" | "danger" = "default") {
@@ -159,7 +168,7 @@ export class FeishuNotifyProvider implements NotifyProvider {
     const actions = payload.choices.slice(0, MAX_CHOICE_BUTTONS).map((c, i) =>
       button(
         c.label || c.value,
-        gateChoiceUrl(payload.webUrl, payload.taskId, c.value),
+        gateChoiceUrl(payload.webUrl, payload.taskId, c.value, payload.gateId),
         i === 0 ? "primary" : "default",
       ),
     );
