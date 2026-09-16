@@ -45,6 +45,11 @@
       "default": true,
       "description": "Queue tasks when the workspace directory is busy"
     },
+    "worktreeParallelEnabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Allow starting a conflicted task in a same-repo git worktree (schedule=parallel)"
+    },
     "executorMaxConcurrent": {
       "type": "integer",
       "default": 4,

@@ -17,6 +17,7 @@ const BIN_CONFIG: Record<string, { env: string; defaultBin: string }> = {
   claude: { env: "AD_CLAUDE_BIN", defaultBin: "claude" },
   codex: { env: "AD_CODEX_BIN", defaultBin: "codex" },
   cursor: { env: "AD_CURSOR_BIN", defaultBin: "agent" },
+  hermes: { env: "AD_HERMES_BIN", defaultBin: "hermes" },
 };
 
 export function resolveAgentBin(agentId: string): string {

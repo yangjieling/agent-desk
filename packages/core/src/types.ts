@@ -171,6 +171,22 @@ export interface Task {
   sessionId: string;
   result: string;
   gateNotifyHash: string;
+  /**
+   * One-shot token for the current awaiting gate (cross-channel claim).
+   * Empty when not awaiting or after successful claim.
+   */
+  pendingGateId: string;
+  /** Condensed briefing for the next fresh session after executor switch. */
+  pendingHandoffBriefing: string;
+  /**
+   * Original git repo root when this task runs in a parallel worktree.
+   * Empty when executing directly in projectDir.
+   */
+  workspaceRoot: string;
+  /** Absolute path of the task's git worktree (under `<repo>/.worktrees/`). */
+  worktreePath: string;
+  /** Branch name for the parallel worktree (e.g. ad/t_…). */
+  worktreeBranch: string;
   /** Completed auto-retry attempts (not including the first run). */
   retryCount: number;
   failureCode: TaskFailureCode;
@@ -240,6 +256,10 @@ export interface Settings {
   retryDelaySec: number;
   /** When workspace is busy, queue the task instead of failing immediately. */
   queueWhenWorkspaceBusy: boolean;
+  /**
+   * When workspace is busy, allow UI/API to start via git worktree (schedule=parallel).
+   */
+  worktreeParallelEnabled: boolean;
   /**
    * Max tasks the in-process local executor may hold as dispatched+running.
    * Awaiting / done do not count. 0 or negative = unlimited (workspace lock still applies).
@@ -358,6 +378,7 @@ export const DEFAULT_SETTINGS: Settings = {
   maxRetries: 2,
   retryDelaySec: 30,
   queueWhenWorkspaceBusy: true,
+  worktreeParallelEnabled: true,
   executorMaxConcurrent: 4,
   idleTimeoutSec: 3600,
   awaitingIdleTimeoutSec: 86400,

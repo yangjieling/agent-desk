@@ -27,7 +27,8 @@ export function parseAgentMentions(text: string, agents: AgentProfile[]): Parsed
   const byId = new Map(agents.map((a) => [a.id, a]));
   const found = new Map<string, ParsedAgentMention>();
 
-  const linkRe = /\[([^\]]+)\]\(mention:\/\/agent\/([a-zA-Z0-9_-]+)\)/g;
+  // Allow missing closing ")" when follow-up text was glued into the link.
+  const linkRe = /\[([^\]]+)\]\(mention:\/\/agent\/([a-zA-Z0-9_-]+)\)?/g;
   let m: RegExpExecArray | null;
   while ((m = linkRe.exec(body)) !== null) {
     const id = m[2];
@@ -51,7 +52,8 @@ export function parseAgentMentions(text: string, agents: AgentProfile[]): Parsed
     const nameKey = name.toLowerCase();
     if (claimedNames.has(nameKey)) continue;
     const nameEsc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const nameRe = new RegExp(`(?:^|[^\\w@])@(${nameEsc})(?=$|[^\\w-])`, "iu");
+    // ASCII boundary only — glued Chinese after @Name must still match.
+    const nameRe = new RegExp(`(?:^|[^\\w@])@(${nameEsc})(?=$|[^a-zA-Z0-9_-])`, "iu");
     const hit = nameRe.exec(body);
     if (!hit) continue;
     claimedNames.add(nameKey);

@@ -110,6 +110,12 @@ importers:
         specifier: workspace:*
         version: link:../provider-agent
 
+  packages/provider-agent-hermes:
+    dependencies:
+      '@agent-desk/provider-agent':
+        specifier: workspace:*
+        version: link:../provider-agent
+
   packages/provider-issue: {}
 
   packages/provider-issue-github:
@@ -206,6 +212,9 @@ importers:
       '@agent-desk/provider-agent-cursor':
         specifier: workspace:*
         version: link:../provider-agent-cursor
+      '@agent-desk/provider-agent-hermes':
+        specifier: workspace:*
+        version: link:../provider-agent-hermes
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue

@@ -47,9 +47,18 @@ function originOf(webUrl: string): string {
   }
 }
 
-export function gateChoiceUrl(webUrl: string, taskId: string, reply: string): string {
+export function gateChoiceUrl(
+  webUrl: string,
+  taskId: string,
+  reply: string,
+  gateId?: string,
+): string {
   const base = originOf(webUrl);
-  return `${base}/api/tasks/${encodeURIComponent(taskId)}/resume?reply=${encodeURIComponent(reply)}`;
+  const gid = (gateId || "").trim();
+  const q = gid
+    ? `reply=${encodeURIComponent(reply)}&gateId=${encodeURIComponent(gid)}`
+    : `reply=${encodeURIComponent(reply)}`;
+  return `${base}/api/tasks/${encodeURIComponent(taskId)}/resume?${q}`;
 }
 
 /** DingTalk PC often needs this scheme to open an external browser. */
@@ -441,7 +450,7 @@ export class DingTalkNotifyProvider implements NotifyProvider {
     const choiceLimit = Math.min(MAX_CHOICE_BUTTONS, MAX_CARD_BUTTONS - 1);
     const buttons = payload.choices.slice(0, choiceLimit).map((c) => ({
       label: c.label || c.value,
-      url: gateChoiceUrl(payload.webUrl, payload.taskId, c.value),
+      url: gateChoiceUrl(payload.webUrl, payload.taskId, c.value, payload.gateId),
     }));
     buttons.push({ label: "打开任务", url: payload.webUrl });
 

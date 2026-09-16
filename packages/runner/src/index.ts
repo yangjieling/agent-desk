@@ -5,6 +5,9 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import {
   appendDangerousCommandApproval,
+  buildHandoffBriefing,
+  claimPendingGate,
+  clearGateClaimState,
   clipPrompt,
   clipTitle,
   dangerousCommandId,
@@ -14,10 +17,12 @@ import {
   isDangerousCommandApproval,
   agentPromptBodyForRun,
   matchDangerousCommand,
+  newGateId,
   newTaskId,
   parseApprovedDangerousCommandIds,
   parseGate,
   prependAgentInstructions,
+  prependHandoffBriefing,
   resolveAgentConfig,
   resolveTaskStatusAfterRun,
   type Settings,
@@ -33,6 +38,8 @@ import {
 } from "@agent-desk/provider-issue-github";
 import { getNotifyProvider } from "@agent-desk/provider-notify";
 import { mountSkills } from "@agent-desk/skills";
+import { cleanupWorktree, prepareWorktree } from "./worktree.js";
+import type { ScheduleMode } from "./schedule.js";
 import {
   createLogLinePrefixer,
   formatActivityLogLine,
@@ -46,8 +53,23 @@ import {
   failureCodeFromError,
   maybeScheduleAutoRetry,
   processWorkspaceQueue,
+  scheduleDelayedStart,
 } from "./queue.js";
 import { requestExecutorWake } from "./executor.js";
+
+function resolveBackendSessionId(
+  backend: import("@agent-desk/provider-agent").AgentBackend,
+  events: import("@agent-desk/provider-agent").AgentEvent[],
+  output: string,
+  fallback: string,
+): string {
+  return (
+    backend.extractSessionId(events) ||
+    backend.extractSessionFromOutput?.(output) ||
+    fallback ||
+    ""
+  );
+}
 
 export { bootstrapTaskQueue } from "./queue.js";
 export { processWorkspaceQueue } from "./queue.js";
@@ -61,6 +83,21 @@ export {
   type LocalExecutorHandle,
   type LocalExecutorStatus,
 } from "./executor.js";
+export {
+  cleanupWorktree,
+  gitToplevel,
+  prepareWorktree,
+  worktreeBranchFor,
+  worktreeDirFor,
+} from "./worktree.js";
+export {
+  checkTaskSchedule,
+  listWorkspaceBlockers,
+  resolveWorkspaceKey,
+  type ScheduleBlocker,
+  type ScheduleCheckResult,
+  type ScheduleMode,
+} from "./schedule.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -202,6 +239,11 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     sessionId: "",
     result: "",
     gateNotifyHash: "",
+    pendingGateId: "",
+    pendingHandoffBriefing: "",
+    workspaceRoot: "",
+    worktreePath: "",
+    worktreeBranch: "",
     retryCount: 0,
     failureCode: "",
     failureMessage: "",
@@ -251,6 +293,7 @@ async function markTaskQueued(
   taskId: string,
   code: TaskFailureCode,
   message: string,
+  nextRetryAt = 0,
 ): Promise<Task> {
   const prev = opts.db.getTask(taskId);
   const stamp = `\n\n${formatLogTimestamp()} [queued] ${message}`;
@@ -261,7 +304,7 @@ async function markTaskQueued(
     status: "queued",
     failureCode: code,
     failureMessage: message,
-    nextRetryAt: 0,
+    nextRetryAt,
     claimToken: "",
     claimedBy: "",
     claimedAt: 0,
@@ -275,7 +318,11 @@ async function markTaskQueued(
     publishTaskUpdate({ task, resultAppend: undefined });
   }
   if (!task) throw new Error(`Task not found after queue: ${taskId}`);
-  requestExecutorWake();
+  if (nextRetryAt > Date.now()) {
+    scheduleDelayedStart(opts, taskId, nextRetryAt - Date.now());
+  } else {
+    requestExecutorWake();
+  }
   return task;
 }
 
@@ -310,6 +357,7 @@ async function markTaskFailed(
     const retried = await maybeScheduleAutoRetry(opts, task, startTask);
     if (retried.status === "failed") {
       await maybeNotifyTaskUpdate(retried, resolveSettings(opts));
+      await maybeReleaseTaskWorkspace(opts, retried, retried.status);
     }
     await emitTaskComplete(retried);
   }
@@ -345,6 +393,7 @@ async function maybeNotifyGate(task: Task, settings: Settings): Promise<boolean>
       choices: gate.choices,
       webUrl: webUrlFor(task, settings),
       issueCode: task.issueCode || undefined,
+      gateId: task.pendingGateId || undefined,
     }),
   );
 }
@@ -354,10 +403,22 @@ async function maybeReleaseTaskWorkspace(
   task: Task,
   status: Task["status"],
 ): Promise<void> {
-  if (!opts.dataDir || !task.projectDir) return;
   if (!["done", "failed", "stopped"].includes(status)) return;
-  const active = opts.db.countActiveTasksForProjectDir(task.projectDir, task.id);
-  await maybeReleaseAutoWorkspace(opts.dataDir, task.projectDir, active);
+
+  if ((task.worktreePath || "").trim()) {
+    cleanupWorktree({
+      worktreePath: task.worktreePath,
+      worktreeBranch: task.worktreeBranch,
+      workspaceRoot: task.workspaceRoot,
+      taskId: task.id,
+    });
+  }
+
+  if (!opts.dataDir) return;
+  const releaseDir = (task.workspaceRoot || task.projectDir || "").trim();
+  if (!releaseDir) return;
+  const active = opts.db.countActiveTasksForWorkspace(releaseDir, task.id);
+  await maybeReleaseAutoWorkspace(opts.dataDir, releaseDir, active);
 }
 
 async function ensureTaskWorkspace(
@@ -440,17 +501,24 @@ async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<vo
  * Launch failures are recorded as status=failed and do not reject, so
  * fire-and-forget callers cannot crash the web process.
  */
-export async function startTask(opts: RunnerOptions, taskId: string): Promise<Task> {
+export async function startTask(
+  opts: RunnerOptions,
+  taskId: string,
+  startOpts?: { schedule?: ScheduleMode },
+): Promise<Task> {
   let task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
   if (running.has(taskId)) return task;
+
+  const schedule: ScheduleMode = startOpts?.schedule || "auto";
 
   try {
     task = await ensureTaskWorkspace(opts, task);
     const taskSessionId = task.sessionId;
 
     const settings = resolveSettings(opts);
-    const cwd = task.projectDir || process.cwd();
+    let cwd = task.projectDir || process.cwd();
+    let worktreeLog = "";
 
     if (!fs.existsSync(cwd)) {
       return markTaskFailed(
@@ -463,10 +531,45 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       );
     }
 
-    if (settings.workspaceLockEnabled !== false) {
+    if (schedule === "parallel") {
+      const sourceDir = (task.workspaceRoot || cwd).trim() || cwd;
+      const prep = prepareWorktree({
+        taskId,
+        sourceDir,
+        existingPath: task.worktreePath,
+        existingBranch: task.worktreeBranch,
+        existingRoot: task.workspaceRoot,
+      });
+      if (!prep.ok) {
+        return markTaskFailed(
+          opts,
+          taskId,
+          new Error(prep.error || "创建并行 worktree 失败"),
+          "workspace_busy",
+        );
+      }
+      const patch: Partial<Task> = {
+        projectDir: prep.path,
+        workspaceRoot: prep.workspaceRoot || sourceDir,
+        worktreePath: prep.path,
+        worktreeBranch: prep.branch,
+        lastActivityAt: Date.now(),
+      };
+      task = opts.db.updateTask(taskId, patch) ?? { ...task, ...patch };
+      cwd = prep.path;
+      worktreeLog = formatActivityLogLine(
+        "workspace",
+        prep.reused
+          ? `复用并行 worktree：${prep.path}`
+          : `已创建并行 worktree：${prep.path}（分支 ${prep.branch}）`,
+        "done",
+      );
+      notifyTaskUpdate(opts, task, true);
+    } else if (settings.workspaceLockEnabled !== false) {
       const busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
       if (busy > 0) {
-        if (settings.queueWhenWorkspaceBusy !== false) {
+        // auto / queue: wait — do not silently create a worktree (UI uses schedule=parallel)
+        if (settings.queueWhenWorkspaceBusy !== false || schedule === "queue") {
           return markTaskQueued(
             opts,
             taskId,
@@ -500,6 +603,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     if (!task.sessionId && profile) {
       promptBody = prependAgentInstructions(promptBody, profile.instructions || "");
     }
+    const handoffBriefing = (task.pendingHandoffBriefing || "").trim();
+    let consumeHandoff = false;
+    if (!task.sessionId && handoffBriefing) {
+      promptBody = prependHandoffBriefing(promptBody, handoffBriefing);
+      consumeHandoff = true;
+    }
     const promptFile = promptPath(task.id);
     fs.writeFileSync(promptFile, promptBody, "utf8");
 
@@ -515,6 +624,10 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
 
     const agentLabel = agentStartupLabel(backend.displayName || backend.id || task.codingAgent || "");
     let output = task.result ? `${task.result}\n` : "";
+    if (worktreeLog) output += worktreeLog;
+    if (consumeHandoff) {
+      output += `\n[handoff] 已注入交接说明并开启新会话\n`;
+    }
     output += formatActivityLogLine("runtime", `${agentLabel} 运行时已就绪`, "done");
     output += formatActivityLogLine(
       "prompt",
@@ -529,11 +642,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
     output += formatCommandLogLine(args);
 
     const now = Date.now();
-    const runningTask = opts.db.updateTask(taskId, {
+    const runningPatch: Partial<Task> = {
       status: "running",
       failureCode: "",
       failureMessage: "",
       nextRetryAt: 0,
+      pendingGateId: "",
       // Keep existing claim if executor owns this task; otherwise mark inline CLI ownership.
       claimToken: task.claimToken || "inline",
       claimedBy: task.claimedBy || "inline",
@@ -541,7 +655,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       heartbeatAt: now,
       result: output,
       lastActivityAt: now,
-    });
+    };
+    if (consumeHandoff) {
+      runningPatch.pendingHandoffBriefing = "";
+    }
+    clearGateClaimState(taskId);
+    const runningTask = opts.db.updateTask(taskId, runningPatch);
     resetPublishedResultLen(taskId, output.length);
     notifyTaskUpdate(opts, runningTask ?? taskId, true);
 
@@ -573,7 +692,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       const tail = linePrefixer.flush();
       if (tail) output += tail;
       output += `\n\n${formatDangerousCommandGate(match)}\n`;
-      const sessionId = backend.extractSessionId(events) ?? taskSessionId;
+      const sessionId = resolveBackendSessionId(backend, events, output, taskSessionId);
       try {
         controller.abort("dangerous_command_gate");
       } catch {
@@ -588,10 +707,12 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         status: "awaiting",
         sessionId,
         result: output,
+        pendingGateId: newGateId(),
         lastActivityAt: Date.now(),
         ...clearClaimPatch(),
       });
       if (updated) {
+        clearGateClaimState(taskId);
         notifyTaskUpdate(opts, updated, true);
         const sent = await maybeNotifyGate(updated, settings);
         if (sent) opts.db.updateTask(taskId, { gateNotifyHash: gateHash(output) });
@@ -643,7 +764,7 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       running.delete(taskId);
       const tail = linePrefixer.flush();
       if (tail) output += tail;
-      const sessionId = backend.extractSessionId(events) ?? taskSessionId;
+      const sessionId = resolveBackendSessionId(backend, events, output, taskSessionId);
       const abortReason = controller.signal.aborted
         ? String(controller.signal.reason ?? "aborted")
         : "";
@@ -656,6 +777,13 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
         result: output,
         ...clearClaimPatch(),
       };
+      if (status === "awaiting") {
+        clearGateClaimState(taskId);
+        patch.pendingGateId = newGateId();
+      } else {
+        clearGateClaimState(taskId);
+        patch.pendingGateId = "";
+      }
       if (idleAbort) {
         patch.status = "failed";
         patch.failureCode = "idle_timeout";
@@ -747,10 +875,24 @@ export async function resumeTask(
   opts: RunnerOptions,
   taskId: string,
   reply: string,
-  resumeOpts?: { model?: string },
+  resumeOpts?: { model?: string; gateId?: string },
 ): Promise<Task> {
   const task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
+
+  const claim = claimPendingGate({
+    taskId,
+    status: task.status,
+    pendingGateId: task.pendingGateId || "",
+    gateId: resumeOpts?.gateId,
+    isRunning: isTaskRunning(taskId) || task.status === "running",
+  });
+  if (!claim.ok) {
+    const err = new Error(claim.error) as Error & { code?: string; statusCode?: number };
+    err.code = claim.code;
+    err.statusCode = claim.code === "busy" || claim.code === "duplicate" ? 409 : 400;
+    throw err;
+  }
 
   const recordGateReply = (text: string, aborted: boolean) => {
     const workItemId = (task.workItemId || "").trim();
@@ -772,8 +914,10 @@ export async function resumeTask(
   if (isAbortReply(reply)) {
     recordGateReply(reply, true);
     stopTask(taskId, "abort_reply");
+    clearGateClaimState(taskId);
     const updated = opts.db.updateTask(taskId, {
       status: "stopped",
+      pendingGateId: "",
       result: `${task.result}\n\n[user abort: ${reply}]`,
     });
     if (updated) {
@@ -801,6 +945,7 @@ export async function resumeTask(
     status: "created",
     prompt: nextPrompt,
     result: `${task.result || ""}\n\n## user\n${prompt}\n`,
+    pendingGateId: "",
     claimToken: "",
     claimedBy: "",
     claimedAt: 0,
@@ -813,6 +958,108 @@ export async function resumeTask(
 
   enqueueStartTask(opts, taskId);
   return opts.db.getTask(taskId)!;
+}
+
+export type SwitchExecutorInput = {
+  codingAgent?: string;
+  agentProfileId?: string;
+};
+
+export type SwitchExecutorResult =
+  | {
+      ok: true;
+      noop?: boolean;
+      task: Task;
+      message: string;
+    }
+  | { ok: false; error: string; status: number };
+
+export function switchExecutor(
+  opts: RunnerOptions,
+  taskId: string,
+  input: SwitchExecutorInput,
+): SwitchExecutorResult {
+  const task = opts.db.getTask(taskId);
+  if (!task) return { ok: false, error: "任务不存在", status: 404 };
+  if (isTaskRunning(taskId) || task.status === "running") {
+    return {
+      ok: false,
+      error: "任务执行中，请等待本轮结束后再切换执行者",
+      status: 409,
+    };
+  }
+  if (task.status !== "awaiting") {
+    return {
+      ok: false,
+      error: "仅「待确认」状态可切换执行者（下轮新会话生效）",
+      status: 409,
+    };
+  }
+
+  const settings = resolveSettings(opts);
+  const nextProfileId = (input.agentProfileId || "").trim();
+  let nextCodingAgent = (input.codingAgent || "").trim();
+  let toLabel = "";
+
+  if (nextProfileId) {
+    const profile = opts.db.getAgent(nextProfileId);
+    if (!profile) return { ok: false, error: `智能体不存在: ${nextProfileId}`, status: 400 };
+    nextCodingAgent = (profile.provider || nextCodingAgent || settings.codingAgent).trim();
+    toLabel = `${profile.name} · ${nextCodingAgent}`;
+  } else if (nextCodingAgent) {
+    toLabel = nextCodingAgent;
+  } else {
+    return { ok: false, error: "请指定 codingAgent 或 agentProfileId", status: 400 };
+  }
+
+  try {
+    getAgentBackend(nextCodingAgent);
+  } catch (err) {
+    return { ok: false, error: errMessage(err), status: 400 };
+  }
+
+  const curProfileId = (task.agentProfileId || "").trim();
+  const curAgent = (task.codingAgent || "").trim();
+  if (curProfileId === nextProfileId && curAgent === nextCodingAgent) {
+    return {
+      ok: true,
+      noop: true,
+      task,
+      message: "执行者未变化",
+    };
+  }
+
+  const fromProfile = curProfileId ? opts.db.getAgent(curProfileId) : null;
+  const fromLabel = fromProfile
+    ? `${fromProfile.name} · ${curAgent || fromProfile.provider}`
+    : curAgent || "未知";
+
+  const briefing = buildHandoffBriefing({
+    task,
+    fromLabel,
+    toLabel,
+  });
+
+  const patch: Partial<Task> = {
+    agentProfileId: nextProfileId,
+    codingAgent: nextCodingAgent,
+    sessionId: "",
+    pendingHandoffBriefing: briefing,
+    result: `${task.result || ""}\n\n[handoff] 执行者已切换: ${fromLabel} → ${toLabel}。历史保留；旧会话已作废；下轮将新开会话并注入交接说明。\n`,
+  };
+  if (curAgent !== nextCodingAgent) {
+    patch.model = "";
+  }
+
+  const updated = opts.db.updateTask(taskId, patch);
+  if (!updated) return { ok: false, error: "任务不存在", status: 404 };
+  notifyTaskUpdate(opts, updated, true);
+
+  return {
+    ok: true,
+    task: updated,
+    message: `已切换执行者: ${toLabel}。历史保留；下轮回复将开启新会话并注入交接说明。`,
+  };
 }
 
 export function isTaskRunning(taskId: string): boolean {

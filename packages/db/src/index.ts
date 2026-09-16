@@ -76,6 +76,11 @@ function rowToTask(row: Record<string, unknown>): Task {
     sessionId: String(row.session_id ?? ""),
     result: String(row.result ?? ""),
     gateNotifyHash: String(row.gate_notify_hash ?? ""),
+    pendingGateId: String(row.pending_gate_id ?? ""),
+    pendingHandoffBriefing: String(row.pending_handoff_briefing ?? ""),
+    workspaceRoot: String(row.workspace_root ?? ""),
+    worktreePath: String(row.worktree_path ?? ""),
+    worktreeBranch: String(row.worktree_branch ?? ""),
     retryCount: Number(row.retry_count ?? 0),
     failureCode: (String(row.failure_code ?? "") || "") as Task["failureCode"],
     failureMessage: String(row.failure_message ?? ""),
@@ -223,6 +228,7 @@ const AGENT_PRESETS: Record<string, { name: string; defaultSkill: string }> = {
   claude: { name: "Claude", defaultSkill: "default" },
   codex: { name: "Codex", defaultSkill: "default" },
   cursor: { name: "Cursor", defaultSkill: "default" },
+  hermes: { name: "Hermes", defaultSkill: "default" },
 };
 
 export class AgentDeskDb {
@@ -304,6 +310,11 @@ export class AgentDeskDb {
     this.ensureTaskColumn("claimed_by", "TEXT DEFAULT ''");
     this.ensureTaskColumn("claimed_at", "INTEGER DEFAULT 0");
     this.ensureTaskColumn("heartbeat_at", "INTEGER DEFAULT 0");
+    this.ensureTaskColumn("pending_gate_id", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("pending_handoff_briefing", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("workspace_root", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("worktree_path", "TEXT DEFAULT ''");
+    this.ensureTaskColumn("worktree_branch", "TEXT DEFAULT ''");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS work_items (
         id TEXT PRIMARY KEY,
@@ -618,14 +629,18 @@ export class AgentDeskDb {
           id, task_type, status, skill, workflow_id, workflow_run_id, workflow_name,
           workflow_mode, workflow_step, workflow_step_total, parent_task_id,
           workflow_node_index, project_dir, work_item_id, issue_code, title, prompt, agent_profile_id, coding_agent, model,
-          session_id, result, gate_notify_hash, retry_count, failure_code, failure_message, next_retry_at,
+          session_id, result, gate_notify_hash, pending_gate_id, pending_handoff_briefing,
+          workspace_root, worktree_path, worktree_branch,
+          retry_count, failure_code, failure_message, next_retry_at,
           claim_token, claimed_by, claimed_at, heartbeat_at,
           created_at, updated_at, last_activity_at
         ) VALUES (
           @id, @taskType, @status, @skill, @workflowId, @workflowRunId, @workflowName,
           @workflowMode, @workflowStep, @workflowStepTotal, @parentTaskId,
           @workflowNodeIndex, @projectDir, @workItemId, @issueCode, @title, @prompt, @agentProfileId, @codingAgent, @model,
-          @sessionId, @result, @gateNotifyHash, @retryCount, @failureCode, @failureMessage, @nextRetryAt,
+          @sessionId, @result, @gateNotifyHash, @pendingGateId, @pendingHandoffBriefing,
+          @workspaceRoot, @worktreePath, @worktreeBranch,
+          @retryCount, @failureCode, @failureMessage, @nextRetryAt,
           @claimToken, @claimedBy, @claimedAt, @heartbeatAt,
           @createdAt, @updatedAt, @lastActivityAt
         )
@@ -638,6 +653,8 @@ export class AgentDeskDb {
           project_dir=excluded.project_dir, work_item_id=excluded.work_item_id, issue_code=excluded.issue_code, title=excluded.title,
           prompt=excluded.prompt, agent_profile_id=excluded.agent_profile_id, coding_agent=excluded.coding_agent, model=excluded.model,
           session_id=excluded.session_id, result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
+          pending_gate_id=excluded.pending_gate_id, pending_handoff_briefing=excluded.pending_handoff_briefing,
+          workspace_root=excluded.workspace_root, worktree_path=excluded.worktree_path, worktree_branch=excluded.worktree_branch,
           retry_count=excluded.retry_count, failure_code=excluded.failure_code,
           failure_message=excluded.failure_message, next_retry_at=excluded.next_retry_at,
           claim_token=excluded.claim_token, claimed_by=excluded.claimed_by,
@@ -668,6 +685,11 @@ export class AgentDeskDb {
         sessionId: task.sessionId,
         result: task.result,
         gateNotifyHash: task.gateNotifyHash,
+        pendingGateId: task.pendingGateId ?? "",
+        pendingHandoffBriefing: task.pendingHandoffBriefing ?? "",
+        workspaceRoot: task.workspaceRoot ?? "",
+        worktreePath: task.worktreePath ?? "",
+        worktreeBranch: task.worktreeBranch ?? "",
         retryCount: task.retryCount,
         failureCode: task.failureCode,
         failureMessage: task.failureMessage,
@@ -1040,6 +1062,23 @@ export class AgentDeskDb {
            AND (@exceptId = '' OR id != @exceptId)`,
       )
       .get({ projectDir: resolved, exceptId: exceptId ?? "" }) as { n: number };
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Active tasks tied to a logical workspace: exact project_dir match, or
+   * workspace_root when running inside a parallel worktree of that repo.
+   */
+  countActiveTasksForWorkspace(workspaceDir: string, exceptId?: string): number {
+    const resolved = path.resolve(workspaceDir);
+    const row = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM tasks
+         WHERE (project_dir = @dir OR workspace_root = @dir)
+           AND status IN ('created', 'dispatched', 'running', 'awaiting')
+           AND (@exceptId = '' OR id != @exceptId)`,
+      )
+      .get({ dir: resolved, exceptId: exceptId ?? "" }) as { n: number };
     return row?.n ?? 0;
   }
 

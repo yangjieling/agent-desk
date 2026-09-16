@@ -196,6 +196,12 @@
             </div>
             <div class="modal-reply" id="replyBox">
               <div class="reply-choices" id="replyChoices"></div>
+              <div class="reply-executor-row" id="replyExecutorRow" hidden>
+                <label class="reply-executor-label" for="reply-executor">切换执行者</label>
+                <select id="reply-executor" class="reply-executor-select"></select>
+                <button type="button" class="btn ghost sm" id="reply-executor-btn" onclick="switchLogExecutor()">应用</button>
+                <span class="reply-executor-hint" id="replyExecutorHint"></span>
+              </div>
               <div class="reply-row">
                 <textarea id="replyInput" rows="1" placeholder="继续本次会话，Enter 发送，Shift+Enter 换行…"
                   onkeydown="onReplyKeyDown(event)" oninput="fitReplyInputHeight(this)"></textarea>
@@ -689,6 +695,16 @@
               <span class="track"><span class="thumb"></span></span>
             </label>
           </div>
+          <div class="setting-row" data-key="worktreeParallelEnabled">
+            <div class="setting-meta">
+              <p class="st">同仓 worktree 并行</p>
+              <p class="sd">工作区冲突时可选用独立 worktree 并行（弹窗「并行」）</p>
+            </div>
+            <label class="toggle" title="同仓 worktree 并行">
+              <input type="checkbox" checked>
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
           <div class="setting-row" data-key="executorMaxConcurrent" data-type="number">
             <div class="setting-meta">
               <p class="st">执行器并发上限</p>
@@ -984,6 +1000,29 @@
     <div class="dlg-foot">
       <button type="button" class="dlg-cancel" onclick="closeRejectNoteDialog()">取消</button>
       <button type="button" class="dlg-ok dlg-ok-danger" id="rejectNoteConfirmBtn" onclick="confirmRejectNoteDialog()">确认未通过</button>
+    </div>
+  </div>
+</div>
+
+<div class="dlg-mask" id="scheduleMask" onclick="onScheduleMaskClick(event)">
+  <div class="dlg schedule-dlg" role="dialog" aria-modal="true" aria-labelledby="scheduleTitle" onclick="event.stopPropagation()">
+    <h3 id="scheduleTitle">工作区忙碌</h3>
+    <p class="dlg-sub" id="scheduleSub">此目录已有任务在进行</p>
+    <ul class="schedule-blockers" id="scheduleBlockers" hidden></ul>
+    <div class="schedule-actions" role="group" aria-label="调度方式">
+      <button type="button" class="schedule-opt schedule-opt-primary" id="scheduleParallelBtn" onclick="resolveScheduleDlg('parallel')">
+        <span class="schedule-opt-kicker">推荐</span>
+        <span class="schedule-opt-title">并行</span>
+        <span class="schedule-opt-desc">独立 worktree，同时跑</span>
+      </button>
+      <button type="button" class="schedule-opt" id="scheduleQueueBtn" onclick="resolveScheduleDlg('queue')">
+        <span class="schedule-opt-title">排队</span>
+        <span class="schedule-opt-desc">等当前任务结束后再跑</span>
+      </button>
+      <button type="button" class="schedule-opt schedule-opt-muted" id="scheduleCancelBtn" onclick="resolveScheduleDlg('cancel')">
+        <span class="schedule-opt-title">仅创建</span>
+        <span class="schedule-opt-desc">先不启动</span>
+      </button>
     </div>
   </div>
 </div>

@@ -7,6 +7,7 @@ const ACTIVE_TASK_FILTER_STATUSES = new Set(["created", "preparing", "queued", "
 const URL_PARAMS = new URLSearchParams(location.search);
 let DEEP_LINK_REPLY = (URL_PARAMS.get("reply") || "").trim();
 let DEEP_LINK_REPLY_SENT = false;
+let DEEP_LINK_GATE_ID = (URL_PARAMS.get("gateId") || URL_PARAMS.get("gate_id") || "").trim();
 
 let TASKS = [];
 let TASK_FILTER = "all";
@@ -316,6 +317,8 @@ function groupMatchesFilter(group) {
 
 
 function workspaceKeyOf(t) {
+  const root = String(tField(t, "workspaceRoot", "workspace_root") || "").trim();
+  if (root) return root;
   return String(tField(t, "projectDir", "project_dir") || "").trim();
 }
 
@@ -516,6 +519,10 @@ function renderLogMeta(task) {
   const proj = shortPath(projFull);
   if (proj && proj !== "-") {
     primary.push(`<span class="log-meta-chip" title="${esc(projFull)}">${esc(proj)}</span>`);
+  }
+  const wtBranch = String(tField(task, "worktreeBranch", "worktree_branch") || "").trim();
+  if (wtBranch) {
+    primary.push(`<span class="log-meta-chip" title="并行 worktree 分支">worktree ${esc(wtBranch)}</span>`);
   }
 
   const skill = tField(task, "skill", "skill");
@@ -1189,7 +1196,7 @@ async function api(path, opts = {}) {
   } catch {
     /* ignore */
   }
-  if (!res.ok) throw new Error(data.error || data.message || res.statusText);
+  if (!res.ok) throw new Error(data.message || data.error || res.statusText);
   return data;
 }
 
@@ -1435,6 +1442,8 @@ function renderListRow(t, opts = {}) {
   const needsFreshStart = taskNeedsFreshStart(t);
   const metaParts = [];
   if (!LOG_ID && proj && proj !== "-") metaParts.push(proj);
+  const wtBranch = String(tField(t, "worktreeBranch", "worktree_branch") || "").trim();
+  if (wtBranch) metaParts.push(`<span class="tr-retry-hint">worktree ${esc(wtBranch)}</span>`);
   if (issue) metaParts.push(`<span class="bug-code">${issue}</span>`);
   const wfName = String(tField(t, "workflowName", "workflow_name") || "").trim();
   const step = Number(tField(t, "workflowStep", "workflow_step") || 0);
@@ -1639,12 +1648,148 @@ async function stopTask(id) {
   }
 }
 
+/** @type {null | ((action: 'cancel'|'queue'|'parallel') => void)} */
+let _scheduleDlgResolve = null;
+
+function closeScheduleDlg() {
+  const mask = document.getElementById("scheduleMask");
+  if (mask) mask.classList.remove("show");
+}
+
+function onScheduleMaskClick(event) {
+  if (event.target === event.currentTarget) resolveScheduleDlg("cancel");
+}
+
+function resolveScheduleDlg(action) {
+  const fn = _scheduleDlgResolve;
+  _scheduleDlgResolve = null;
+  closeScheduleDlg();
+  if (fn) fn(action || "cancel");
+}
+
+/**
+ * @param {object} check
+ * @param {{ created?: boolean }} [opts]
+ * @returns {Promise<'cancel'|'queue'|'parallel'>}
+ */
+function askScheduleChoice(check, opts = {}) {
+  return new Promise((resolve) => {
+    const created = !!opts.created;
+    const blockers = (check && check.blockers) || [];
+    const parallelOk = check && check.parallelOk !== false;
+    const sub = document.getElementById("scheduleSub");
+    if (sub) {
+      sub.textContent = (check && check.reason) || "此目录已有任务在进行";
+    }
+    const list = document.getElementById("scheduleBlockers");
+    if (list) {
+      if (!blockers.length) {
+        list.hidden = true;
+        list.innerHTML = "";
+      } else {
+        list.hidden = false;
+        list.innerHTML = blockers
+          .slice(0, 4)
+          .map((b) => {
+            const st = String(b.status || "running");
+            const label = STATUS_LABEL[st] || st;
+            const title = esc((b.title || b.id || "-").trim() || "-");
+            return (
+              `<li class="schedule-blocker">` +
+              `<span class="schedule-blocker-dot is-${esc(st)}" aria-hidden="true"></span>` +
+              `<div class="schedule-blocker-main">` +
+              `<div class="schedule-blocker-title">${title}</div>` +
+              `<div class="schedule-blocker-meta">${esc(label)}</div>` +
+              `</div></li>`
+            );
+          })
+          .join("");
+      }
+    }
+    const cancelBtn = document.getElementById("scheduleCancelBtn");
+    if (cancelBtn) {
+      const titleEl = cancelBtn.querySelector(".schedule-opt-title");
+      const descEl = cancelBtn.querySelector(".schedule-opt-desc");
+      if (titleEl) titleEl.textContent = created ? "仅创建" : "取消";
+      if (descEl) descEl.textContent = created ? "先不启动" : "保持现状";
+    }
+    const parallelBtn = document.getElementById("scheduleParallelBtn");
+    if (parallelBtn) {
+      parallelBtn.disabled = !parallelOk;
+      parallelBtn.title = parallelOk ? "" : "需要 Git 仓库才能并行";
+      const desc = parallelBtn.querySelector(".schedule-opt-desc");
+      if (desc) {
+        desc.textContent = parallelOk ? "独立 worktree，同时跑" : "当前目录不是 Git 仓库";
+      }
+    }
+    _scheduleDlgResolve = resolve;
+    const mask = document.getElementById("scheduleMask");
+    if (mask) mask.classList.add("show");
+  });
+}
+
+async function fetchScheduleCheck(id) {
+  return api(`/api/tasks/${encodeURIComponent(id)}/schedule-check`);
+}
+
+async function startTaskWithSchedule(id, schedule) {
+  return api(`/api/tasks/${encodeURIComponent(id)}/start`, {
+    method: "POST",
+    body: JSON.stringify({ schedule: schedule || "auto" }),
+  });
+}
+
+function toastAfterScheduleStart(task, schedule) {
+  const st = task && task.status;
+  if (schedule === "queue" || st === "queued") {
+    toast("已加入排队");
+    return;
+  }
+  if (schedule === "parallel") {
+    toast("已并行启动");
+    return;
+  }
+  toast("已开始运行");
+}
+
+/**
+ * Check conflict → optional dialog → start.
+ * @returns {Promise<'started'|'queued'|'cancelled'|null>}
+ */
+async function resolveAndStartTask(id, { created = false } = {}) {
+  if (!id) return null;
+  let check;
+  try {
+    check = await fetchScheduleCheck(id);
+  } catch (e) {
+    toast(`调度检查失败: ${e.message || e}`);
+    return null;
+  }
+  if (!check || !check.needSchedule) {
+    const task = await startTaskWithSchedule(id, "auto");
+    toastAfterScheduleStart(task, "auto");
+    return "started";
+  }
+  const choice = await askScheduleChoice(check, { created });
+  if (choice === "cancel") {
+    toast(created ? "已创建，未启动" : "已取消启动");
+    return "cancelled";
+  }
+  try {
+    const task = await startTaskWithSchedule(id, choice);
+    toastAfterScheduleStart(task, choice);
+    return choice === "queue" ? "queued" : "started";
+  } catch (e) {
+    toast(`启动失败: ${e.message || e}`);
+    return null;
+  }
+}
+
 async function runTask(id) {
   if (!id || LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING) return;
   LOG_TASK_ACTION_BUSY = true;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/start`, { method: "POST" });
-    toast("已开始运行");
+    await resolveAndStartTask(id, { created: false });
     await loadTasks();
     if (LOG_ID === id || !LOG_ID) openLogStream(id);
     showLog(id);
@@ -1663,7 +1808,11 @@ async function continueTask(id) {
   try {
     await api(`/api/tasks/${encodeURIComponent(id)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply: "继续", model: getReplyModel() }),
+      body: JSON.stringify({
+        reply: "继续",
+        model: getReplyModel(),
+        gateId: tField(TASKS.find((t) => t.id === id) || {}, "pendingGateId", "pending_gate_id") || undefined,
+      }),
     });
     toast("已继续本次会话");
     await loadTasks();
@@ -2015,6 +2164,67 @@ function updateReplyComposerState(running, canChat) {
   });
 }
 
+function currentLogGateId() {
+  const fromTask = tField(TASKS.find((t) => t.id === LOG_ID) || {}, "pendingGateId", "pending_gate_id");
+  return (fromTask || DEEP_LINK_GATE_ID || "").trim();
+}
+
+async function switchLogExecutor() {
+  if (!LOG_ID) return;
+  const sel = document.getElementById("reply-executor");
+  if (!sel) return;
+  const agentProfileId = (sel.value || "").trim();
+  if (!agentProfileId) {
+    toast("请选择智能体");
+    return;
+  }
+  try {
+    const res = await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/executor`, {
+      method: "POST",
+      body: JSON.stringify({ agentProfileId }),
+    });
+    toast(res.message || (res.noop ? "执行者未变化" : "已切换执行者"));
+    await loadTasks();
+    await pollLog();
+  } catch (e) {
+    toast(`切换失败: ${e.message || e}`);
+  }
+}
+
+async function syncReplyExecutorRow(task) {
+  const row = document.getElementById("replyExecutorRow");
+  const sel = document.getElementById("reply-executor");
+  const hint = document.getElementById("replyExecutorHint");
+  if (!row || !sel) return;
+  const awaiting = (task && task.status) === "awaiting";
+  const canSwitch = awaiting && !isTaskRunningLocal(task);
+  row.hidden = !canSwitch;
+  if (!canSwitch) return;
+  let agents = [];
+  try {
+    agents = (await api("/api/agents")) || [];
+  } catch {
+    agents = [];
+  }
+  const cur = tField(task, "agentProfileId", "agent_profile_id") || "";
+  sel.innerHTML = agents
+    .map(
+      (a) =>
+        `<option value="${esc(a.id)}"${a.id === cur ? " selected" : ""}>${esc(a.name || a.id)} · ${esc(a.provider || "")}</option>`,
+    )
+    .join("");
+  if (hint) {
+    hint.textContent = tField(task, "pendingHandoffBriefing", "pending_handoff_briefing")
+      ? "下轮将注入交接说明"
+      : "";
+  }
+}
+
+function isTaskRunningLocal(task) {
+  const st = (task && task.status) || "";
+  return st === "running" || st === "queued" || st === "dispatched";
+}
+
 async function dispatchReply(reply, model) {
   if (!LOG_ID || !reply) return;
   if (LOG_REPLY_SENDING || LOG_TASK_STATUS === "running") return;
@@ -2035,10 +2245,16 @@ async function dispatchReply(reply, model) {
     /* ignore */
   }
   try {
+    const gateId = currentLogGateId() || undefined;
     await api(`/api/tasks/${encodeURIComponent(LOG_ID)}/resume`, {
       method: "POST",
-      body: JSON.stringify({ reply, model: model || getReplyModel() }),
+      body: JSON.stringify({
+        reply,
+        model: model || getReplyModel(),
+        gateId,
+      }),
     });
+    DEEP_LINK_GATE_ID = "";
     // Optimistically lock until stream/poll reports running (or terminal).
     LOG_TASK_STATUS = "running";
     toast("已发送");
@@ -2148,6 +2364,7 @@ async function renderLogTask(d, opts = {}) {
     renderLogMeta(d);
     renderLogTaskDetail(d);
     void ensureReplyModelDropdown(d);
+    void syncReplyExecutorRow(d);
     renderLogGateCard(gate, awaiting);
     applyLogViewMode();
   } else if (sig !== LOG_RENDER_SIG) {
@@ -2399,6 +2616,11 @@ function isRawDrawerOpen() {
 
 /** Top-most first. Register new modal masks here for Escape dismiss. */
 const MODAL_DISMISS_LAYERS = [
+  {
+    id: "scheduleMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => resolveScheduleDlg("cancel"),
+  },
   {
     id: "rejectNoteMask",
     isOpen: (el) => !!el?.classList.contains("show"),
@@ -3327,16 +3549,19 @@ async function createTask() {
           projectDir,
           skill,
           model: (document.getElementById("t-model")?.dataset.value || "").trim(),
+          autoStart: false,
           ...(agentProfileId ? { agentProfileId } : {}),
           ...(issueCode ? { issueCode } : {}),
         }),
       });
       pushRecentDir(projectDir);
-      toast("任务已创建");
       const issueEl = document.getElementById("t-issue-code");
       if (issueEl) issueEl.value = "";
       switchView("tasks-list");
       showLog(task.id);
+      await resolveAndStartTask(task.id, { created: true });
+      await loadTasks();
+      if (LOG_ID === task.id) openLogStream(task.id);
     }
   } catch (e) {
     toast(e.message || String(e));
@@ -5267,7 +5492,7 @@ function renderAgentsRuntimeStrip(data) {
   if (!installed) {
     strip.className = "runtime-strip is-warn";
     strip.innerHTML =
-      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code>）。' +
+      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code> / <code>hermes</code>）。' +
       '请安装并登录后再创建任务。可在<a href="#" onclick="showView(\'settings\');return false;">设置 → 本机 Agent 运行时</a>查看详情。';
     return;
   }
@@ -6240,8 +6465,9 @@ function buildWorkItemDiscussionItems(tasks, events) {
 }
 
 function stripMentionMarkdown(text) {
+  // Tolerate a missing closing ")" so glued follow-up text still renders as @Name.
   return String(text || "").replace(
-    /\\?\[(@?)((?:\\.|[^\]])+)\]\(mention:\/\/\w+\/[^)]+\)/g,
+    /\\?\[(@?)((?:\\.|[^\]])+)\]\(mention:\/\/\w+\/[a-zA-Z0-9_-]+\)?/g,
     (full, prefix, rawLabel) => {
       if (full.startsWith("\\")) return full;
       const label = String(rawLabel).replace(/\\\[/g, "[").replace(/\\\]/g, "]");
@@ -6269,7 +6495,11 @@ function formatWorkItemEventBodyHtml(body) {
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
   for (const name of names) {
-    const re = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\w-])`, "g");
+    // End on ASCII word chars only — Chinese after @Name must not block the match.
+    const re = new RegExp(
+      `@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^a-zA-Z0-9_-])`,
+      "g",
+    );
     let m;
     const hits = [];
     while ((m = re.exec(work)) !== null) hits.push([m.index, m.index + m[0].length]);
@@ -6653,7 +6883,8 @@ function insertWorkItemMentionText(token) {
   const before = value.slice(0, start);
   const after = value.slice(end);
   const needSpaceBefore = before && !/\s$/.test(before);
-  const needSpaceAfter = after && !/^\s/.test(after);
+  // Always leave a trailing space so the next typed chars are not glued into the mention.
+  const needSpaceAfter = !/^\s/.test(after);
   const inserted = `${needSpaceBefore ? " " : ""}${token}${needSpaceAfter ? " " : ""}`;
   input.value = `${before}${inserted}${after}`;
   const caret = before.length + inserted.length;
