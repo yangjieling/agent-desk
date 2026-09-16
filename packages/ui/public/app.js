@@ -6240,8 +6240,9 @@ function buildWorkItemDiscussionItems(tasks, events) {
 }
 
 function stripMentionMarkdown(text) {
+  // Tolerate a missing closing ")" so glued follow-up text still renders as @Name.
   return String(text || "").replace(
-    /\\?\[(@?)((?:\\.|[^\]])+)\]\(mention:\/\/\w+\/[^)]+\)/g,
+    /\\?\[(@?)((?:\\.|[^\]])+)\]\(mention:\/\/\w+\/[a-zA-Z0-9_-]+\)?/g,
     (full, prefix, rawLabel) => {
       if (full.startsWith("\\")) return full;
       const label = String(rawLabel).replace(/\\\[/g, "[").replace(/\\\]/g, "]");
@@ -6269,7 +6270,11 @@ function formatWorkItemEventBodyHtml(body) {
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
   for (const name of names) {
-    const re = new RegExp(`@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^\\w-])`, "g");
+    // End on ASCII word chars only — Chinese after @Name must not block the match.
+    const re = new RegExp(
+      `@${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?=$|[^a-zA-Z0-9_-])`,
+      "g",
+    );
     let m;
     const hits = [];
     while ((m = re.exec(work)) !== null) hits.push([m.index, m.index + m[0].length]);
@@ -6653,7 +6658,8 @@ function insertWorkItemMentionText(token) {
   const before = value.slice(0, start);
   const after = value.slice(end);
   const needSpaceBefore = before && !/\s$/.test(before);
-  const needSpaceAfter = after && !/^\s/.test(after);
+  // Always leave a trailing space so the next typed chars are not glued into the mention.
+  const needSpaceAfter = !/^\s/.test(after);
   const inserted = `${needSpaceBefore ? " " : ""}${token}${needSpaceAfter ? " " : ""}`;
   input.value = `${before}${inserted}${after}`;
   const caret = before.length + inserted.length;
