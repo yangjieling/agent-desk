@@ -257,8 +257,7 @@ export interface Settings {
   /** When workspace is busy, queue the task instead of failing immediately. */
   queueWhenWorkspaceBusy: boolean;
   /**
-   * When workspace is busy and the dir is a git repo, create an in-repo worktree
-   * under `.worktrees/` and run there instead of only queueing/failing.
+   * When workspace is busy, allow UI/API to start via git worktree (schedule=parallel).
    */
   worktreeParallelEnabled: boolean;
   /**

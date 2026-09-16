@@ -1648,12 +1648,148 @@ async function stopTask(id) {
   }
 }
 
+/** @type {null | ((action: 'cancel'|'queue'|'parallel') => void)} */
+let _scheduleDlgResolve = null;
+
+function closeScheduleDlg() {
+  const mask = document.getElementById("scheduleMask");
+  if (mask) mask.classList.remove("show");
+}
+
+function onScheduleMaskClick(event) {
+  if (event.target === event.currentTarget) resolveScheduleDlg("cancel");
+}
+
+function resolveScheduleDlg(action) {
+  const fn = _scheduleDlgResolve;
+  _scheduleDlgResolve = null;
+  closeScheduleDlg();
+  if (fn) fn(action || "cancel");
+}
+
+/**
+ * @param {object} check
+ * @param {{ created?: boolean }} [opts]
+ * @returns {Promise<'cancel'|'queue'|'parallel'>}
+ */
+function askScheduleChoice(check, opts = {}) {
+  return new Promise((resolve) => {
+    const created = !!opts.created;
+    const blockers = (check && check.blockers) || [];
+    const parallelOk = check && check.parallelOk !== false;
+    const sub = document.getElementById("scheduleSub");
+    if (sub) {
+      sub.textContent = (check && check.reason) || "此目录已有任务在进行";
+    }
+    const list = document.getElementById("scheduleBlockers");
+    if (list) {
+      if (!blockers.length) {
+        list.hidden = true;
+        list.innerHTML = "";
+      } else {
+        list.hidden = false;
+        list.innerHTML = blockers
+          .slice(0, 4)
+          .map((b) => {
+            const st = String(b.status || "running");
+            const label = STATUS_LABEL[st] || st;
+            const title = esc((b.title || b.id || "-").trim() || "-");
+            return (
+              `<li class="schedule-blocker">` +
+              `<span class="schedule-blocker-dot is-${esc(st)}" aria-hidden="true"></span>` +
+              `<div class="schedule-blocker-main">` +
+              `<div class="schedule-blocker-title">${title}</div>` +
+              `<div class="schedule-blocker-meta">${esc(label)}</div>` +
+              `</div></li>`
+            );
+          })
+          .join("");
+      }
+    }
+    const cancelBtn = document.getElementById("scheduleCancelBtn");
+    if (cancelBtn) {
+      const titleEl = cancelBtn.querySelector(".schedule-opt-title");
+      const descEl = cancelBtn.querySelector(".schedule-opt-desc");
+      if (titleEl) titleEl.textContent = created ? "仅创建" : "取消";
+      if (descEl) descEl.textContent = created ? "先不启动" : "保持现状";
+    }
+    const parallelBtn = document.getElementById("scheduleParallelBtn");
+    if (parallelBtn) {
+      parallelBtn.disabled = !parallelOk;
+      parallelBtn.title = parallelOk ? "" : "需要 Git 仓库才能并行";
+      const desc = parallelBtn.querySelector(".schedule-opt-desc");
+      if (desc) {
+        desc.textContent = parallelOk ? "独立 worktree，同时跑" : "当前目录不是 Git 仓库";
+      }
+    }
+    _scheduleDlgResolve = resolve;
+    const mask = document.getElementById("scheduleMask");
+    if (mask) mask.classList.add("show");
+  });
+}
+
+async function fetchScheduleCheck(id) {
+  return api(`/api/tasks/${encodeURIComponent(id)}/schedule-check`);
+}
+
+async function startTaskWithSchedule(id, schedule) {
+  return api(`/api/tasks/${encodeURIComponent(id)}/start`, {
+    method: "POST",
+    body: JSON.stringify({ schedule: schedule || "auto" }),
+  });
+}
+
+function toastAfterScheduleStart(task, schedule) {
+  const st = task && task.status;
+  if (schedule === "queue" || st === "queued") {
+    toast("已加入排队");
+    return;
+  }
+  if (schedule === "parallel") {
+    toast("已并行启动");
+    return;
+  }
+  toast("已开始运行");
+}
+
+/**
+ * Check conflict → optional dialog → start.
+ * @returns {Promise<'started'|'queued'|'cancelled'|null>}
+ */
+async function resolveAndStartTask(id, { created = false } = {}) {
+  if (!id) return null;
+  let check;
+  try {
+    check = await fetchScheduleCheck(id);
+  } catch (e) {
+    toast(`调度检查失败: ${e.message || e}`);
+    return null;
+  }
+  if (!check || !check.needSchedule) {
+    const task = await startTaskWithSchedule(id, "auto");
+    toastAfterScheduleStart(task, "auto");
+    return "started";
+  }
+  const choice = await askScheduleChoice(check, { created });
+  if (choice === "cancel") {
+    toast(created ? "已创建，未启动" : "已取消启动");
+    return "cancelled";
+  }
+  try {
+    const task = await startTaskWithSchedule(id, choice);
+    toastAfterScheduleStart(task, choice);
+    return choice === "queue" ? "queued" : "started";
+  } catch (e) {
+    toast(`启动失败: ${e.message || e}`);
+    return null;
+  }
+}
+
 async function runTask(id) {
   if (!id || LOG_TASK_ACTION_BUSY || LOG_REPLY_SENDING) return;
   LOG_TASK_ACTION_BUSY = true;
   try {
-    await api(`/api/tasks/${encodeURIComponent(id)}/start`, { method: "POST" });
-    toast("已开始运行");
+    await resolveAndStartTask(id, { created: false });
     await loadTasks();
     if (LOG_ID === id || !LOG_ID) openLogStream(id);
     showLog(id);
@@ -2480,6 +2616,11 @@ function isRawDrawerOpen() {
 
 /** Top-most first. Register new modal masks here for Escape dismiss. */
 const MODAL_DISMISS_LAYERS = [
+  {
+    id: "scheduleMask",
+    isOpen: (el) => !!el?.classList.contains("show"),
+    close: () => resolveScheduleDlg("cancel"),
+  },
   {
     id: "rejectNoteMask",
     isOpen: (el) => !!el?.classList.contains("show"),
@@ -3408,16 +3549,19 @@ async function createTask() {
           projectDir,
           skill,
           model: (document.getElementById("t-model")?.dataset.value || "").trim(),
+          autoStart: false,
           ...(agentProfileId ? { agentProfileId } : {}),
           ...(issueCode ? { issueCode } : {}),
         }),
       });
       pushRecentDir(projectDir);
-      toast("任务已创建");
       const issueEl = document.getElementById("t-issue-code");
       if (issueEl) issueEl.value = "";
       switchView("tasks-list");
       showLog(task.id);
+      await resolveAndStartTask(task.id, { created: true });
+      await loadTasks();
+      if (LOG_ID === task.id) openLogStream(task.id);
     }
   } catch (e) {
     toast(e.message || String(e));

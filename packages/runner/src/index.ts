@@ -39,6 +39,7 @@ import {
 import { getNotifyProvider } from "@agent-desk/provider-notify";
 import { mountSkills } from "@agent-desk/skills";
 import { cleanupWorktree, prepareWorktree } from "./worktree.js";
+import type { ScheduleMode } from "./schedule.js";
 import {
   createLogLinePrefixer,
   formatActivityLogLine,
@@ -89,6 +90,14 @@ export {
   worktreeBranchFor,
   worktreeDirFor,
 } from "./worktree.js";
+export {
+  checkTaskSchedule,
+  listWorkspaceBlockers,
+  resolveWorkspaceKey,
+  type ScheduleBlocker,
+  type ScheduleCheckResult,
+  type ScheduleMode,
+} from "./schedule.js";
 
 export interface CreateTaskInput {
   title: string;
@@ -492,10 +501,16 @@ async function maybeNotifyTaskUpdate(task: Task, settings: Settings): Promise<vo
  * Launch failures are recorded as status=failed and do not reject, so
  * fire-and-forget callers cannot crash the web process.
  */
-export async function startTask(opts: RunnerOptions, taskId: string): Promise<Task> {
+export async function startTask(
+  opts: RunnerOptions,
+  taskId: string,
+  startOpts?: { schedule?: ScheduleMode },
+): Promise<Task> {
   let task = opts.db.getTask(taskId);
   if (!task) throw new Error(`Task not found: ${taskId}`);
   if (running.has(taskId)) return task;
+
+  const schedule: ScheduleMode = startOpts?.schedule || "auto";
 
   try {
     task = await ensureTaskWorkspace(opts, task);
@@ -516,78 +531,58 @@ export async function startTask(opts: RunnerOptions, taskId: string): Promise<Ta
       );
     }
 
-    if (settings.workspaceLockEnabled !== false) {
-      let busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
+    if (schedule === "parallel") {
+      const sourceDir = (task.workspaceRoot || cwd).trim() || cwd;
+      const prep = prepareWorktree({
+        taskId,
+        sourceDir,
+        existingPath: task.worktreePath,
+        existingBranch: task.worktreeBranch,
+        existingRoot: task.workspaceRoot,
+      });
+      if (!prep.ok) {
+        return markTaskFailed(
+          opts,
+          taskId,
+          new Error(prep.error || "创建并行 worktree 失败"),
+          "workspace_busy",
+        );
+      }
+      const patch: Partial<Task> = {
+        projectDir: prep.path,
+        workspaceRoot: prep.workspaceRoot || sourceDir,
+        worktreePath: prep.path,
+        worktreeBranch: prep.branch,
+        lastActivityAt: Date.now(),
+      };
+      task = opts.db.updateTask(taskId, patch) ?? { ...task, ...patch };
+      cwd = prep.path;
+      worktreeLog = formatActivityLogLine(
+        "workspace",
+        prep.reused
+          ? `复用并行 worktree：${prep.path}`
+          : `已创建并行 worktree：${prep.path}（分支 ${prep.branch}）`,
+        "done",
+      );
+      notifyTaskUpdate(opts, task, true);
+    } else if (settings.workspaceLockEnabled !== false) {
+      const busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
       if (busy > 0) {
-        const canWorktree =
-          settings.worktreeParallelEnabled !== false &&
-          (!(task.sessionId || "").trim() || Boolean((task.worktreePath || "").trim()));
-        if (canWorktree) {
-          const sourceDir = (task.workspaceRoot || cwd).trim() || cwd;
-          const prep = prepareWorktree({
-            taskId,
-            sourceDir,
-            existingPath: task.worktreePath,
-            existingBranch: task.worktreeBranch,
-            existingRoot: task.workspaceRoot,
-          });
-          if (prep.ok) {
-            const patch: Partial<Task> = {
-              projectDir: prep.path,
-              workspaceRoot: prep.workspaceRoot || sourceDir,
-              worktreePath: prep.path,
-              worktreeBranch: prep.branch,
-              lastActivityAt: Date.now(),
-            };
-            task = opts.db.updateTask(taskId, patch) ?? { ...task, ...patch };
-            cwd = prep.path;
-            worktreeLog = formatActivityLogLine(
-              "workspace",
-              prep.reused
-                ? `复用并行 worktree：${prep.path}`
-                : `已创建并行 worktree：${prep.path}（分支 ${prep.branch}）`,
-              "done",
-            );
-            notifyTaskUpdate(opts, task, true);
-            busy = opts.db.countActiveTasksForProjectDir(cwd, taskId);
-          } else {
-            const permanent = /不是 Git|目录不可用/.test(prep.error);
-            if (permanent || settings.queueWhenWorkspaceBusy === false) {
-              return markTaskFailed(
-                opts,
-                taskId,
-                new Error(
-                  `工作区正被其他任务占用，且无法创建并行 worktree：${prep.error}`,
-                ),
-                "workspace_busy",
-              );
-            }
-            return markTaskQueued(
-              opts,
-              taskId,
-              "workspace_busy",
-              `工作区占用且无法创建 worktree（${prep.error}），已加入队列：${cwd}`,
-              Date.now() + 30_000,
-            );
-          }
-        }
-
-        if (busy > 0) {
-          if (settings.queueWhenWorkspaceBusy !== false) {
-            return markTaskQueued(
-              opts,
-              taskId,
-              "workspace_busy",
-              `工作区正被其他任务占用，已加入队列：${cwd}`,
-            );
-          }
-          return markTaskFailed(
+        // auto / queue: wait — do not silently create a worktree (UI uses schedule=parallel)
+        if (settings.queueWhenWorkspaceBusy !== false || schedule === "queue") {
+          return markTaskQueued(
             opts,
             taskId,
-            new Error(`工作区正被其他任务占用：${cwd}。请等待完成或停止后再试。`),
             "workspace_busy",
+            `工作区正被其他任务占用，已加入队列：${cwd}`,
           );
         }
+        return markTaskFailed(
+          opts,
+          taskId,
+          new Error(`工作区正被其他任务占用：${cwd}。请等待完成或停止后再试。`),
+          "workspace_busy",
+        );
       }
     }
 

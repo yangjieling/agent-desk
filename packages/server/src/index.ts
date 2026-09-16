@@ -28,10 +28,12 @@ import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills,
 import {
   abortRunningTask,
   bootstrapTaskQueue,
+  checkTaskSchedule,
   createTask,
   enqueueStartTask,
   getLocalExecutor,
   isTaskRunning,
+  prepareWorktree,
   processWorkspaceQueue,
   resumeTask,
   startLocalExecutor,
@@ -43,7 +45,7 @@ import {
   subscribeTaskUpdates,
   switchExecutor,
 } from "@agent-desk/runner";
-import type { TaskStreamUpdate } from "@agent-desk/runner";
+import type { ScheduleMode, TaskStreamUpdate } from "@agent-desk/runner";
 import {
   continueRun,
   deleteUserWorkflow,
@@ -1222,6 +1224,8 @@ export async function createServer(opts: ServerOptions = {}) {
       agentProfileId?: string;
       codingAgent?: string;
       model?: string;
+      /** When false, create only — UI may show schedule dialog before start. */
+      autoStart?: boolean;
     };
   }>("/api/tasks", async (req, reply) => {
     const title = clipTitle(req.body.title ?? "Untitled task");
@@ -1244,11 +1248,36 @@ export async function createServer(opts: ServerOptions = {}) {
       runnerOpts,
     );
     db.upsertTask(task);
-    enqueueStartTask(runnerOpts, task.id);
-    return task;
+    const autoStart = req.body.autoStart !== false;
+    if (autoStart) {
+      enqueueStartTask(runnerOpts, task.id);
+    }
+    return db.getTask(task.id) ?? task;
   });
 
-  app.post<{ Params: { id: string } }>("/api/tasks/:id/start", async (req, reply) => {
+  app.get<{ Params: { id: string } }>("/api/tasks/:id/schedule-check", async (req, reply) => {
+    const task = db.getTask(req.params.id);
+    if (!task) return reply.code(404).send({ error: "not_found" });
+    const settings = db.getSettings();
+    const check = checkTaskSchedule(db, task, {
+      workspaceLockEnabled: settings.workspaceLockEnabled !== false,
+      worktreeParallelEnabled: settings.worktreeParallelEnabled !== false,
+    });
+    return {
+      ok: check.ok,
+      needSchedule: check.needSchedule,
+      reason: check.reason,
+      blockers: check.blockers,
+      parallelOk: check.parallelOk,
+      workspaceKey: check.workspaceKey,
+      id: task.id,
+    };
+  });
+
+  app.post<{
+    Params: { id: string };
+    Body?: { schedule?: ScheduleMode };
+  }>("/api/tasks/:id/start", async (req, reply) => {
     const task = db.getTask(req.params.id);
     if (!task) return reply.code(404).send({ error: "not_found" });
     if (isTaskRunning(task.id) || task.status === "running") {
@@ -1260,6 +1289,65 @@ export async function createServer(opts: ServerOptions = {}) {
     if (!["created", "failed", "stopped", "queued"].includes(task.status)) {
       return reply.code(409).send({ error: "not_startable", status: task.status, task });
     }
+
+    const raw = String(req.body?.schedule || "auto").trim().toLowerCase();
+    const schedule: ScheduleMode =
+      raw === "queue" || raw === "parallel" ? raw : "auto";
+    const settings = db.getSettings();
+
+    if (schedule === "parallel") {
+      if (settings.worktreeParallelEnabled === false) {
+        return reply.code(400).send({ error: "worktree_disabled", message: "未开启 worktree 并行" });
+      }
+      const sourceDir = (task.workspaceRoot || task.projectDir || "").trim();
+      const prep = prepareWorktree({
+        taskId: task.id,
+        sourceDir,
+        existingPath: task.worktreePath,
+        existingBranch: task.worktreeBranch,
+        existingRoot: task.workspaceRoot,
+      });
+      if (!prep.ok) {
+        return reply.code(400).send({ error: "worktree_failed", message: prep.error });
+      }
+      db.updateTask(task.id, {
+        projectDir: prep.path,
+        workspaceRoot: prep.workspaceRoot || sourceDir,
+        worktreePath: prep.path,
+        worktreeBranch: prep.branch,
+        status: "queued",
+        nextRetryAt: 0,
+        failureMessage: "",
+        failureCode: "",
+        claimToken: "",
+        claimedBy: "",
+        claimedAt: 0,
+        heartbeatAt: 0,
+        result: (() => {
+          const stamp = `\n\n[worktree] 并行：${prep.path}（${prep.branch}）`;
+          const prev = (task.result || "").trim();
+          return prev ? `${prev}${stamp}` : stamp.trimStart();
+        })(),
+      });
+      enqueueStartTask(runnerOpts, task.id);
+      return db.getTask(task.id);
+    }
+
+    if (schedule === "queue") {
+      db.updateTask(task.id, {
+        status: "queued",
+        nextRetryAt: 0,
+        failureCode: "workspace_busy",
+        failureMessage: "用户选择排队等待",
+        claimToken: "",
+        claimedBy: "",
+        claimedAt: 0,
+        heartbeatAt: 0,
+      });
+      enqueueStartTask(runnerOpts, task.id);
+      return db.getTask(task.id);
+    }
+
     db.updateTask(task.id, {
       status: "queued",
       nextRetryAt: 0,

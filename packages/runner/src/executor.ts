@@ -156,7 +156,6 @@ export function startLocalExecutor(opts: StartLocalExecutorOptions): LocalExecut
         executorId: id,
         claimToken: randomUUID(),
         workspaceLockEnabled: settings.workspaceLockEnabled !== false,
-        worktreeParallelEnabled: settings.worktreeParallelEnabled !== false,
       });
       if (!claimed) break;
       publishTaskUpdate({ task: claimed, resultAppend: undefined });

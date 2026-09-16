@@ -48,7 +48,7 @@
     "worktreeParallelEnabled": {
       "type": "boolean",
       "default": true,
-      "description": "When workspace is busy, create a same-repo git worktree under .worktrees/ for parallel runs"
+      "description": "Allow starting a conflicted task in a same-repo git worktree (schedule=parallel)"
     },
     "executorMaxConcurrent": {
       "type": "integer",

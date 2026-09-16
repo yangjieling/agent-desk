@@ -1116,15 +1116,12 @@ export class AgentDeskDb {
     executorId: string;
     claimToken: string;
     workspaceLockEnabled: boolean;
-    /** When true, claim even if projectDir is busy (startTask will try worktree). */
-    worktreeParallelEnabled?: boolean;
     now?: number;
   }): Task | null {
     const executorId = (input.executorId || "").trim();
     const claimToken = (input.claimToken || "").trim();
     if (!executorId || !claimToken) return null;
     const now = input.now ?? Date.now();
-    const worktreeParallel = input.worktreeParallelEnabled !== false;
 
     const claimTx = this.db.transaction((): Task | null => {
       const rows = this.db
@@ -1144,13 +1141,7 @@ export class AgentDeskDb {
         const dir = path.resolve(candidate.projectDir || process.cwd());
         if (input.workspaceLockEnabled) {
           const busy = this.countActiveTasksForProjectDir(dir, candidate.id);
-          if (busy > 0) {
-            const canWorktree =
-              worktreeParallel &&
-              (!(candidate.sessionId || "").trim() ||
-                Boolean((candidate.worktreePath || "").trim()));
-            if (!canWorktree) continue;
-          }
+          if (busy > 0) continue;
         }
 
         const result = this.db
