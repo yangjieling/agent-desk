@@ -743,6 +743,30 @@
             </div>
             <input class="setting-select setting-number" type="number" min="5" max="3600" step="5" value="30">
           </div>
+          <div class="setting-row" data-key="failoverOnFailureEnabled">
+            <div class="setting-meta">
+              <p class="st">失败换人</p>
+              <p class="sd">同执行者重试用尽或 CLI 不可用时，自动切换其他智能体并注入交接说明后重跑</p>
+            </div>
+            <label class="toggle" title="失败换人">
+              <input type="checkbox" checked>
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="maxFailovers" data-type="number">
+            <div class="setting-meta">
+              <p class="st">最大换人次数</p>
+              <p class="sd">不含原执行者；0 表示不换人。优先按「换人顺位」配置；为空则选用其他智能体</p>
+            </div>
+            <input class="setting-select setting-number" type="number" min="0" max="10" step="1" value="2">
+          </div>
+          <div class="setting-row is-stack" data-key="failoverAgentIds" data-type="text">
+            <div class="setting-meta">
+              <p class="st">换人顺位（智能体 ID）</p>
+              <p class="sd">逗号分隔的智能体 ID，按顺序尝试；留空则自动选其他已配置智能体</p>
+            </div>
+            <input class="setting-select" type="text" placeholder="agt_xxx, agt_yyy" style="min-width:240px">
+          </div>
           </div>
           </div>
 

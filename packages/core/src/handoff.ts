@@ -17,17 +17,27 @@ export function buildHandoffBriefing(input: {
   toLabel: string;
   /** Optional structured Shared Context (workflow) injected into the briefing. */
   sharedContextText?: string;
+  /** When set, mark this handoff as failure-driven failover. */
+  failureReason?: string;
 }): string {
   const { task, fromLabel, toLabel } = input;
   const openGate = extractGateName(task.result || "");
+  const failureReason = String(input.failureReason || "").trim();
   const lines: string[] = [
-    "你是接力接手本任务的新执行者。上一 CLI 会话不可继续，" +
-      "请仅依据下列交接说明与当前仓库事实推进，勿假设仍持有上一会话记忆。" +
-      "忽略原文中「同一会话/同一 thread」表述——本轮已是新会话。",
+    failureReason
+      ? "你是失败换人后接手本任务的新执行者。上一 CLI 会话已失败且不可继续，" +
+        "请仅依据下列交接说明与当前仓库事实推进，勿假设仍持有上一会话记忆。" +
+        "忽略原文中「同一会话/同一 thread」表述——本轮已是新会话。"
+      : "你是接力接手本任务的新执行者。上一 CLI 会话不可继续，" +
+        "请仅依据下列交接说明与当前仓库事实推进，勿假设仍持有上一会话记忆。" +
+        "忽略原文中「同一会话/同一 thread」表述——本轮已是新会话。",
     "",
     `- 上一任执行者：${(fromLabel || "未知").trim() || "未知"}`,
     `- 本任执行者：${(toLabel || "未知").trim() || "未知"}`,
   ];
+  if (failureReason) {
+    lines.push(`- 换人原因：${clip(failureReason, 400)}`);
+  }
   const title = (task.title || "").trim();
   if (title) lines.push(`- 任务标题：${title}`);
   const skill = (task.skill || "").trim();

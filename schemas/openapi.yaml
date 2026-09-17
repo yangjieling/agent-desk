@@ -1849,6 +1849,8 @@ components:
           type: string
         retryCount:
           type: integer
+        failoverCount:
+          type: integer
         failureCode:
           type: string
         failureMessage:

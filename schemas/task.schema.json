@@ -36,6 +36,7 @@
     "worktreePath": { "type": "string" },
     "worktreeBranch": { "type": "string" },
     "retryCount": { "type": "integer", "minimum": 0 },
+    "failoverCount": { "type": "integer", "minimum": 0 },
     "failureCode": { "type": "string" },
     "failureMessage": { "type": "string" },
     "nextRetryAt": { "type": "integer" },

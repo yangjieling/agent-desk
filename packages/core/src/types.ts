@@ -21,7 +21,9 @@ export type TaskFailureCode =
   /** Live runner aborted after idleTimeoutSec with no activity. */
   | "idle_timeout"
   /** Dispatched claim lease expired (executor heartbeat missing). */
-  | "claim_expired";
+  | "claim_expired"
+  /** All configured failover agents were tried. */
+  | "failover_exhausted";
 
 export type TaskType = "skill" | "workflow";
 
@@ -189,6 +191,8 @@ export interface Task {
   worktreeBranch: string;
   /** Completed auto-retry attempts (not including the first run). */
   retryCount: number;
+  /** How many times this task has switched agent after failure. */
+  failoverCount: number;
   failureCode: TaskFailureCode;
   failureMessage: string;
   /** When > 0, queued task should not start before this timestamp. */
@@ -254,6 +258,15 @@ export interface Settings {
   autoRetryEnabled: boolean;
   maxRetries: number;
   retryDelaySec: number;
+  /**
+   * After same-agent retries are exhausted (or on non-retryable CLI failures),
+   * switch to another agent profile and re-queue.
+   */
+  failoverOnFailureEnabled: boolean;
+  /** Ordered agent profile ids to try on failover; empty = any other profile. */
+  failoverAgentIds: string[];
+  /** Max agent switches per task (not counting the original agent). */
+  maxFailovers: number;
   /** When workspace is busy, queue the task instead of failing immediately. */
   queueWhenWorkspaceBusy: boolean;
   /**
@@ -377,6 +390,9 @@ export const DEFAULT_SETTINGS: Settings = {
   autoRetryEnabled: true,
   maxRetries: 2,
   retryDelaySec: 30,
+  failoverOnFailureEnabled: true,
+  failoverAgentIds: [],
+  maxFailovers: 2,
   queueWhenWorkspaceBusy: true,
   worktreeParallelEnabled: true,
   executorMaxConcurrent: 4,

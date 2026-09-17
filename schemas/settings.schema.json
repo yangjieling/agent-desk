@@ -40,6 +40,24 @@
       "minimum": 5,
       "description": "Seconds to wait before each auto-retry"
     },
+    "failoverOnFailureEnabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "After same-agent retries are exhausted, switch to another agent and re-queue"
+    },
+    "failoverAgentIds": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Ordered agent profile ids to try on failover; empty = any other profile"
+    },
+    "maxFailovers": {
+      "type": "integer",
+      "default": 2,
+      "minimum": 0,
+      "maximum": 10,
+      "description": "Maximum agent switches per task (not counting the original agent)"
+    },
     "queueWhenWorkspaceBusy": {
       "type": "boolean",
       "default": true,
