@@ -716,6 +716,23 @@ paths:
         "404":
           $ref: "#/components/responses/Error"
 
+  /api/work-items/{id}/trace:
+    parameters:
+      - $ref: "#/components/parameters/WorkItemId"
+    get:
+      tags: [WorkItems]
+      operationId: getWorkItemTrace
+      summary: Aggregated usage / trace for a work item
+      responses:
+        "200":
+          description: Trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkItemTrace"
+        "404":
+          $ref: "#/components/responses/Error"
+
   /api/work-items/{id}/events:
     parameters:
       - $ref: "#/components/parameters/WorkItemId"
@@ -1254,6 +1271,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/WorkflowRun"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /api/workflow-runs/{id}/trace:
+    parameters:
+      - $ref: "#/components/parameters/WorkflowRunId"
+    get:
+      tags: [WorkflowRuns]
+      operationId: getWorkflowRunTrace
+      summary: Aggregated usage / trace for a workflow run
+      responses:
+        "200":
+          description: Trace
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WorkflowRunTrace"
         "404":
           $ref: "#/components/responses/Error"
 
@@ -1851,6 +1885,9 @@ components:
           type: integer
         failoverCount:
           type: integer
+        usageJson:
+          type: string
+          description: Persisted TaskUsageSummary JSON
         failureCode:
           type: string
         failureMessage:
@@ -1872,9 +1909,24 @@ components:
         lastActivityAt:
           type: integer
         usage:
-          type: object
-          description: Optional Claude usage parsed from result JSONL
-          additionalProperties: true
+          $ref: "#/components/schemas/TaskUsageSummary"
+
+    TaskUsageSummary:
+      type: object
+      properties:
+        provider:
+          type: string
+        inputTokens:
+          type: number
+        outputTokens:
+          type: number
+        cacheReadTokens:
+          type: number
+        cacheWriteTokens:
+          type: number
+        costUsd:
+          type: number
+          nullable: true
 
     LocalExecutorStatus:
       type: object
@@ -2010,6 +2062,59 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Issue"
             - type: "null"
+        usage:
+          $ref: "#/components/schemas/TaskUsageSummary"
+
+    WorkItemTrace:
+      type: object
+      properties:
+        workItemId:
+          type: string
+        events:
+          type: array
+          items: {}
+        tasks:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              title: { type: string }
+              status: { type: string }
+              codingAgent: { type: string }
+              skill: { type: string }
+              usage:
+                oneOf:
+                  - $ref: "#/components/schemas/TaskUsageSummary"
+                  - type: "null"
+        usage:
+          $ref: "#/components/schemas/TaskUsageSummary"
+
+    WorkflowRunTrace:
+      type: object
+      properties:
+        runId:
+          type: string
+        workflowName:
+          type: string
+        status:
+          type: string
+        nodes:
+          type: array
+          items:
+            type: object
+            properties:
+              nodeId: { type: string }
+              title: { type: string }
+              skill: { type: string }
+              status: { type: string }
+              taskId: { type: string }
+              usage:
+                oneOf:
+                  - $ref: "#/components/schemas/TaskUsageSummary"
+                  - type: "null"
+        usage:
+          $ref: "#/components/schemas/TaskUsageSummary"
 
     Issue:
       type: object
@@ -2161,6 +2266,8 @@ components:
           type: integer
         updatedAt:
           type: integer
+        usage:
+          $ref: "#/components/schemas/TaskUsageSummary"
 
     Autopilot:
       type: object

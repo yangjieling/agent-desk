@@ -249,6 +249,7 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     worktreeBranch: "",
     retryCount: 0,
     failoverCount: 0,
+    usageJson: "",
     failureCode: "",
     failureMessage: "",
     nextRetryAt: 0,

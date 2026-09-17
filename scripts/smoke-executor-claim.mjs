@@ -43,6 +43,7 @@ const task = {
   gateNotifyHash: "",
   retryCount: 0,
   failoverCount: 0,
+  usageJson: "",
   failureCode: "",
   failureMessage: "",
   nextRetryAt: 0,

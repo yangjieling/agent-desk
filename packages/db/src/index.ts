@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import {
   DEFAULT_SETTINGS,
   clipTitle,
+  extractTaskUsageFromLog,
   newAgentId,
   newAutopilotRunId,
   newAutopilotWebhookToken,
@@ -12,6 +13,7 @@ import {
   newWorkItemId,
   normalizeAgentSkills,
   normalizeIssueCode,
+  serializeUsageJson,
   type AgentProfile,
   type Autopilot,
   type AutopilotAction,
@@ -83,6 +85,7 @@ function rowToTask(row: Record<string, unknown>): Task {
     worktreeBranch: String(row.worktree_branch ?? ""),
     retryCount: Number(row.retry_count ?? 0),
     failoverCount: Number(row.failover_count ?? 0),
+    usageJson: String(row.usage_json ?? ""),
     failureCode: (String(row.failure_code ?? "") || "") as Task["failureCode"],
     failureMessage: String(row.failure_message ?? ""),
     nextRetryAt: Number(row.next_retry_at ?? 0),
@@ -305,6 +308,7 @@ export class AgentDeskDb {
     this.ensureTaskColumn("agent_profile_id", "TEXT");
     this.ensureTaskColumn("retry_count", "INTEGER DEFAULT 0");
     this.ensureTaskColumn("failover_count", "INTEGER DEFAULT 0");
+    this.ensureTaskColumn("usage_json", "TEXT DEFAULT ''");
     this.ensureTaskColumn("failure_code", "TEXT DEFAULT ''");
     this.ensureTaskColumn("failure_message", "TEXT DEFAULT ''");
     this.ensureTaskColumn("next_retry_at", "INTEGER DEFAULT 0");
@@ -642,7 +646,7 @@ export class AgentDeskDb {
           workflow_node_index, project_dir, work_item_id, issue_code, title, prompt, agent_profile_id, coding_agent, model,
           session_id, result, gate_notify_hash, pending_gate_id, pending_handoff_briefing,
           workspace_root, worktree_path, worktree_branch,
-          retry_count, failover_count, failure_code, failure_message, next_retry_at,
+          retry_count, failover_count, usage_json, failure_code, failure_message, next_retry_at,
           claim_token, claimed_by, claimed_at, heartbeat_at,
           created_at, updated_at, last_activity_at
         ) VALUES (
@@ -651,7 +655,7 @@ export class AgentDeskDb {
           @workflowNodeIndex, @projectDir, @workItemId, @issueCode, @title, @prompt, @agentProfileId, @codingAgent, @model,
           @sessionId, @result, @gateNotifyHash, @pendingGateId, @pendingHandoffBriefing,
           @workspaceRoot, @worktreePath, @worktreeBranch,
-          @retryCount, @failoverCount, @failureCode, @failureMessage, @nextRetryAt,
+          @retryCount, @failoverCount, @usageJson, @failureCode, @failureMessage, @nextRetryAt,
           @claimToken, @claimedBy, @claimedAt, @heartbeatAt,
           @createdAt, @updatedAt, @lastActivityAt
         )
@@ -666,7 +670,8 @@ export class AgentDeskDb {
           session_id=excluded.session_id, result=excluded.result, gate_notify_hash=excluded.gate_notify_hash,
           pending_gate_id=excluded.pending_gate_id, pending_handoff_briefing=excluded.pending_handoff_briefing,
           workspace_root=excluded.workspace_root, worktree_path=excluded.worktree_path, worktree_branch=excluded.worktree_branch,
-          retry_count=excluded.retry_count, failover_count=excluded.failover_count, failure_code=excluded.failure_code,
+          retry_count=excluded.retry_count, failover_count=excluded.failover_count, usage_json=excluded.usage_json,
+          failure_code=excluded.failure_code,
           failure_message=excluded.failure_message, next_retry_at=excluded.next_retry_at,
           claim_token=excluded.claim_token, claimed_by=excluded.claimed_by,
           claimed_at=excluded.claimed_at, heartbeat_at=excluded.heartbeat_at,
@@ -703,6 +708,7 @@ export class AgentDeskDb {
         worktreeBranch: task.worktreeBranch ?? "",
         retryCount: task.retryCount,
         failoverCount: task.failoverCount ?? 0,
+        usageJson: task.usageJson ?? "",
         failureCode: task.failureCode,
         failureMessage: task.failureMessage,
         nextRetryAt: task.nextRetryAt,
@@ -728,6 +734,17 @@ export class AgentDeskDb {
       updatedAt: now,
       lastActivityAt: patch.lastActivityAt ?? now,
     };
+    // Refresh persisted usage when result changes or task reaches a terminal status.
+    if (
+      patch.result !== undefined ||
+      patch.usageJson !== undefined ||
+      ["done", "failed", "stopped"].includes(next.status)
+    ) {
+      if (patch.usageJson === undefined) {
+        const usage = extractTaskUsageFromLog(next.result || "", next.codingAgent);
+        if (usage) next.usageJson = serializeUsageJson(usage);
+      }
+    }
     this.upsertTask(next);
     if (next.workItemId) this.syncWorkItemStatus(next.workItemId);
     return next;
