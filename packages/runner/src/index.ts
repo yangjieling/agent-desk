@@ -118,6 +118,8 @@ export interface RunnerOptions {
   settings: Settings;
   /** ~/.agent-desk — used for GitHub auto-clone workspaces. */
   dataDir?: string;
+  /** Optional Shared Context snippet for failover handoff (server wires workflow store). */
+  resolveSharedContextText?: (task: Task) => string | undefined | Promise<string | undefined>;
 }
 
 /** Always read current settings from SQLite (not the runnerOpts snapshot). */
@@ -246,6 +248,7 @@ export function createTask(input: CreateTaskInput, settings: Settings, opts?: Ru
     worktreePath: "",
     worktreeBranch: "",
     retryCount: 0,
+    failoverCount: 0,
     failureCode: "",
     failureMessage: "",
     nextRetryAt: 0,

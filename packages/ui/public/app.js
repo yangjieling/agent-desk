@@ -121,6 +121,7 @@ const FAILURE_CODE_LABEL = {
   orphan_after_restart: "进程丢失",
   idle_timeout: "空闲超时",
   claim_expired: "领取超时",
+  failover_exhausted: "换人已用尽",
 };
 
 const ICON_PALETTE = ["#6366f1", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899", "#14b8a6", "#f97316", "#3b82f6"];
@@ -3898,6 +3899,7 @@ function renderWfEditorNodes() {
   box.innerHTML = nodes
     .map((n, i) => {
       const gateChecked = n.requireGate ? " checked" : "";
+      const onFailure = n.onFailure === "continue" || n.onFailure === "retry" ? n.onFailure : "stop";
       const agentOpts = agentProfileDropdownOptions(AGENT_PROFILES, true)
         .map(
           (o) =>
@@ -3914,6 +3916,13 @@ function renderWfEditorNodes() {
         <textarea data-k="prompt" placeholder="本步指令（可选）">${esc(n.prompt || "")}</textarea>
         <div class="wf-ed-node-foot">
           <label><input type="checkbox" data-k="requireGate"${gateChecked}> 强制闸门</label>
+          <label>失败时
+            <select data-k="onFailure" title="步骤失败策略">
+              <option value="stop"${onFailure === "stop" ? " selected" : ""}>停止流程</option>
+              <option value="continue"${onFailure === "continue" ? " selected" : ""}>跳过继续</option>
+              <option value="retry"${onFailure === "retry" ? " selected" : ""}>重试/换人</option>
+            </select>
+          </label>
           <span style="font-size:12px;color:#9aa0a6">步骤 ${i + 1}</span>
         </div>
       </div>`;
@@ -3931,6 +3940,9 @@ function readWfEditorNodesFromDom() {
     const prompt = (el.querySelector('[data-k="prompt"]')?.value || "").trim();
     const requireGate = !!el.querySelector('[data-k="requireGate"]')?.checked;
     const agentProfileId = (el.querySelector('[data-k="agentProfileId"]')?.value || "").trim();
+    const onFailureRaw = (el.querySelector('[data-k="onFailure"]')?.value || "stop").trim();
+    const onFailure =
+      onFailureRaw === "continue" || onFailureRaw === "retry" ? onFailureRaw : "stop";
     nodes.push({
       id: (WF_EDIT.nodes[i] && WF_EDIT.nodes[i].id) || `n${i + 1}`,
       title: title || skill || `步骤 ${i + 1}`,
@@ -3938,7 +3950,7 @@ function readWfEditorNodesFromDom() {
       prompt,
       ...(agentProfileId ? { agentProfileId } : {}),
       requireGate,
-      onFailure: "stop",
+      onFailure,
     });
   });
   WF_EDIT.nodes = nodes;
@@ -4072,7 +4084,8 @@ async function saveWorkflowEditor() {
       prompt: n.prompt || "",
       ...(n.agentProfileId ? { agentProfileId: n.agentProfileId } : {}),
       requireGate: !!n.requireGate,
-      onFailure: "stop",
+      onFailure:
+        n.onFailure === "continue" || n.onFailure === "retry" ? n.onFailure : "stop",
     })),
   };
 
@@ -5815,7 +5828,12 @@ async function initSettingsUI() {
       const isSecret = row.dataset.type === "secret";
       const isNumber = row.dataset.type === "number";
       const loaded = settingsGet(state, key);
-      const loadedStr = loaded == null ? "" : String(loaded);
+      const loadedStr =
+        key === "failoverAgentIds" && Array.isArray(loaded)
+          ? loaded.join(", ")
+          : loaded == null
+            ? ""
+            : String(loaded);
       const hasStoredSecret = isSecret && !!loadedStr;
       input.value = isSecret && loadedStr ? SETTINGS_SECRET_MASK : loadedStr;
       input.dataset.revealed = "0";
@@ -5878,7 +5896,12 @@ async function initSettingsUI() {
 
       const commit = async () => {
         const prev = settingsGet(state, key);
-        const prevStr = prev == null ? "" : String(prev);
+        const prevStr =
+          key === "failoverAgentIds" && Array.isArray(prev)
+            ? prev.join(", ")
+            : prev == null
+              ? ""
+              : String(prev);
         let nextVal = (input.value || "").trim();
         if (isNumber) {
           const n = Number(nextVal);
@@ -5887,6 +5910,7 @@ async function initSettingsUI() {
             return;
           }
           if (key === "maxRetries") nextVal = String(Math.min(10, Math.max(0, Math.round(n))));
+          else if (key === "maxFailovers") nextVal = String(Math.min(10, Math.max(0, Math.round(n))));
           else if (key === "executorMaxConcurrent") nextVal = String(Math.min(32, Math.max(0, Math.round(n))));
           else if (key === "retryDelaySec") nextVal = String(Math.max(5, Math.round(n)));
           else nextVal = String(n);
@@ -5914,11 +5938,24 @@ async function initSettingsUI() {
         }
         setSettingRowStatus(row, "saving");
         try {
-          const patchVal = isNumber ? Number(nextVal) : nextVal;
+          let patchVal;
+          if (key === "failoverAgentIds") {
+            patchVal = nextVal
+              .split(/[,，\s]+/)
+              .map((s) => s.trim())
+              .filter(Boolean);
+          } else {
+            patchVal = isNumber ? Number(nextVal) : nextVal;
+          }
           const next = await saveSettingsPatch(settingsPatchForKey(key, patchVal));
           state = next;
           const saved = settingsGet(next, key);
-          const savedStr = saved == null ? "" : String(saved);
+          const savedStr =
+            key === "failoverAgentIds" && Array.isArray(saved)
+              ? saved.join(", ")
+              : saved == null
+                ? ""
+                : String(saved);
           if (isSecret && savedStr === SETTINGS_SECRET_MASK) {
             // PUT returns redacted; keep typed plaintext while revealed.
             if (input.dataset.revealed === "1") {

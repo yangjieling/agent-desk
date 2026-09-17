@@ -288,7 +288,21 @@ export async function createServer(opts: ServerOptions = {}) {
   setGitLabSettingsSource(() => db.getSettings());
   setNotifyWebhookSettingsSource(() => db.getSettings());
   const settings = db.getSettings();
-  const runnerOpts = { db, settings, dataDir };
+  const runnerOpts = {
+    db,
+    settings,
+    dataDir,
+    resolveSharedContextText: (task: Task) => {
+      const runId = (task.workflowRunId || "").trim();
+      if (!runId) return undefined;
+      const run = getRun(dataDir, runId);
+      if (!run?.sharedContext || !sharedContextHasContent(run.sharedContext)) return undefined;
+      return formatSharedContextForPrompt(run.sharedContext, {
+        compact: true,
+        maxLen: 1600,
+      });
+    },
+  };
   registerWorkflowHooks(dataDir, runnerOpts);
   bootstrapTaskQueue(runnerOpts, startTask, { isLive: isTaskRunning });
   startLocalExecutor({

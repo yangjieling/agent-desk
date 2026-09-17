@@ -1,5 +1,13 @@
 import path from "node:path";
-import type { Settings, Task, TaskFailureCode } from "@agent-desk/core";
+import {
+  buildHandoffBriefing,
+  failoverPolicy,
+  isFailoverEligibleFailure,
+  pickNextFailoverAgent,
+  type Settings,
+  type Task,
+  type TaskFailureCode,
+} from "@agent-desk/core";
 import type { AgentDeskDb } from "@agent-desk/db";
 import { requestExecutorWake } from "./executor.js";
 import { publishTaskUpdate } from "./task-events.js";
@@ -8,6 +16,8 @@ export interface QueueRunnerOptions {
   db: AgentDeskDb;
   settings: Settings;
   dataDir?: string;
+  /** Optional Shared Context snippet for failover handoff (avoids runner→workflow import). */
+  resolveSharedContextText?: (task: Task) => string | undefined | Promise<string | undefined>;
 }
 
 type StartTaskFn = (opts: QueueRunnerOptions, taskId: string) => Promise<Task>;
@@ -133,8 +143,105 @@ export async function maybeScheduleAutoRetry(
     return updated;
   }
 
+  const failedOver = await maybeScheduleFailover(opts, task, startTask);
+  if (failedOver.status === "queued") return failedOver;
+
   await processWorkspaceQueue(opts, task.projectDir, startTask);
   return task;
+}
+
+/**
+ * After same-agent retries are exhausted (or on non-retryable CLI failures),
+ * switch to another agent profile and re-queue with a handoff briefing.
+ */
+export async function maybeScheduleFailover(
+  opts: QueueRunnerOptions,
+  task: Task,
+  startTask?: StartTaskFn,
+): Promise<Task> {
+  const settings = opts.db.getSettings();
+  const policy = failoverPolicy(settings);
+  if (!policy.enabled || policy.max <= 0) return task;
+  if (!isFailoverEligibleFailure(task.failureCode)) return task;
+
+  const next = pickNextFailoverAgent({
+    task,
+    settings,
+    agents: opts.db.listAgents(),
+  });
+  if (!next) {
+    if (Math.max(0, Number(task.failoverCount ?? 0)) > 0) {
+      return (
+        opts.db.updateTask(task.id, {
+          failureCode: "failover_exhausted",
+          failureMessage:
+            (task.failureMessage || "任务失败") + " · 失败换人已用尽可用执行者",
+        }) ?? task
+      );
+    }
+    return task;
+  }
+
+  const curProfileId = (task.agentProfileId || "").trim();
+  const curAgent = (task.codingAgent || "").trim();
+  const fromProfile = curProfileId ? opts.db.getAgent(curProfileId) : null;
+  const fromLabel = fromProfile
+    ? `${fromProfile.name} · ${curAgent || fromProfile.provider}`
+    : curAgent || "未知";
+  const failureReason =
+    [task.failureCode, task.failureMessage].filter(Boolean).join(": ") || "任务失败";
+
+  let sharedContextText: string | undefined;
+  if (opts.resolveSharedContextText) {
+    try {
+      sharedContextText = await opts.resolveSharedContextText(task);
+    } catch (err) {
+      console.warn(
+        `[agent-desk] resolveSharedContextText failed for ${task.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  const briefing = buildHandoffBriefing({
+    task,
+    fromLabel,
+    toLabel: next.label,
+    sharedContextText,
+    failureReason,
+  });
+
+  const delaySec = Math.max(5, Number(settings.retryDelaySec ?? 30) || 30);
+  const attempt = Math.max(0, Number(task.failoverCount ?? 0)) + 1;
+  const nextRetryAt = Date.now() + delaySec * 1000;
+  const baseMsg = task.failureMessage || "任务失败";
+  const message = `${baseMsg} · 失败换人 → ${next.label} (${attempt}/${policy.max})，${delaySec}s 后重跑`;
+  const stamp = `\n\n${new Date().toISOString()} [failover] ${fromLabel} → ${next.label}`;
+
+  const updated =
+    opts.db.updateTask(task.id, {
+      status: "queued",
+      agentProfileId: next.agentProfileId,
+      codingAgent: next.codingAgent,
+      model: next.model,
+      sessionId: "",
+      failoverCount: attempt,
+      retryCount: 0,
+      nextRetryAt,
+      failureMessage: message,
+      pendingHandoffBriefing: briefing,
+      claimToken: "",
+      claimedBy: "",
+      claimedAt: 0,
+      heartbeatAt: 0,
+      result: `${(task.result || "").trim()}${stamp}`,
+      lastActivityAt: Date.now(),
+    }) ?? task;
+
+  publishTaskUpdate({ task: updated, resultAppend: undefined });
+  scheduleDelayedStart(opts, updated.id, delaySec * 1000, startTask);
+  await processWorkspaceQueue(opts, updated.projectDir, startTask);
+  return updated;
 }
 
 /**

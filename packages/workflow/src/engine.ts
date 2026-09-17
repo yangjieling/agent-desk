@@ -1,10 +1,13 @@
 import {
+  buildHandoffBriefing,
   clipPrompt,
   clipTitle,
   emptySharedContext,
+  formatSharedContextForPrompt,
   newTaskId,
   newWorkflowRunId,
   normalizeSharedContext,
+  pickNextFailoverAgent,
   resolveAgentConfig,
   type Settings,
   type SharedContextV1,
@@ -163,6 +166,7 @@ export function createWorkflowTask(
     worktreePath: "",
     worktreeBranch: "",
     retryCount: 0,
+    failoverCount: 0,
     failureCode: "",
     failureMessage: "",
     nextRetryAt: 0,
@@ -401,12 +405,60 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
         continue;
       }
       if (onFailure === "retry") {
-        opts.db.updateTask(parentId, {
-          status: "created",
-          failureCode: "",
-          failureMessage: "",
-          nextRetryAt: 0,
+        const parentNow = opts.db.getTask(parentId) ?? task;
+        const settingsLive = opts.db.getSettings();
+        const nextAgent = pickNextFailoverAgent({
+          task: parentNow,
+          settings: settingsLive,
+          agents: opts.db.listAgents(),
         });
+
+        if (nextAgent) {
+          const curProfileId = (parentNow.agentProfileId || "").trim();
+          const curAgent = (parentNow.codingAgent || "").trim();
+          const fromProfile = curProfileId ? opts.db.getAgent(curProfileId) : null;
+          const fromLabel = fromProfile
+            ? `${fromProfile.name} · ${curAgent || fromProfile.provider}`
+            : curAgent || "未知";
+          const failureReason =
+            [parentNow.failureCode, parentNow.failureMessage].filter(Boolean).join(": ") ||
+            "步骤失败";
+          const sharedCtxText = formatSharedContextForPrompt(sharedContext, {
+            compact: true,
+            maxLen: 1600,
+          });
+          const briefing = buildHandoffBriefing({
+            task: parentNow,
+            fromLabel,
+            toLabel: nextAgent.label,
+            sharedContextText: sharedCtxText || undefined,
+            failureReason,
+          });
+          const attempt = Math.max(0, Number(parentNow.failoverCount ?? 0)) + 1;
+          const stamp = `\n\n${new Date().toISOString()} [failover] ${fromLabel} → ${nextAgent.label}`;
+          opts.db.updateTask(parentId, {
+            status: "created",
+            agentProfileId: nextAgent.agentProfileId,
+            codingAgent: nextAgent.codingAgent,
+            model: nextAgent.model,
+            sessionId: "",
+            failoverCount: attempt,
+            retryCount: 0,
+            failureCode: "",
+            failureMessage: "",
+            nextRetryAt: 0,
+            pendingHandoffBriefing: briefing,
+            result: `${(parentNow.result || "").trim()}${stamp}`,
+            lastActivityAt: Date.now(),
+          });
+        } else {
+          opts.db.updateTask(parentId, {
+            status: "created",
+            failureCode: "",
+            failureMessage: "",
+            nextRetryAt: 0,
+          });
+        }
         await startTask(opts, parentId);
         try {
           task = await waitForTaskEnd(opts.db, parentId);
