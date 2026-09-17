@@ -86,10 +86,12 @@ Gate / task **notifications**. Selected by `Settings.providers.notify`.
 
 ### Feishu setup
 
+配置优先级：**非空的 `AD_FEISHU_*` 环境变量** > **Web 设置页「飞书 / Lark」**（`Settings.feishu`）。
+
 1. Create a custom app in [Feishu Open Platform](https://open.feishu.cn/) (or Lark).
 2. Enable bot capability; grant `im:message` / send message as bot.
 3. Publish the app and add the bot to a chat, or get your `open_id`.
-4. Configure env and switch provider:
+4. Configure via **设置 → 通知通道选飞书**，或 env:
 
 ```bash
 export AD_FEISHU_APP_ID=cli_xxx
@@ -98,6 +100,9 @@ export AD_FEISHU_RECEIVE_ID=ou_xxx          # or email / chat_id
 export AD_FEISHU_RECEIVE_ID_TYPE=open_id    # open_id | email | chat_id | user_id | union_id
 # optional (Lark intl):
 # export AD_FEISHU_API_BASE=https://open.larksuite.com
+# optional inbound:
+# export AD_FEISHU_VERIFICATION_TOKEN=xxx
+# export AD_FEISHU_ENCRYPT_KEY=xxx
 
 # PUT /api/settings
 # { "providers": { "agent": "claude", "issue": "github", "notify": "feishu" }, "notifyEnabled": true }
@@ -108,6 +113,20 @@ Gate cards include up to 3 choice buttons. Each button opens a **local** URL:
 `GET http://127.0.0.1:19877/api/tasks/<id>/resume?reply=<choice>`
 
 Keep `oh web` running so the browser can hit localhost. This avoids needing a public callback relay.
+
+#### Feishu IM inbound (message → task)
+
+1. In Feishu developer console → Events & Callbacks → Request URL:
+
+   `{Web Base URL}/api/webhooks/im/feishu`
+
+   (needs a reachable URL, same as Autopilot webhooks; use a tunnel for local `oh web`).
+
+2. Fill **Verification Token** / **Encrypt Key** in Settings (or env). Save URL to complete `url_verification`.
+3. Subscribe to `im.message.receive_v1`.
+4. Enable **IM 入站触发** (`feishu.inboundEnabled`). Optional: inbound skill / project dir / agent id.
+
+Text messages create a skill task via `createTask` + `enqueueStartTask` (idempotent on `event_id`).
 
 ### DingTalk setup
 

@@ -1594,6 +1594,54 @@ paths:
         "413":
           $ref: "#/components/responses/Error"
 
+  /api/webhooks/im/feishu:
+    post:
+      tags: [Notify]
+      operationId: feishuImInbound
+      summary: Feishu / Lark event subscription (URL verification + message→task)
+      description: |
+        Configure as the Request URL in Feishu developer console.
+        Supports url_verification challenge, Encrypt Key signature/decrypt, and
+        im.message.receive_v1 → createTask when Settings.feishu.inboundEnabled.
+      parameters:
+        - name: X-Lark-Signature
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-Lark-Request-Timestamp
+          in: header
+          required: false
+          schema:
+            type: string
+        - name: X-Lark-Request-Nonce
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Challenge echo, accepted, duplicate, or ignored
+        "401":
+          $ref: "#/components/responses/Error"
+        "503":
+          description: inbound_disabled
+
+  /api/webhooks/im/dingtalk:
+    post:
+      tags: [Notify]
+      operationId: dingtalkImInbound
+      summary: DingTalk HTTP inbound (not implemented; returns 501)
+      responses:
+        "501":
+          description: Use Feishu inbound or DingTalk Stream for gate resume
+
   /api/autopilots/{id}/runs:
     parameters:
       - $ref: "#/components/parameters/AutopilotId"

@@ -404,6 +404,17 @@ export class AgentDeskDb {
       );
       CREATE UNIQUE INDEX IF NOT EXISTS idx_ap_wh_delivery
         ON autopilot_webhook_deliveries(autopilot_id, delivery_key);
+
+      CREATE TABLE IF NOT EXISTS im_webhook_deliveries (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL,
+        delivery_key TEXT NOT NULL,
+        task_id TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_im_wh_delivery
+        ON im_webhook_deliveries(provider, delivery_key);
     `);
     this.ensureAutopilotColumn("webhook_enabled", "INTEGER DEFAULT 0");
     this.ensureAutopilotColumn("webhook_token", "TEXT DEFAULT ''");
@@ -526,6 +537,15 @@ export class AgentDeskDb {
       notifyWebhook: {
         ...DEFAULT_SETTINGS.notifyWebhook,
         ...(parsed.notifyWebhook || {}),
+      },
+      feishu: {
+        ...DEFAULT_SETTINGS.feishu,
+        ...(parsed.feishu || {}),
+        inboundEnabled: Boolean(
+          parsed.feishu && "inboundEnabled" in parsed.feishu
+            ? parsed.feishu.inboundEnabled
+            : DEFAULT_SETTINGS.feishu.inboundEnabled,
+        ),
       },
     };
   }
@@ -1447,6 +1467,95 @@ export class AgentDeskDb {
       .run({
         id,
         runId: patch.runId ?? String(row.run_id ?? ""),
+        status: patch.status ?? String(row.status ?? ""),
+      });
+  }
+
+  findImWebhookDelivery(
+    provider: string,
+    deliveryKey: string,
+  ): {
+    id: string;
+    provider: string;
+    deliveryKey: string;
+    taskId: string;
+    status: string;
+    createdAt: number;
+  } | null {
+    const key = String(deliveryKey || "").trim();
+    if (!key) return null;
+    const row = this.db
+      .prepare(
+        `SELECT * FROM im_webhook_deliveries
+         WHERE provider = @provider AND delivery_key = @deliveryKey
+         LIMIT 1`,
+      )
+      .get({ provider, deliveryKey: key }) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      provider: String(row.provider ?? ""),
+      deliveryKey: String(row.delivery_key ?? ""),
+      taskId: String(row.task_id ?? ""),
+      status: String(row.status ?? ""),
+      createdAt: Number(row.created_at ?? 0),
+    };
+  }
+
+  tryInsertImWebhookDelivery(input: {
+    provider: string;
+    deliveryKey: string;
+    taskId?: string;
+    status: string;
+  }): { id: string; duplicate: boolean } {
+    const deliveryKey = String(input.deliveryKey || "").trim();
+    const provider = String(input.provider || "").trim() || "unknown";
+    if (!deliveryKey) {
+      const id = `imd_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+      this.db
+        .prepare(
+          `INSERT INTO im_webhook_deliveries (
+            id, provider, delivery_key, task_id, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, provider, `anon_${id}`, input.taskId || "", input.status, Date.now());
+      return { id, duplicate: false };
+    }
+    const existing = this.findImWebhookDelivery(provider, deliveryKey);
+    if (existing) return { id: existing.id, duplicate: true };
+    const id = `imd_${Date.now()}_${Math.random().toString(16).slice(2, 8)}`;
+    try {
+      this.db
+        .prepare(
+          `INSERT INTO im_webhook_deliveries (
+            id, provider, delivery_key, task_id, status, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?)`,
+        )
+        .run(id, provider, deliveryKey, input.taskId || "", input.status, Date.now());
+      return { id, duplicate: false };
+    } catch {
+      const again = this.findImWebhookDelivery(provider, deliveryKey);
+      return { id: again?.id || id, duplicate: true };
+    }
+  }
+
+  updateImWebhookDelivery(
+    id: string,
+    patch: { taskId?: string; status?: string },
+  ): void {
+    const row = this.db
+      .prepare(`SELECT * FROM im_webhook_deliveries WHERE id = ?`)
+      .get(id) as Record<string, unknown> | undefined;
+    if (!row) return;
+    this.db
+      .prepare(
+        `UPDATE im_webhook_deliveries
+         SET task_id = @taskId, status = @status
+         WHERE id = @id`,
+      )
+      .run({
+        id,
+        taskId: patch.taskId ?? String(row.task_id ?? ""),
         status: patch.status ?? String(row.status ?? ""),
       });
   }

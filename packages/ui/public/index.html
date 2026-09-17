@@ -498,18 +498,88 @@
                   <span class="setting-subconfig-title">飞书 / Lark</span>
                 </button>
                 <div class="setting-subconfig-body">
-                  <div class="setting-env-guide">
-                    <p class="setting-env-guide-title">通过环境变量配置</p>
-                    <p class="setting-env-guide-desc">飞书 / Lark 需自建应用并开通机器人能力；设置页表单将于后续版本支持。</p>
-                    <ul class="setting-env-guide-list">
-                      <li><code>AD_FEISHU_APP_ID</code></li>
-                      <li><code>AD_FEISHU_APP_SECRET</code></li>
-                      <li><code>AD_FEISHU_RECEIVE_ID</code></li>
-                      <li><code>AD_FEISHU_RECEIVE_ID_TYPE</code>（可选）</li>
-                      <li><code>AD_FEISHU_API_BASE</code>（可选，Lark 国际版）</li>
-                    </ul>
-                    <a class="setting-env-guide-link" href="https://github.com/yangjieling/agent-desk/blob/main/docs/providers.md#feishu-setup" target="_blank" rel="noopener noreferrer">查看配置文档 →</a>
+                  <p class="setting-subconfig-desc">出站通知与 IM 入站（事件订阅）。环境变量 <code>AD_FEISHU_*</code> 非空时优先覆盖对应项。</p>
+                  <div class="setting-row is-stack" data-key="feishu.appId" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">App ID</p>
+                      <p class="sd">飞书应用 App ID</p>
+                    </div>
+                    <input class="setting-select" type="text" placeholder="cli_…">
                   </div>
+                  <div class="setting-row is-stack" data-key="feishu.appSecret" data-type="secret">
+                    <div class="setting-meta">
+                      <p class="st">App Secret</p>
+                      <p class="sd">应用密钥（出站发消息）</p>
+                    </div>
+                    <input class="setting-select" type="password" autocomplete="new-password" placeholder="••••••••">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.receiveId" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">接收方 ID</p>
+                      <p class="sd">出站通知目标（open_id / chat_id 等）</p>
+                    </div>
+                    <input class="setting-select" type="text" placeholder="ou_… 或 oc_…">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.receiveIdType" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">接收方类型</p>
+                      <p class="sd">open_id / user_id / chat_id / email / union_id</p>
+                    </div>
+                    <input class="setting-select" type="text" placeholder="open_id">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.apiBase" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">API Base</p>
+                      <p class="sd">默认开放平台；Lark 国际版填 https://open.larksuite.com</p>
+                    </div>
+                    <input class="setting-select" type="url" placeholder="https://open.feishu.cn">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.verificationToken" data-type="secret">
+                    <div class="setting-meta">
+                      <p class="st">Verification Token</p>
+                      <p class="sd">事件订阅校验 Token</p>
+                    </div>
+                    <input class="setting-select" type="password" autocomplete="new-password" placeholder="••••••••">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.encryptKey" data-type="secret">
+                    <div class="setting-meta">
+                      <p class="st">Encrypt Key</p>
+                      <p class="sd">事件加密与签名校验（推荐配置）</p>
+                    </div>
+                    <input class="setting-select" type="password" autocomplete="new-password" placeholder="••••••••">
+                  </div>
+                  <div class="setting-row" data-key="feishu.inboundEnabled">
+                    <div class="setting-meta">
+                      <p class="st">IM 入站触发</p>
+                      <p class="sd">接收消息后创建任务。请求 URL：{Web Base URL}/api/webhooks/im/feishu</p>
+                    </div>
+                    <label class="toggle" title="IM 入站触发">
+                      <input type="checkbox">
+                      <span class="track"><span class="thumb"></span></span>
+                    </label>
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.inboundSkill" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">入站默认技能</p>
+                      <p class="sd">空则用 Agent 默认技能</p>
+                    </div>
+                    <input class="setting-select" type="text" placeholder="default">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.inboundProjectDir" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">入站工作区</p>
+                      <p class="sd">空则使用进程当前目录</p>
+                    </div>
+                    <input class="setting-select" type="text" placeholder="/path/to/repo">
+                  </div>
+                  <div class="setting-row is-stack" data-key="feishu.inboundAgentProfileId" data-type="text">
+                    <div class="setting-meta">
+                      <p class="st">入站 Agent ID</p>
+                      <p class="sd">空则用设置里的默认 Agent</p>
+                    </div>
+                    <input class="setting-select" type="text" placeholder="a_…">
+                  </div>
+                  <a class="setting-env-guide-link" href="https://github.com/yangjieling/agent-desk/blob/main/docs/providers.md#feishu-setup" target="_blank" rel="noopener noreferrer">查看配置文档 →</a>
                 </div>
               </div>
             </div>

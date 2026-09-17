@@ -327,7 +327,47 @@ export interface Settings {
    * Environment variable AD_NOTIFY_WEBHOOK_URL still overrides when set.
    */
   notifyWebhook: NotifyWebhookSettings;
+  /**
+   * Feishu / Lark credentials + IM inbound (event subscription).
+   * Environment variables AD_FEISHU_* still override when set.
+   */
+  feishu: FeishuSettings;
 }
+
+/** Persisted Feishu / Lark notify + inbound event settings. */
+export interface FeishuSettings {
+  appId: string;
+  appSecret: string;
+  receiveId: string;
+  receiveIdType: string;
+  apiBase: string;
+  /** Event subscription Verification Token. */
+  verificationToken: string;
+  /** Event Encrypt Key (enables signature + AES decrypt). */
+  encryptKey: string;
+  /** When true, POST /api/webhooks/im/feishu creates tasks from messages. */
+  inboundEnabled: boolean;
+  /** Default skill for inbound messages; empty = agent default / default. */
+  inboundSkill: string;
+  /** Workspace for inbound tasks; empty = process.cwd(). */
+  inboundProjectDir: string;
+  /** Agent profile for inbound tasks; empty = settings.defaultAgentId. */
+  inboundAgentProfileId: string;
+}
+
+export const DEFAULT_FEISHU_SETTINGS: FeishuSettings = {
+  appId: "",
+  appSecret: "",
+  receiveId: "",
+  receiveIdType: "open_id",
+  apiBase: "",
+  verificationToken: "",
+  encryptKey: "",
+  inboundEnabled: false,
+  inboundSkill: "",
+  inboundProjectDir: "",
+  inboundAgentProfileId: "",
+};
 
 /** Persisted generic webhook notify settings. */
 export interface NotifyWebhookSettings {
@@ -430,6 +470,7 @@ export const DEFAULT_SETTINGS: Settings = {
   github: { ...DEFAULT_GITHUB_SETTINGS },
   gitlab: { ...DEFAULT_GITLAB_SETTINGS },
   notifyWebhook: { ...DEFAULT_NOTIFY_WEBHOOK_SETTINGS },
+  feishu: { ...DEFAULT_FEISHU_SETTINGS },
 };
 
 export const TITLE_MAX_LEN = 80;

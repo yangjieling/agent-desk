@@ -146,6 +146,23 @@
         "url": { "type": "string" }
       },
       "additionalProperties": false
+    },
+    "feishu": {
+      "type": "object",
+      "properties": {
+        "appId": { "type": "string" },
+        "appSecret": { "type": "string" },
+        "receiveId": { "type": "string" },
+        "receiveIdType": { "type": "string" },
+        "apiBase": { "type": "string" },
+        "verificationToken": { "type": "string" },
+        "encryptKey": { "type": "string" },
+        "inboundEnabled": { "type": "boolean", "default": false },
+        "inboundSkill": { "type": "string" },
+        "inboundProjectDir": { "type": "string" },
+        "inboundAgentProfileId": { "type": "string" }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false
