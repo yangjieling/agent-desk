@@ -3092,6 +3092,7 @@ async function startWorkflowRun(workflowId, opts = {}) {
     projectDir,
     title: opts.title,
     prompt: opts.prompt,
+    autoStart: false,
     ...(agentProfileId ? { agentProfileId } : {}),
     ...(opts.issueCode ? { issueCode: opts.issueCode } : {}),
   };
@@ -3100,6 +3101,9 @@ async function startWorkflowRun(workflowId, opts = {}) {
     body: JSON.stringify(body),
   });
   pushRecentDir(projectDir);
+  if (run.parentTaskId) {
+    await resolveAndStartTask(run.parentTaskId, { created: true });
+  }
   return run;
 }
 
@@ -3138,9 +3142,12 @@ async function confirmWorkspacePath(path) {
         prompt: purpose.prompt,
         issueCode: purpose.issueCode,
       });
-      toast("流程已启动，正在打开任务…");
       switchView("tasks-list");
-      if (run.parentTaskId) showLog(run.parentTaskId);
+      if (run.parentTaskId) {
+        showLog(run.parentTaskId);
+        await loadTasks();
+        if (LOG_ID === run.parentTaskId) openLogStream(run.parentTaskId);
+      }
     } catch (e) {
       toast(explainWorkflowStartError(e, purpose.workflowId));
     }
@@ -3520,23 +3527,20 @@ async function createTask() {
       const workflowId = document.getElementById("t-workflow").value;
       if (!workflowId) throw new Error("请选择流程");
       const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
-      const agentProfileId = getSelectedAgentProfileId();
-      const run = await api(`/api/workflows/${encodeURIComponent(workflowId)}/run`, {
-        method: "POST",
-        body: JSON.stringify({
-          title,
-          prompt,
-          projectDir,
-          ...(agentProfileId ? { agentProfileId } : {}),
-          ...(issueCode ? { issueCode } : {}),
-        }),
+      const run = await startWorkflowRun(workflowId, {
+        projectDir,
+        title,
+        prompt,
+        issueCode,
       });
-      pushRecentDir(projectDir);
       const issueEl = document.getElementById("t-issue-code");
       if (issueEl) issueEl.value = "";
-      toast("流程已启动，正在打开任务…");
       switchView("tasks-list");
-      if (run.parentTaskId) showLog(run.parentTaskId);
+      if (run.parentTaskId) {
+        showLog(run.parentTaskId);
+        await loadTasks();
+        if (LOG_ID === run.parentTaskId) openLogStream(run.parentTaskId);
+      }
     } else {
       const skill = getTaskSkillId();
       const issueCode = (document.getElementById("t-issue-code")?.value || "").trim();
@@ -7285,9 +7289,12 @@ async function startTaskFromIssue(code) {
         prompt,
         issueCode: issue.code || code,
       });
-      toast(`已启动流程 ${wfId}，正在打开任务…`);
       switchView("tasks-list");
-      if (run.parentTaskId) showLog(run.parentTaskId);
+      if (run.parentTaskId) {
+        showLog(run.parentTaskId);
+        await loadTasks();
+        if (LOG_ID === run.parentTaskId) openLogStream(run.parentTaskId);
+      }
       return;
     } catch (e) {
       const detail = explainWorkflowStartError(e, wfId);

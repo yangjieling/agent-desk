@@ -55,8 +55,10 @@ import {
   listWorkflows,
   registerWorkflowHooks,
   saveUserWorkflow,
+  startPendingRun,
   startRun,
   stopRun,
+  dispatchQueuedWorkflowRuns,
 } from "@agent-desk/workflow";
 import {
   DEFAULT_DINGTALK_SETTINGS,
@@ -288,6 +290,9 @@ export async function createServer(opts: ServerOptions = {}) {
   startLocalExecutor({
     ...runnerOpts,
     startTask,
+    onTick: () => {
+      dispatchQueuedWorkflowRuns(dataDir, runnerOpts);
+    },
   });
   startTaskWatchdog(
     runnerOpts,
@@ -1295,6 +1300,21 @@ export async function createServer(opts: ServerOptions = {}) {
       raw === "queue" || raw === "parallel" ? raw : "auto";
     const settings = db.getSettings();
 
+    const isWorkflowParent =
+      task.taskType === "workflow" &&
+      Boolean((task.workflowRunId || "").trim()) &&
+      !(task.parentTaskId || "").trim();
+    if (isWorkflowParent) {
+      try {
+        startPendingRun(dataDir, runnerOpts, task.workflowRunId, schedule);
+        return db.getTask(task.id);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const code = /already finished/i.test(msg) ? 409 : 400;
+        return reply.code(code).send({ error: msg });
+      }
+    }
+
     if (schedule === "parallel") {
       if (settings.worktreeParallelEnabled === false) {
         return reply.code(400).send({ error: "worktree_disabled", message: "未开启 worktree 并行" });
@@ -1694,11 +1714,22 @@ export async function createServer(opts: ServerOptions = {}) {
 
   app.post<{
     Params: { id: string };
-    Body: { title?: string; prompt?: string; projectDir?: string; issueCode?: string; agentProfileId?: string };
+    Body: {
+      title?: string;
+      prompt?: string;
+      projectDir?: string;
+      issueCode?: string;
+      agentProfileId?: string;
+      autoStart?: boolean;
+      schedule?: ScheduleMode;
+    };
   }>("/api/workflows/:id/run", async (req, reply) => {
     const wf = getWorkflow(dataDir, req.params.id);
     if (!wf) return reply.code(404).send({ error: "not_found" });
     try {
+      const raw = String(req.body.schedule || "").trim().toLowerCase();
+      const schedule: ScheduleMode | undefined =
+        raw === "queue" || raw === "parallel" || raw === "auto" ? raw : undefined;
       const run = startRun(dataDir, runnerOpts, {
         workflowId: req.params.id,
         title: req.body.title,
@@ -1706,6 +1737,8 @@ export async function createServer(opts: ServerOptions = {}) {
         projectDir: req.body.projectDir,
         issueCode: req.body.issueCode,
         agentProfileId: req.body.agentProfileId,
+        autoStart: req.body.autoStart,
+        schedule,
       });
       return run;
     } catch (e) {

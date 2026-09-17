@@ -1138,6 +1138,14 @@ export class AgentDeskDb {
 
       for (const row of rows) {
         const candidate = rowToTask(row);
+        // Workflow root parents are launched via dispatchQueuedWorkflowRuns, not CLI claim.
+        if (
+          candidate.taskType === "workflow" &&
+          !(candidate.parentTaskId || "").trim() &&
+          (candidate.workflowRunId || "").trim()
+        ) {
+          continue;
+        }
         const dir = path.resolve(candidate.projectDir || process.cwd());
         if (input.workspaceLockEnabled) {
           const busy = this.countActiveTasksForProjectDir(dir, candidate.id);

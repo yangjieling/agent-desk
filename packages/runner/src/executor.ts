@@ -39,6 +39,8 @@ export interface StartLocalExecutorOptions extends QueueRunnerOptions {
   heartbeatIntervalMs?: number;
   leaseTtlMs?: number;
   pollIntervalMs?: number;
+  /** Extra work each poll (e.g. dispatch queued workflow parents). */
+  onTick?: () => void;
 }
 
 let active: LocalExecutorHandle | null = null;
@@ -176,6 +178,11 @@ export function startLocalExecutor(opts: StartLocalExecutorOptions): LocalExecut
     try {
       lastPollAt = Date.now();
       reclaimStale();
+      try {
+        opts.onTick?.();
+      } catch (err) {
+        console.error(`[agent-desk] executor onTick:`, err);
+      }
       await claimAndStart();
     } catch (err) {
       console.error(`[agent-desk] executor tick:`, err);
