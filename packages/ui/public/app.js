@@ -556,7 +556,9 @@ function renderLogMeta(task) {
   if (retryHint && (st === "queued" || st === "failed")) {
     more.push(`<span class="log-meta-chip">${esc(retryHint)}</span>`);
   }
-  const usageChip = formatTaskUsageChip(task.usage || extractUsageFromTaskResult(task));
+  const usageChip = formatTaskUsageChip(
+    task.usage || parseUsageJsonField(task) || extractUsageFromTaskResult(task),
+  );
   if (usageChip) {
     more.push(
       `<span class="log-meta-chip" title="${esc(usageChip.title)}">${esc(usageChip.label)}</span>`,
@@ -599,6 +601,64 @@ function formatTaskUsageChip(u) {
     cost != null ? `cost $${cost}` : "",
   ].filter(Boolean);
   return { label: parts.length ? parts.join(" · ") : "用量", title: titleBits.join(" · ") };
+}
+
+function parseUsageJsonField(task) {
+  const raw = tField(task, "usageJson", "usage_json");
+  if (!raw || typeof raw !== "string") {
+    if (raw && typeof raw === "object") return raw;
+    return null;
+  }
+  const text = raw.trim();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function resolveClientTaskUsage(task) {
+  return (task && task.usage) || parseUsageJsonField(task) || extractUsageFromTaskResult(task);
+}
+
+function sumClientUsage(tasks) {
+  const out = {
+    provider: "",
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: null,
+  };
+  let cost = null;
+  const providers = new Set();
+  for (const t of tasks || []) {
+    const u = resolveClientTaskUsage(t);
+    if (!u) continue;
+    out.inputTokens += Number(u.inputTokens || 0);
+    out.outputTokens += Number(u.outputTokens || 0);
+    out.cacheReadTokens += Number(u.cacheReadTokens || 0);
+    out.cacheWriteTokens += Number(u.cacheWriteTokens || 0);
+    if (u.costUsd != null && Number.isFinite(Number(u.costUsd))) {
+      cost = (cost ?? 0) + Number(u.costUsd);
+    }
+    if (u.provider) providers.add(String(u.provider));
+  }
+  out.costUsd = cost;
+  out.provider = providers.size === 1 ? [...providers][0] : providers.size > 1 ? "mixed" : "";
+  if (
+    !(
+      out.inputTokens ||
+      out.outputTokens ||
+      out.cacheReadTokens ||
+      out.cacheWriteTokens ||
+      out.costUsd != null
+    )
+  ) {
+    return null;
+  }
+  return out;
 }
 
 /** Client fallback when API has not attached `usage` (e.g. mid-stream SSE). Claude-shaped only. */
@@ -768,7 +828,7 @@ function renderLogOutcome(task) {
     title = "任务已停止";
     sub = "可从标题栏继续会话";
   } else {
-    const usage = formatTaskUsageChip(task.usage || extractUsageFromTaskResult(task));
+    const usage = formatTaskUsageChip(resolveClientTaskUsage(task));
     if (usage) sub = usage.label;
   }
   el.hidden = false;
@@ -2560,7 +2620,11 @@ function renderLogWorkflowSteps(run, task) {
   const curIdx = Number(run.currentIndex || 0);
   const step = Number(tField(task, "workflowStep", "workflow_step") || 0);
   el.hidden = false;
-  el.innerHTML = nodes
+  const usageChip = formatTaskUsageChip(run.usage);
+  const usageHtml = usageChip
+    ? `<span class="log-meta-chip" title="${esc(usageChip.title)}">流程 ${esc(usageChip.label)}</span>`
+    : "";
+  const stepsHtml = nodes
     .map((n, i) => {
       const st = String(n.status || "pending");
       const isCurrent =
@@ -2569,9 +2633,15 @@ function renderLogWorkflowSteps(run, task) {
         (run.status === "running" && i === curIdx) ||
         (step > 0 && i === step - 1 && (st === "running" || st === "awaiting" || st === "pending"));
       const label = esc(n.title || n.skill || `步骤 ${i + 1}`);
-      return `<span class="log-wf-step ${esc(st)}${isCurrent ? " current" : ""}" title="${label} · ${esc(st)}">${label}</span>`;
+      const nodeUsage = Array.isArray(run.nodeUsage)
+        ? run.nodeUsage.find((x) => x && (x.nodeId === n.id || x.taskId === n.taskId))
+        : null;
+      const nu = formatTaskUsageChip(nodeUsage && nodeUsage.usage);
+      const tip = nu ? `${label} · ${esc(st)} · ${esc(nu.title)}` : `${label} · ${esc(st)}`;
+      return `<span class="log-wf-step ${esc(st)}${isCurrent ? " current" : ""}" title="${tip}">${label}</span>`;
     })
     .join("");
+  el.innerHTML = `${usageHtml}${stepsHtml}`;
 }
 
 function normalizeSharedCtx(raw) {
@@ -3777,6 +3847,10 @@ function renderWorkflowRuns() {
       const st = esc(runStatusLabel(r.status));
       const issue = r.issueCode ? `<span class="bug-code">${esc(r.issueCode)}</span> · ` : "";
       const when = esc(fmtTime(r.updatedAt || r.createdAt));
+      const usageChip = formatTaskUsageChip(r.usage);
+      const usageHtml = usageChip
+        ? ` · <span title="${esc(usageChip.title)}">${esc(usageChip.label)}</span>`
+        : "";
       const steps = (r.nodes || [])
         .map((n) => {
           const cls = esc(n.status || "pending");
@@ -3792,7 +3866,7 @@ function renderWorkflowRuns() {
       return `<div class="wf-run-item">
         <div class="wr-main">
           <div class="wr-title">${title} · ${st}</div>
-          <div class="wr-sub">${issue}${when}</div>
+          <div class="wr-sub">${issue}${when}${usageHtml}</div>
           <div class="wf-run-steps">${steps}</div>
         </div>
         ${openBtn}
@@ -6519,6 +6593,12 @@ function renderWorkItemTaskRow(t) {
       )}">${esc(FAILURE_CODE_LABEL[failureCode] || failureCode)}</span>`,
     );
   }
+  const usageChip = formatTaskUsageChip(resolveClientTaskUsage(t));
+  if (usageChip) {
+    chips.push(
+      `<span class="log-meta-chip" title="${esc(usageChip.title)}">${esc(usageChip.label)}</span>`,
+    );
+  }
   const when = fmtTime(t.lastActivityAt || t.updatedAt || t.createdAt);
   const live =
     st === "running"
@@ -6859,6 +6939,12 @@ function renderWorkItemModal(data) {
     chips.push(`<span class="log-meta-chip">${tasks.length} 个任务</span>`);
     const discussionCount = events.filter((e) => e.kind !== "run_linked").length;
     if (discussionCount) chips.push(`<span class="log-meta-chip">${discussionCount} 条讨论</span>`);
+    const usageChip = formatTaskUsageChip(data?.usage || sumClientUsage(tasks));
+    if (usageChip) {
+      chips.push(
+        `<span class="log-meta-chip" title="${esc(usageChip.title)}">合计 ${esc(usageChip.label)}</span>`,
+      );
+    }
     metaEl.innerHTML = chips.join("");
   }
   renderWorkItemReviewBar(item);

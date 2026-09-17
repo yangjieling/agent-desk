@@ -161,3 +161,188 @@ export function formatUsageChip(u: TaskUsageSummary): { label: string; title: st
   ].filter(Boolean);
   return { label, title: titleBits.join(" · ") };
 }
+
+export function emptyUsageSummary(provider = ""): TaskUsageSummary {
+  return {
+    provider,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: null,
+  };
+}
+
+export function parseUsageJson(raw: unknown): TaskUsageSummary | null {
+  if (!raw) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) {
+    return normalizeUsageSummary(raw as Record<string, unknown>);
+  }
+  const text = String(raw).trim();
+  if (!text) return null;
+  try {
+    const obj = JSON.parse(text) as Record<string, unknown>;
+    return normalizeUsageSummary(obj);
+  } catch {
+    return null;
+  }
+}
+
+export function serializeUsageJson(u: TaskUsageSummary | null | undefined): string {
+  if (!u) return "";
+  if (!hasAnyTokens(u) && u.costUsd == null) return "";
+  return JSON.stringify({
+    provider: u.provider || "",
+    inputTokens: u.inputTokens || 0,
+    outputTokens: u.outputTokens || 0,
+    cacheReadTokens: u.cacheReadTokens || 0,
+    cacheWriteTokens: u.cacheWriteTokens || 0,
+    costUsd: u.costUsd,
+  });
+}
+
+function normalizeUsageSummary(obj: Record<string, unknown>): TaskUsageSummary | null {
+  const summary: TaskUsageSummary = {
+    provider: String(obj.provider || "").trim(),
+    inputTokens: asNumber(obj.inputTokens ?? obj.input_tokens),
+    outputTokens: asNumber(obj.outputTokens ?? obj.output_tokens),
+    cacheReadTokens: asNumber(obj.cacheReadTokens ?? obj.cache_read_tokens),
+    cacheWriteTokens: asNumber(obj.cacheWriteTokens ?? obj.cache_write_tokens),
+    costUsd: obj.costUsd != null || obj.cost_usd != null
+      ? costFromUnknown(obj.costUsd ?? obj.cost_usd)
+      : null,
+  };
+  if (!hasAnyTokens(summary) && summary.costUsd == null) return null;
+  return summary;
+}
+
+/** Resolve usage from persisted JSON, else parse from result log. */
+export function resolveTaskUsage(task: {
+  result?: string;
+  codingAgent?: string;
+  usage?: TaskUsageSummary | null;
+  usageJson?: string;
+}): TaskUsageSummary | null {
+  if (task.usage) return task.usage;
+  const fromJson = parseUsageJson(task.usageJson);
+  if (fromJson) return fromJson;
+  return extractTaskUsageFromLog(task.result || "", task.codingAgent);
+}
+
+export function sumUsageSummaries(items: Array<TaskUsageSummary | null | undefined>): TaskUsageSummary {
+  const out = emptyUsageSummary();
+  let cost: number | null = null;
+  const providers = new Set<string>();
+  for (const u of items) {
+    if (!u) continue;
+    out.inputTokens += u.inputTokens || 0;
+    out.outputTokens += u.outputTokens || 0;
+    out.cacheReadTokens += u.cacheReadTokens || 0;
+    out.cacheWriteTokens += u.cacheWriteTokens || 0;
+    if (u.costUsd != null) cost = (cost ?? 0) + u.costUsd;
+    if (u.provider) providers.add(u.provider);
+  }
+  out.costUsd = cost;
+  out.provider = providers.size === 1 ? [...providers][0] : providers.size > 1 ? "mixed" : "";
+  return out;
+}
+
+export type TraceTaskRow = {
+  id: string;
+  title: string;
+  status: string;
+  codingAgent: string;
+  skill: string;
+  usage: TaskUsageSummary | null;
+};
+
+export type WorkItemTrace = {
+  workItemId: string;
+  events: unknown[];
+  tasks: TraceTaskRow[];
+  usage: TaskUsageSummary;
+};
+
+export type WorkflowRunTrace = {
+  runId: string;
+  workflowName: string;
+  status: string;
+  nodes: Array<{
+    nodeId: string;
+    title: string;
+    skill: string;
+    status: string;
+    taskId: string;
+    usage: TaskUsageSummary | null;
+  }>;
+  usage: TaskUsageSummary;
+};
+
+export function buildWorkItemTrace(input: {
+  workItemId: string;
+  events?: unknown[];
+  tasks: Array<{
+    id: string;
+    title?: string;
+    status?: string;
+    codingAgent?: string;
+    skill?: string;
+    result?: string;
+    usageJson?: string;
+    usage?: TaskUsageSummary | null;
+  }>;
+}): WorkItemTrace {
+  const tasks: TraceTaskRow[] = (input.tasks || []).map((t) => ({
+    id: t.id,
+    title: String(t.title || ""),
+    status: String(t.status || ""),
+    codingAgent: String(t.codingAgent || ""),
+    skill: String(t.skill || ""),
+    usage: resolveTaskUsage(t),
+  }));
+  return {
+    workItemId: input.workItemId,
+    events: Array.isArray(input.events) ? input.events : [],
+    tasks,
+    usage: sumUsageSummaries(tasks.map((t) => t.usage)),
+  };
+}
+
+export function buildWorkflowRunTrace(input: {
+  runId: string;
+  workflowName?: string;
+  status?: string;
+  nodes: Array<{
+    id?: string;
+    title?: string;
+    skill?: string;
+    status?: string;
+    taskId?: string;
+  }>;
+  resolveTask: (taskId: string) => {
+    result?: string;
+    codingAgent?: string;
+    usageJson?: string;
+    usage?: TaskUsageSummary | null;
+  } | null;
+}): WorkflowRunTrace {
+  const nodes = (input.nodes || []).map((n) => {
+    const taskId = String(n.taskId || "").trim();
+    const task = taskId ? input.resolveTask(taskId) : null;
+    return {
+      nodeId: String(n.id || ""),
+      title: String(n.title || ""),
+      skill: String(n.skill || ""),
+      status: String(n.status || ""),
+      taskId,
+      usage: task ? resolveTaskUsage(task) : null,
+    };
+  });
+  return {
+    runId: input.runId,
+    workflowName: String(input.workflowName || ""),
+    status: String(input.status || ""),
+    nodes,
+    usage: sumUsageSummaries(nodes.map((n) => n.usage)),
+  };
+}

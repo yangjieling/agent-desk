@@ -193,6 +193,11 @@ export interface Task {
   retryCount: number;
   /** How many times this task has switched agent after failure. */
   failoverCount: number;
+  /**
+   * Persisted token/cost summary JSON (TaskUsageSummary).
+   * Empty until a run produces parseable usage; API may also attach live `usage`.
+   */
+  usageJson: string;
   failureCode: TaskFailureCode;
   failureMessage: string;
   /** When > 0, queued task should not start before this timestamp. */

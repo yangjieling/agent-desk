@@ -3,7 +3,23 @@ import fastifyStatic from "@fastify/static";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { clipPrompt, clipTitle, extractTaskUsageFromLog, newAgentId, newAutopilotId, newAutopilotWebhookSecret, newAutopilotWebhookToken, newProjectId, normalizeAgentSkills, parseGate, type AgentProfile, type Autopilot, type Project } from "@agent-desk/core";
+import {
+  buildWorkItemTrace,
+  buildWorkflowRunTrace,
+  clipPrompt,
+  clipTitle,
+  newAgentId,
+  newAutopilotId,
+  newAutopilotWebhookSecret,
+  newAutopilotWebhookToken,
+  newProjectId,
+  normalizeAgentSkills,
+  parseGate,
+  resolveTaskUsage,
+  type AgentProfile,
+  type Autopilot,
+  type Project,
+} from "@agent-desk/core";
 import { defaultDataDir, openDb } from "@agent-desk/db";
 import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
@@ -963,19 +979,37 @@ export async function createServer(opts: ServerOptions = {}) {
     const tasks = db.listTasksForWorkItem(item.id, 200);
     const events = db.listWorkItemEvents(item.id, 200);
     const issue = await loadIssueSnapshot(refreshed);
-    return { workItem: refreshed, tasks, events, issue };
+    const trace = buildWorkItemTrace({ workItemId: item.id, events, tasks });
+    return {
+      workItem: refreshed,
+      tasks: tasks.map((t) => ({ ...t, usage: resolveTaskUsage(t) })),
+      events,
+      issue,
+      usage: trace.usage,
+    };
   });
 
   app.get<{ Params: { id: string } }>("/api/work-items/:id/tasks", async (req, reply) => {
     const item = db.getWorkItem(req.params.id);
     if (!item) return reply.code(404).send({ error: "not_found" });
-    return db.listTasksForWorkItem(item.id, 200);
+    return db.listTasksForWorkItem(item.id, 200).map((t) => ({
+      ...t,
+      usage: resolveTaskUsage(t),
+    }));
   });
 
   app.get<{ Params: { id: string } }>("/api/work-items/:id/events", async (req, reply) => {
     const item = db.getWorkItem(req.params.id);
     if (!item) return reply.code(404).send({ error: "not_found" });
     return db.listWorkItemEvents(item.id, 200);
+  });
+
+  app.get<{ Params: { id: string } }>("/api/work-items/:id/trace", async (req, reply) => {
+    const item = db.getWorkItem(req.params.id);
+    if (!item) return reply.code(404).send({ error: "not_found" });
+    const tasks = db.listTasksForWorkItem(item.id, 500);
+    const events = db.listWorkItemEvents(item.id, 500);
+    return buildWorkItemTrace({ workItemId: item.id, events, tasks });
   });
 
   app.post<{ Params: { id: string }; Body: { body?: string; wake?: boolean } }>(
@@ -1111,7 +1145,14 @@ export async function createServer(opts: ServerOptions = {}) {
       const tasks = db.listTasksForWorkItem(workItem.id, 200);
       const events = db.listWorkItemEvents(workItem.id, 200);
       const issue = issueSnap || (await loadIssueSnapshot(refreshed));
-      return { workItem: refreshed, tasks, events, issue };
+      const trace = buildWorkItemTrace({ workItemId: workItem.id, events, tasks });
+      return {
+        workItem: refreshed,
+        tasks: tasks.map((t) => ({ ...t, usage: resolveTaskUsage(t) })),
+        events,
+        issue,
+        usage: trace.usage,
+      };
     },
   );
 
@@ -1132,19 +1173,13 @@ export async function createServer(opts: ServerOptions = {}) {
     const raw = db.getTask(req.params.id);
     if (!raw) return reply.code(404).send({ error: "not_found" });
     const task = ensureAwaitingGateId(raw);
-    const usage = extractTaskUsageFromLog(task.result || "", task.codingAgent);
-    return usage
-      ? {
-          ...task,
-          usage,
-          pendingHandoff: Boolean((task.pendingHandoffBriefing || "").trim()),
-          canSwitchExecutor: task.status === "awaiting" && !isTaskRunning(task.id),
-        }
-      : {
-          ...task,
-          pendingHandoff: Boolean((task.pendingHandoffBriefing || "").trim()),
-          canSwitchExecutor: task.status === "awaiting" && !isTaskRunning(task.id),
-        };
+    const usage = resolveTaskUsage(task);
+    return {
+      ...task,
+      ...(usage ? { usage } : {}),
+      pendingHandoff: Boolean((task.pendingHandoffBriefing || "").trim()),
+      canSwitchExecutor: task.status === "awaiting" && !isTaskRunning(task.id),
+    };
   });
 
   app.get<{ Params: { id: string }; Querystring: { offset?: string } }>(
@@ -1777,12 +1812,49 @@ export async function createServer(opts: ServerOptions = {}) {
     }
   });
 
-  app.get("/api/workflow-runs", async () => listRuns(dataDir));
+  app.get("/api/workflow-runs", async () => {
+    const runs = listRuns(dataDir);
+    return runs.map((run) => {
+      const usage = buildWorkflowRunTrace({
+        runId: run.id,
+        workflowName: run.workflowName,
+        status: run.status,
+        nodes: run.nodes,
+        resolveTask: (taskId) => db.getTask(taskId),
+      }).usage;
+      const hasUsage =
+        usage.inputTokens > 0 ||
+        usage.outputTokens > 0 ||
+        usage.cacheReadTokens > 0 ||
+        usage.cacheWriteTokens > 0 ||
+        usage.costUsd != null;
+      return hasUsage ? { ...run, usage } : run;
+    });
+  });
 
   app.get<{ Params: { id: string } }>("/api/workflow-runs/:id", async (req, reply) => {
     const run = getRun(dataDir, req.params.id);
     if (!run) return reply.code(404).send({ error: "not_found" });
-    return run;
+    const trace = buildWorkflowRunTrace({
+      runId: run.id,
+      workflowName: run.workflowName,
+      status: run.status,
+      nodes: run.nodes,
+      resolveTask: (taskId) => db.getTask(taskId),
+    });
+    return { ...run, usage: trace.usage, nodeUsage: trace.nodes };
+  });
+
+  app.get<{ Params: { id: string } }>("/api/workflow-runs/:id/trace", async (req, reply) => {
+    const run = getRun(dataDir, req.params.id);
+    if (!run) return reply.code(404).send({ error: "not_found" });
+    return buildWorkflowRunTrace({
+      runId: run.id,
+      workflowName: run.workflowName,
+      status: run.status,
+      nodes: run.nodes,
+      resolveTask: (taskId) => db.getTask(taskId),
+    });
   });
 
   app.post<{ Params: { id: string } }>("/api/workflow-runs/:id/continue", async (req, reply) => {
