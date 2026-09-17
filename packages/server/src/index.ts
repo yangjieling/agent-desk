@@ -38,7 +38,7 @@ import {
   setDingTalkSettingsSource,
   startDingTalkCardStream,
 } from "@agent-desk/provider-notify-dingtalk";
-import { registerFeishuNotifyProvider } from "@agent-desk/provider-notify-feishu";
+import { registerFeishuNotifyProvider, resolveFeishuConfigLive, setFeishuSettingsSource } from "@agent-desk/provider-notify-feishu";
 import { listNotifyProviders } from "@agent-desk/provider-notify";
 import { registerWebhookNotifyProvider, setNotifyWebhookSettingsSource } from "@agent-desk/provider-notify-webhook";
 import { listSkillSummaries, resolveSkill, ensureSkillsReady, syncBundledSkills, seedUserSkills, uninstallUserSkill } from "@agent-desk/skills";
@@ -82,10 +82,12 @@ import {
   DEFAULT_GITHUB_SETTINGS,
   DEFAULT_GITLAB_SETTINGS,
   DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
+  DEFAULT_FEISHU_SETTINGS,
   formatSharedContextForPrompt,
   newGateId,
   sharedContextHasContent,
   type DingTalkSettings,
+  type FeishuSettings,
   type GitHubSettings,
   type GitLabSettings,
   type NotifyWebhookSettings,
@@ -106,6 +108,14 @@ import {
   resolveWebhookDeliveryKey,
   verifyHubSignature256,
 } from "./autopilot-webhook.js";
+import { dispatchImInboundMessage } from "./im-dispatch.js";
+import {
+  feishuHeadersFromRequest,
+  IM_WEBHOOK_MAX_BYTES,
+  parseFeishuEvent,
+  resolveFeishuEventBody,
+  verifyFeishuSignature,
+} from "./im-webhook.js";
 import { assignWorkItem, triggerMentionRuns } from "./work-item-dispatch.js";
 
 /** Mask stored secrets in API responses (UI shows placeholder; blank save keeps old). */
@@ -119,7 +129,11 @@ function redactSettings(settings: Settings): Settings {
   if (gh.token) gh.token = SECRET_MASK;
   const gl = { ...settings.gitlab };
   if (gl.token) gl.token = SECRET_MASK;
-  return { ...settings, dingtalk: dt, github: gh, gitlab: gl };
+  const fs = { ...settings.feishu };
+  if (fs.appSecret) fs.appSecret = SECRET_MASK;
+  if (fs.encryptKey) fs.encryptKey = SECRET_MASK;
+  if (fs.verificationToken) fs.verificationToken = SECRET_MASK;
+  return { ...settings, dingtalk: dt, github: gh, gitlab: gl, feishu: fs };
 }
 
 function keepSecret(incoming: string | undefined, current: string): string {
@@ -189,6 +203,24 @@ function mergeNotifyWebhookSettings(
     ...DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
     ...cur,
     ...patch,
+  };
+}
+
+function mergeFeishuSettings(
+  cur: FeishuSettings,
+  patch: Partial<FeishuSettings>,
+): FeishuSettings {
+  return {
+    ...DEFAULT_FEISHU_SETTINGS,
+    ...cur,
+    ...patch,
+    appSecret: keepSecret(patch.appSecret, cur.appSecret),
+    encryptKey: keepSecret(patch.encryptKey, cur.encryptKey),
+    verificationToken: keepSecret(patch.verificationToken, cur.verificationToken),
+    inboundEnabled:
+      patch.inboundEnabled !== undefined
+        ? Boolean(patch.inboundEnabled)
+        : Boolean(cur.inboundEnabled),
   };
 }
 
@@ -300,6 +332,7 @@ export async function createServer(opts: ServerOptions = {}) {
   }
   const db = openDb(dataDir);
   setDingTalkSettingsSource(() => db.getSettings());
+  setFeishuSettingsSource(() => db.getSettings());
   setGitHubSettingsSource(() => db.getSettings());
   setGitLabSettingsSource(() => db.getSettings());
   setNotifyWebhookSettingsSource(() => db.getSettings());
@@ -598,6 +631,14 @@ export async function createServer(opts: ServerOptions = {}) {
       );
     } else {
       next.notifyWebhook = cur.notifyWebhook;
+    }
+    if (body.feishu && typeof body.feishu === "object") {
+      next.feishu = mergeFeishuSettings(
+        cur.feishu ?? DEFAULT_FEISHU_SETTINGS,
+        body.feishu as Partial<FeishuSettings>,
+      );
+    } else {
+      next.feishu = cur.feishu ?? DEFAULT_FEISHU_SETTINGS;
     }
     const agentChanged =
       typeof body.defaultAgentId === "string" &&
@@ -2164,6 +2205,144 @@ export async function createServer(opts: ServerOptions = {}) {
       }
       return reply.code(500).send({ error: msg, deliveryId: admitted.id });
     }
+  });
+
+  /**
+   * Feishu / Lark event subscription ingress.
+   * Configure Request URL = {webBaseUrl}/api/webhooks/im/feishu
+   * Enable Settings.feishu.inboundEnabled after URL verification succeeds.
+   */
+  app.post("/api/webhooks/im/feishu", async (req, reply) => {
+    const settings = db.getSettings();
+    const feishu = resolveFeishuConfigLive();
+    const rawBody = String((req as { rawBody?: string }).rawBody ?? "");
+    if (Buffer.byteLength(rawBody, "utf8") > IM_WEBHOOK_MAX_BYTES) {
+      return reply.code(413).send({ error: "payload_too_large" });
+    }
+
+    const headers = req.headers as Record<string, unknown>;
+    const { timestamp, nonce, signature } = feishuHeadersFromRequest(headers);
+    const encryptKey = String(feishu.encryptKey || "").trim();
+
+    // Signature required when Encrypt Key is configured (except challenge may omit headers).
+    const bodyPreview =
+      req.body && typeof req.body === "object" ? (req.body as Record<string, unknown>) : {};
+    const looksLikeChallenge =
+      String(bodyPreview.type || "") === "url_verification" ||
+      (typeof bodyPreview.encrypt === "string" && !signature);
+
+    if (encryptKey && signature) {
+      if (
+        !verifyFeishuSignature(
+          timestamp,
+          nonce,
+          encryptKey,
+          rawBody || JSON.stringify(req.body ?? {}),
+          signature,
+        )
+      ) {
+        db.tryInsertImWebhookDelivery({
+          provider: "feishu",
+          deliveryKey: `reject_${Date.now()}`,
+          status: "rejected",
+        });
+        return reply.code(401).send({ error: "invalid_signature" });
+      }
+    } else if (encryptKey && !looksLikeChallenge && !signature) {
+      return reply.code(401).send({ error: "missing_signature" });
+    }
+
+    let event: Record<string, unknown>;
+    try {
+      event = resolveFeishuEventBody(rawBody, req.body, encryptKey);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return reply.code(400).send({ error: msg });
+    }
+
+    let parsed;
+    try {
+      parsed = parseFeishuEvent(event, {
+        verificationToken: String(feishu.verificationToken || "").trim(),
+        encryptKey,
+        inboundEnabled: Boolean(feishu.inboundEnabled),
+      });
+    } catch (e) {
+      const err = e as Error & { code?: string };
+      if (err.code === "invalid_token") {
+        return reply.code(401).send({ error: "invalid_verification_token" });
+      }
+      return reply.code(400).send({ error: err.message || String(e) });
+    }
+
+    if (parsed.kind === "challenge") {
+      return { challenge: parsed.challenge };
+    }
+
+    if (!feishu.inboundEnabled) {
+      return reply.code(503).send({ error: "inbound_disabled" });
+    }
+
+    if (parsed.kind === "ignored") {
+      db.tryInsertImWebhookDelivery({
+        provider: "feishu",
+        deliveryKey: parsed.deliveryKey,
+        status: "ignored",
+      });
+      return { status: "ignored", reason: parsed.reason };
+    }
+
+    const admitted = db.tryInsertImWebhookDelivery({
+      provider: "feishu",
+      deliveryKey: parsed.deliveryKey,
+      status: "accepted",
+    });
+    if (admitted.duplicate) {
+      const prev = db.findImWebhookDelivery("feishu", parsed.deliveryKey);
+      return {
+        status: "duplicate",
+        deliveryId: admitted.id,
+        taskId: prev?.taskId || "",
+      };
+    }
+
+    try {
+      // Prefer live-resolved inbound defaults (env override) while keeping full settings for createTask.
+      const dispatchSettings = {
+        ...settings,
+        feishu: { ...settings.feishu, ...feishu },
+      };
+      const result = dispatchImInboundMessage(db, runnerOpts, dispatchSettings, {
+        provider: "feishu",
+        text: parsed.text,
+        senderName: parsed.senderName,
+        chatId: parsed.chatId,
+        messageId: parsed.messageId,
+      });
+      db.updateImWebhookDelivery(admitted.id, {
+        taskId: result.taskId,
+        status: "accepted",
+      });
+      return {
+        status: "accepted",
+        deliveryId: admitted.id,
+        taskId: result.taskId,
+        title: result.title,
+      };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      db.updateImWebhookDelivery(admitted.id, { status: "failed" });
+      return reply.code(500).send({ error: msg, deliveryId: admitted.id });
+    }
+  });
+
+  /** DingTalk HTTP inbound placeholder (Stream gate resume already exists). */
+  app.post("/api/webhooks/im/dingtalk", async (_req, reply) => {
+    return reply.code(501).send({
+      error: "not_implemented",
+      message:
+        "DingTalk HTTP inbound is not ready; use Stream card callbacks for gate resume, or Feishu /api/webhooks/im/feishu for message→task.",
+    });
   });
 
   app.post<{ Body: { expression?: string; count?: number } }>(

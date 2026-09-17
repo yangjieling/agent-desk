@@ -4,6 +4,13 @@ import {
   type NotifyProvider,
   type TaskNotifyPayload,
 } from "@agent-desk/provider-notify";
+import { resolveFeishuConfigLive } from "./resolve.js";
+
+export {
+  resolveFeishuConfig,
+  resolveFeishuConfigLive,
+  setFeishuSettingsSource,
+} from "./resolve.js";
 
 export interface FeishuNotifyProviderOptions {
   appId?: string;
@@ -66,50 +73,53 @@ export class FeishuNotifyProvider implements NotifyProvider {
   readonly id = "feishu";
   readonly displayName = "Feishu / Lark";
 
-  private readonly appId: string;
-  private readonly appSecret: string;
-  private readonly receiveId: string;
-  private readonly receiveIdType: NonNullable<FeishuNotifyProviderOptions["receiveIdType"]>;
-  private readonly apiBase: string;
+  private readonly options: FeishuNotifyProviderOptions;
   private tokenCache: TokenCache | null = null;
 
   constructor(options: FeishuNotifyProviderOptions = {}) {
-    this.appId = (options.appId ?? process.env.AD_FEISHU_APP_ID ?? "").trim();
-    this.appSecret = (options.appSecret ?? process.env.AD_FEISHU_APP_SECRET ?? "").trim();
-    this.receiveId = (options.receiveId ?? process.env.AD_FEISHU_RECEIVE_ID ?? "").trim();
+    this.options = options;
+  }
+
+  private cfg() {
+    const live = resolveFeishuConfigLive();
     const idType = (
-      options.receiveIdType ??
-      process.env.AD_FEISHU_RECEIVE_ID_TYPE ??
+      this.options.receiveIdType ||
+      live.receiveIdType ||
       "open_id"
-    ).trim() as FeishuNotifyProviderOptions["receiveIdType"];
-    this.receiveIdType = idType || "open_id";
-    this.apiBase = (
-      options.apiBase ??
-      process.env.AD_FEISHU_API_BASE ??
-      "https://open.feishu.cn"
-    )
-      .trim()
-      .replace(/\/$/, "");
+    ).trim() as NonNullable<FeishuNotifyProviderOptions["receiveIdType"]>;
+    return {
+      appId: (this.options.appId ?? live.appId).trim(),
+      appSecret: (this.options.appSecret ?? live.appSecret).trim(),
+      receiveId: (this.options.receiveId ?? live.receiveId).trim(),
+      receiveIdType: idType,
+      apiBase: (this.options.apiBase || live.apiBase || "https://open.feishu.cn")
+        .trim()
+        .replace(/\/$/, ""),
+    };
   }
 
   private requireConfigured(): void {
-    if (!this.appId || !this.appSecret) {
-      throw new Error("Feishu notify needs AD_FEISHU_APP_ID and AD_FEISHU_APP_SECRET");
+    const { appId, appSecret } = this.cfg();
+    if (!appId || !appSecret) {
+      throw new Error(
+        "Feishu notify needs App ID/Secret (Settings.feishu or AD_FEISHU_APP_ID / AD_FEISHU_APP_SECRET)",
+      );
     }
   }
 
   private async tenantToken(): Promise<string> {
     this.requireConfigured();
+    const { appId, appSecret, apiBase } = this.cfg();
     const now = Date.now();
     if (this.tokenCache && this.tokenCache.expiresAt > now + 60_000) {
       return this.tokenCache.token;
     }
-    const res = await fetch(`${this.apiBase}/open-apis/auth/v3/tenant_access_token/internal`, {
+    const res = await fetch(`${apiBase}/open-apis/auth/v3/tenant_access_token/internal`, {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify({
-        app_id: this.appId,
-        app_secret: this.appSecret,
+        app_id: appId,
+        app_secret: appSecret,
       }),
     });
     const data = (await res.json()) as {
@@ -131,13 +141,14 @@ export class FeishuNotifyProvider implements NotifyProvider {
   }
 
   private async sendInteractive(card: Record<string, unknown>): Promise<void> {
-    if (!this.receiveId) {
+    const { receiveId, receiveIdType, apiBase } = this.cfg();
+    if (!receiveId) {
       throw new Error(
-        "Feishu notify needs AD_FEISHU_RECEIVE_ID (open_id / email / chat_id, see AD_FEISHU_RECEIVE_ID_TYPE)",
+        "Feishu notify needs receiveId (Settings.feishu.receiveId or AD_FEISHU_RECEIVE_ID)",
       );
     }
     const token = await this.tenantToken();
-    const url = `${this.apiBase}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(this.receiveIdType)}`;
+    const url = `${apiBase}/open-apis/im/v1/messages?receive_id_type=${encodeURIComponent(receiveIdType)}`;
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -145,7 +156,7 @@ export class FeishuNotifyProvider implements NotifyProvider {
         "Content-Type": "application/json; charset=utf-8",
       },
       body: JSON.stringify({
-        receive_id: this.receiveId,
+        receive_id: receiveId,
         msg_type: "interactive",
         content: JSON.stringify(card),
       }),

@@ -170,6 +170,9 @@ importers:
 
   packages/provider-notify-feishu:
     dependencies:
+      '@agent-desk/core':
+        specifier: workspace:*
+        version: link:../core
       '@agent-desk/provider-notify':
         specifier: workspace:*
         version: link:../provider-notify
