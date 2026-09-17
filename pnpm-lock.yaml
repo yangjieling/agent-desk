@@ -35,6 +35,12 @@ importers:
       '@agent-desk/provider-agent-cursor':
         specifier: workspace:*
         version: link:../provider-agent-cursor
+      '@agent-desk/provider-agent-hermes':
+        specifier: workspace:*
+        version: link:../provider-agent-hermes
+      '@agent-desk/provider-agent-openclaw':
+        specifier: workspace:*
+        version: link:../provider-agent-openclaw
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue
@@ -111,6 +117,12 @@ importers:
         version: link:../provider-agent
 
   packages/provider-agent-hermes:
+    dependencies:
+      '@agent-desk/provider-agent':
+        specifier: workspace:*
+        version: link:../provider-agent
+
+  packages/provider-agent-openclaw:
     dependencies:
       '@agent-desk/provider-agent':
         specifier: workspace:*
@@ -215,6 +227,9 @@ importers:
       '@agent-desk/provider-agent-hermes':
         specifier: workspace:*
         version: link:../provider-agent-hermes
+      '@agent-desk/provider-agent-openclaw':
+        specifier: workspace:*
+        version: link:../provider-agent-openclaw
       '@agent-desk/provider-issue':
         specifier: workspace:*
         version: link:../provider-issue

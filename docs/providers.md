@@ -10,6 +10,7 @@ Register via `registerAgentBackend()` in `@agent-desk/provider-agent`.
 | `codex` | `@agent-desk/provider-agent-codex` | Requires Codex CLI (`codex exec`) |
 | `cursor` | `@agent-desk/provider-agent-cursor` | Requires Cursor Agent CLI (`agent -p`) |
 | `hermes` | `@agent-desk/provider-agent-hermes` | Requires Hermes Agent CLI (`hermes chat --oneshot`); override with `AD_HERMES_BIN` |
+| `openclaw` | `@agent-desk/provider-agent-openclaw` | Requires OpenClaw CLI (`openclaw agent exec`); override with `AD_OPENCLAW_BIN` |
 
 ## Issue providers
 

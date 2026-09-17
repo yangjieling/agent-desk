@@ -2537,6 +2537,14 @@ function clearLogWorkflowSteps() {
     el.hidden = true;
     el.innerHTML = "";
   }
+  const ctx = document.getElementById("logSharedCtx");
+  if (ctx) {
+    ctx.hidden = true;
+    const body = document.getElementById("logSharedCtxBody");
+    const peek = document.getElementById("logSharedCtxPeek");
+    if (body) body.innerHTML = "";
+    if (peek) peek.textContent = "";
+  }
 }
 
 function renderLogWorkflowSteps(run, task) {
@@ -2565,6 +2573,104 @@ function renderLogWorkflowSteps(run, task) {
     .join("");
 }
 
+function normalizeSharedCtx(raw) {
+  if (raw && typeof raw === "object" && Number(raw.version) === 1) return raw;
+  const text = typeof raw === "string" ? raw.trim() : "";
+  return {
+    version: 1,
+    goal: "",
+    currentState: "",
+    conclusions: [],
+    changedFiles: [],
+    errors: [],
+    completedSteps: [],
+    nextSteps: [],
+    ...(text ? { legacyText: text } : {}),
+  };
+}
+
+function sharedCtxHasContent(ctx) {
+  if (!ctx) return false;
+  return Boolean(
+    (ctx.goal || "").trim() ||
+      (ctx.currentState || "").trim() ||
+      (ctx.conclusions || []).length ||
+      (ctx.changedFiles || []).length ||
+      (ctx.errors || []).length ||
+      (ctx.completedSteps || []).length ||
+      (ctx.nextSteps || []).length ||
+      (ctx.legacyText || "").trim(),
+  );
+}
+
+function renderSharedCtxSection(title, innerHtml) {
+  if (!innerHtml) return "";
+  return `<section class="log-shared-ctx-sec"><h4>${esc(title)}</h4>${innerHtml}</section>`;
+}
+
+function renderLogSharedContext(run) {
+  const wrap = document.getElementById("logSharedCtx");
+  const peek = document.getElementById("logSharedCtxPeek");
+  const body = document.getElementById("logSharedCtxBody");
+  if (!wrap || !body) return;
+  if (!run || String(run.mode || "") !== "shared") {
+    wrap.hidden = true;
+    body.innerHTML = "";
+    if (peek) peek.textContent = "";
+    return;
+  }
+  const ctx = normalizeSharedCtx(run.sharedContext);
+  if (!sharedCtxHasContent(ctx)) {
+    wrap.hidden = true;
+    body.innerHTML = "";
+    if (peek) peek.textContent = "";
+    return;
+  }
+  wrap.hidden = false;
+  const steps = ctx.completedSteps || [];
+  const peekParts = [];
+  if (ctx.goal) peekParts.push(ctx.goal);
+  else if (ctx.currentState) peekParts.push(ctx.currentState);
+  if (steps.length) peekParts.push(`${steps.length} 步`);
+  if ((ctx.changedFiles || []).length) peekParts.push(`${ctx.changedFiles.length} 文件`);
+  if (peek) peek.textContent = peekParts.join(" · ") || "已积累";
+
+  const listHtml = (items) =>
+    items && items.length
+      ? `<ul>${items.map((x) => `<li>${esc(String(x))}</li>`).join("")}</ul>`
+      : "";
+  const stepHtml = steps.length
+    ? steps
+        .slice(-8)
+        .map((s) => {
+          const title = esc(s.title || s.skill || "步骤");
+          const sum = esc((s.summary || "").trim());
+          return (
+            `<div class="log-shared-ctx-step">` +
+            `<div class="log-shared-ctx-step-title">${title}</div>` +
+            (sum ? `<div class="log-shared-ctx-step-sum">${sum}</div>` : "") +
+            `</div>`
+          );
+        })
+        .join("")
+    : "";
+
+  body.innerHTML = [
+    renderSharedCtxSection("目标", ctx.goal ? `<p>${esc(ctx.goal)}</p>` : ""),
+    renderSharedCtxSection("当前状态", ctx.currentState ? `<p>${esc(ctx.currentState)}</p>` : ""),
+    renderSharedCtxSection("结论", listHtml(ctx.conclusions)),
+    renderSharedCtxSection("变更文件", listHtml(ctx.changedFiles)),
+    renderSharedCtxSection("错误", listHtml(ctx.errors)),
+    renderSharedCtxSection("已完成步骤", stepHtml),
+    renderSharedCtxSection("下一步", listHtml(ctx.nextSteps)),
+    !steps.length && ctx.legacyText
+      ? renderSharedCtxSection("上下文", `<p>${esc(ctx.legacyText)}</p>`)
+      : "",
+  ]
+    .filter(Boolean)
+    .join("");
+}
+
 async function refreshLogWorkflowSteps(task) {
   const runId = String(tField(task, "workflowRunId", "workflow_run_id") || "").trim();
   if (!runId) {
@@ -2579,6 +2685,7 @@ async function refreshLogWorkflowSteps(task) {
       LOG_WF_CACHE = await api(`/api/workflow-runs/${encodeURIComponent(runId)}`);
     }
     renderLogWorkflowSteps(LOG_WF_CACHE, task);
+    renderLogSharedContext(LOG_WF_CACHE);
   } catch {
     /* keep previous strip if any */
   }
@@ -5496,7 +5603,7 @@ function renderAgentsRuntimeStrip(data) {
   if (!installed) {
     strip.className = "runtime-strip is-warn";
     strip.innerHTML =
-      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code> / <code>hermes</code>）。' +
+      '未检测到本机 Agent CLI（<code>claude</code> / <code>codex</code> / <code>agent</code> / <code>hermes</code> / <code>openclaw</code>）。' +
       '请安装并登录后再创建任务。可在<a href="#" onclick="showView(\'settings\');return false;">设置 → 本机 Agent 运行时</a>查看详情。';
     return;
   }

@@ -22,6 +22,8 @@
     "@agent-desk/provider-agent-claude": "workspace:*",
     "@agent-desk/provider-agent-codex": "workspace:*",
     "@agent-desk/provider-agent-cursor": "workspace:*",
+    "@agent-desk/provider-agent-hermes": "workspace:*",
+    "@agent-desk/provider-agent-openclaw": "workspace:*",
     "@agent-desk/provider-issue": "workspace:*",
     "@agent-desk/provider-issue-github": "workspace:*",
     "@agent-desk/provider-issue-gitlab": "workspace:*",

@@ -53,6 +53,8 @@ export function agentStartupLabel(agentId: string): string {
   if (id.includes("claude")) return "Claude";
   if (id.includes("codex")) return "Codex";
   if (id.includes("cursor")) return "Cursor";
+  if (id.includes("hermes")) return "Hermes";
+  if (id.includes("openclaw")) return "OpenClaw";
   return agentId || "Agent";
 }
 

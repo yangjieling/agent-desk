@@ -27,6 +27,7 @@
     if (/claude/i.test(bin)) return "Claude";
     if (/codex/i.test(bin)) return "Codex";
     if (/hermes/i.test(bin)) return "Hermes";
+    if (/openclaw/i.test(bin)) return "OpenClaw";
     if (/cursor|^agent$/i.test(bin)) return "Cursor";
     return bin || "Agent";
   }

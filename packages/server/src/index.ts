@@ -9,6 +9,7 @@ import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
 import { registerHermesBackend } from "@agent-desk/provider-agent-hermes";
+import { registerOpenClawBackend } from "@agent-desk/provider-agent-openclaw";
 import { getAgentBackend, listAgentRuntimes, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
@@ -184,6 +185,7 @@ function registerProviders(): void {
   registerCodexBackend();
   registerCursorBackend();
   registerHermesBackend();
+  registerOpenClawBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
   registerGitLabIssueProvider();

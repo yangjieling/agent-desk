@@ -229,6 +229,7 @@ const AGENT_PRESETS: Record<string, { name: string; defaultSkill: string }> = {
   codex: { name: "Codex", defaultSkill: "default" },
   cursor: { name: "Cursor", defaultSkill: "default" },
   hermes: { name: "Hermes", defaultSkill: "default" },
+  openclaw: { name: "OpenClaw", defaultSkill: "default" },
 };
 
 export class AgentDeskDb {
