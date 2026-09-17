@@ -9,6 +9,7 @@ import { registerClaudeBackend } from "@agent-desk/provider-agent-claude";
 import { registerCodexBackend } from "@agent-desk/provider-agent-codex";
 import { registerCursorBackend } from "@agent-desk/provider-agent-cursor";
 import { registerHermesBackend } from "@agent-desk/provider-agent-hermes";
+import { registerOpenClawBackend } from "@agent-desk/provider-agent-openclaw";
 import { getAgentBackend, listAgentRuntimes, listInstalledAgentProviders, reconcileModelForAgent } from "@agent-desk/provider-agent";
 import { getIssueProvider, listIssueProviders } from "@agent-desk/provider-issue";
 import { registerGitHubIssueProvider, ensureIssueWorkspace, setGitHubSettingsSource } from "@agent-desk/provider-issue-github";
@@ -65,7 +66,9 @@ import {
   DEFAULT_GITHUB_SETTINGS,
   DEFAULT_GITLAB_SETTINGS,
   DEFAULT_NOTIFY_WEBHOOK_SETTINGS,
+  formatSharedContextForPrompt,
   newGateId,
+  sharedContextHasContent,
   type DingTalkSettings,
   type GitHubSettings,
   type GitLabSettings,
@@ -184,6 +187,7 @@ function registerProviders(): void {
   registerCodexBackend();
   registerCursorBackend();
   registerHermesBackend();
+  registerOpenClawBackend();
   registerManualIssueProvider();
   registerGitHubIssueProvider();
   registerGitLabIssueProvider();
@@ -1524,9 +1528,22 @@ export async function createServer(opts: ServerOptions = {}) {
         : typeof req.body.agent_id === "string"
           ? req.body.agent_id
           : undefined;
+    const taskForSwitch = db.getTask(req.params.id);
+    const runId = (taskForSwitch?.workflowRunId || "").trim();
+    let sharedContextText: string | undefined;
+    if (runId) {
+      const run = getRun(dataDir, runId);
+      if (run?.sharedContext && sharedContextHasContent(run.sharedContext)) {
+        sharedContextText = formatSharedContextForPrompt(run.sharedContext, {
+          compact: true,
+          maxLen: 1600,
+        });
+      }
+    }
     const result = switchExecutor(runnerOpts, req.params.id, {
       codingAgent,
       agentProfileId,
+      sharedContextText,
     });
     if (!result.ok) {
       return reply.code(result.status).send({ ok: false, error: result.error });

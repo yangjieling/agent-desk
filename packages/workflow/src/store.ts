@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { WorkflowRun, WorkflowRunNode } from "@agent-desk/core";
+import { normalizeSharedContext, type SharedContextInput } from "@agent-desk/core";
 
 function runsDir(dataDir: string): string {
   return path.join(dataDir, "workflow-runs");
@@ -26,18 +27,20 @@ function fromJson(data: Record<string, unknown>): WorkflowRun {
         };
       })
     : [];
+  const rawCtx = data.sharedContext ?? data.shared_context ?? "";
+  const inputPrompt = String(data.inputPrompt ?? data.input_prompt ?? "");
   return {
     id: String(data.id),
     workflowId: String(data.workflowId ?? data.workflow_id ?? ""),
     workflowName: String(data.workflowName ?? data.workflow_name ?? ""),
     mode: (data.mode ?? "shared") as WorkflowRun["mode"],
     projectDir: String(data.projectDir ?? data.project_dir ?? ""),
-    inputPrompt: String(data.inputPrompt ?? data.input_prompt ?? ""),
+    inputPrompt,
     issueCode: String(data.issueCode ?? data.issue_code ?? ""),
     parentTaskId: String(data.parentTaskId ?? data.parent_task_id ?? ""),
     status: (data.status ?? "pending") as WorkflowRun["status"],
     currentIndex: Number(data.currentIndex ?? data.current_index ?? 0),
-    sharedContext: String(data.sharedContext ?? data.shared_context ?? ""),
+    sharedContext: normalizeSharedContext(rawCtx as SharedContextInput, { goal: inputPrompt }),
     awaitingTaskId: String(data.awaitingTaskId ?? data.awaiting_task_id ?? ""),
     nodes,
     createdAt: Number(data.createdAt ?? data.created_at ?? 0),

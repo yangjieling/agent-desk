@@ -18,6 +18,7 @@ const BIN_CONFIG: Record<string, { env: string; defaultBin: string }> = {
   codex: { env: "AD_CODEX_BIN", defaultBin: "codex" },
   cursor: { env: "AD_CURSOR_BIN", defaultBin: "agent" },
   hermes: { env: "AD_HERMES_BIN", defaultBin: "hermes" },
+  openclaw: { env: "AD_OPENCLAW_BIN", defaultBin: "openclaw" },
 };
 
 export function resolveAgentBin(agentId: string): string {

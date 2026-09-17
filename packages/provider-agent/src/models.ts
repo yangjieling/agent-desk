@@ -69,6 +69,14 @@ export function hermesStaticModels(current?: string): AgentModel[] {
   return [{ id: "default", label: "Hermes default", provider: "hermes", default: true }];
 }
 
+export function openclawStaticModels(current?: string): AgentModel[] {
+  const cur = (current || "").trim();
+  if (cur) {
+    return [{ id: cur, label: cur, provider: "openclaw", default: true }];
+  }
+  return [{ id: "default", label: "OpenClaw default", provider: "openclaw", default: true }];
+}
+
 interface CodexDebugModel {
   slug?: string;
   display_name?: string;
@@ -166,6 +174,15 @@ function discoverHermesModels(bin: string): AgentModelCatalog {
   };
 }
 
+function discoverOpenClawModels(_bin: string): AgentModelCatalog {
+  const fromEnv = (process.env.AD_OPENCLAW_MODEL || "").trim();
+  return {
+    supported: true,
+    models: openclawStaticModels(fromEnv),
+    fallback: !fromEnv,
+  };
+}
+
 /** True when a saved model id is absent from the target agent's discovered catalog. */
 export function isModelIncompatibleWithAgent(model: string, catalog: AgentModel[]): boolean {
   const trimmed = model.trim();
@@ -191,6 +208,8 @@ export function listModelsForAgent(agentId: string, bin?: string): AgentModelCat
         return discoverCursorModels(bin || resolveAgentBin("cursor"));
       case "hermes":
         return discoverHermesModels(bin || resolveAgentBin("hermes"));
+      case "openclaw":
+        return discoverOpenClawModels(bin || resolveAgentBin("openclaw"));
       default:
         return { supported: false, models: [] };
     }

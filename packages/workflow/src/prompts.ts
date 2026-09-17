@@ -1,4 +1,12 @@
 import type { WorkflowNode, WorkflowRunNode } from "@agent-desk/core";
+import {
+  appendStepToSharedContext,
+  formatSharedContextForPrompt,
+  normalizeSharedContext,
+  sharedContextHasContent,
+  type SharedContextInput,
+  type SharedContextV1,
+} from "@agent-desk/core";
 
 function stepBoundaryRules(skill: string, index: number, nodes: WorkflowRunNode[]): string {
   const prev = nodes.slice(0, index).map((n) => n.skill).filter(Boolean);
@@ -9,12 +17,18 @@ function stepBoundaryRules(skill: string, index: number, nodes: WorkflowRunNode[
   return parts.join("\n");
 }
 
+function contextBlock(sharedContext: SharedContextInput, compact = false): string {
+  if (!sharedContextHasContent(sharedContext)) return "";
+  const text = formatSharedContextForPrompt(sharedContext, { compact });
+  return text ? `【共享上下文】\n${text}` : "";
+}
+
 export function buildSharedFirstPrompt(
   workflowName: string,
   node: WorkflowNode,
   index: number,
   total: number,
-  sharedContext: string,
+  sharedContext: SharedContextInput,
   inputPrompt: string,
   allNodes: WorkflowRunNode[],
 ): string {
@@ -26,7 +40,8 @@ export function buildSharedFirstPrompt(
     stepBoundaryRules(skill, index, allNodes),
   ];
   if (inputPrompt.trim()) parts.push(`【流程输入】\n${inputPrompt.trim()}`);
-  if (sharedContext.trim()) parts.push(`【前序步骤上下文】\n${sharedContext.trim()}`);
+  const ctx = contextBlock(sharedContext, false);
+  if (ctx) parts.push(ctx);
   const body = node.prompt.trim() || `执行 ${skill} 技能。`;
   parts.push(`【本步任务】\n${body}`);
   if (node.requireGate) {
@@ -47,6 +62,7 @@ export function buildSharedContinuePrompt(
   index: number,
   total: number,
   allNodes: WorkflowRunNode[],
+  sharedContext?: SharedContextInput,
 ): string {
   const skill = node.skill;
   const body = node.prompt.trim() || `执行 ${skill} 技能。`;
@@ -55,8 +71,11 @@ export function buildSharedContinuePrompt(
     `流程「${workflowName}」编排器已在同一会话内进入本步。`,
     `请立即完成下列任务；禁止重复前序步骤或只写「等待编排器」而不执行。`,
     stepBoundaryRules(skill, index, allNodes),
-    `【本步任务】\n${body}`,
   ];
+  // Compact reminder when context exists (esp. after executor switch / fresh session).
+  const ctx = contextBlock(sharedContext, true);
+  if (ctx) parts.push(ctx);
+  parts.push(`【本步任务】\n${body}`);
   if (node.requireGate) {
     parts.push(
       "【强制闸门】本步结束前必须输出 ## 闸门「确认」 与 ## oh-choices（至少含「确认继续」与「先不修」）。",
@@ -78,11 +97,21 @@ export function buildIndependentPrompt(node: WorkflowNode, inputPrompt: string):
   return parts.join("\n\n");
 }
 
+/** @deprecated Prefer appendStepToSharedContext — kept for call-site migration. */
 export function appendSharedContext(
-  ctx: string,
+  ctx: SharedContextInput,
   node: WorkflowRunNode,
   result: string,
-): string {
-  const chunk = `\n### ${node.title || node.skill} (${node.skill})\n${result.trim()}\n`;
-  return (ctx + chunk).trim();
+  opts?: { failed?: boolean; nextStepTitles?: string[] },
+): SharedContextV1 {
+  return appendStepToSharedContext(ctx, {
+    nodeId: node.nodeId,
+    skill: node.skill,
+    title: node.title,
+    result,
+    failed: opts?.failed,
+    nextStepTitles: opts?.nextStepTitles,
+  });
 }
+
+export { normalizeSharedContext, formatSharedContextForPrompt, sharedContextHasContent };

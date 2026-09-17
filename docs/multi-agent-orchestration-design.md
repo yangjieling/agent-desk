@@ -62,7 +62,7 @@ Claude            → 测试
 | 智能体（persona） | 名称 + instructions + provider + skills + model | `hb/agents.py` |
 | Task | 本地任务 JSON；status / session / skill / workflow 关联 | `hb/tasks.py` |
 | Workflow | 系统/用户模板；shared / independent 模式 | `hb/workflows.py`、`hb/workflow_runner.py` |
-| 共享上下文（初级） | workflow `shared_context` 字符串拼进后续 prompt | `workflow_runner` |
+| 共享上下文（结构化） | workflow `sharedContext` V1 对象（目标/结论/变更/下一步）注入后续 prompt | `packages/core/src/shared-context.ts` |
 | Executor Handoff | awaiting 时跨基座切换；作废 session + briefing | `task_handoff.py`、`executor-handoff-design.md` |
 | 人机闸门 | `awaiting` + reply / 京 ME | `runner_gates.py` |
 | 调度 / 恢复 | 并发队列、同目录互斥、有限 session recovery | `scheduler.py`、`session_recovery.py` |
@@ -287,7 +287,7 @@ Test Results / Errors / Agent Outputs
 Completed Steps / Next Steps
 ```
 
-现状：workflow 级字符串累积 + handoff briefing 文本。目标：从「prompt 拼接」演进为可版本化、可展示、可注入的 Context 对象。
+现状：workflow 级 **SharedContextV1**（goal / conclusions / changedFiles / nextSteps 等）+ handoff briefing 文本（可附带共享上下文）。目标：继续强化可版本化、可展示、可注入的 Context 对象。
 
 ### 5.8 Session
 

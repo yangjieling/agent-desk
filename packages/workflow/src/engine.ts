@@ -1,10 +1,13 @@
 import {
   clipPrompt,
   clipTitle,
+  emptySharedContext,
   newTaskId,
   newWorkflowRunId,
+  normalizeSharedContext,
   resolveAgentConfig,
   type Settings,
+  type SharedContextV1,
   type Task,
   type Workflow,
   type WorkflowRun,
@@ -295,10 +298,21 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
     return;
   }
 
-  let sharedContext = run.sharedContext;
+  let sharedContext: SharedContextV1 = normalizeSharedContext(run.sharedContext, {
+    goal: run.inputPrompt,
+  });
   let inputPrompt = run.inputPrompt;
   const settings = opts.db.getSettings();
   const parentTask = opts.db.getTask(parentId);
+
+  const nextTitlesAfter = (index: number): string[] => {
+    const current = getRun(dataDir, runId) ?? run!;
+    return current.nodes
+      .slice(index + 1)
+      .filter((n) => n.status !== "done" && n.status !== "skipped")
+      .map((n) => n.title || n.skill)
+      .filter(Boolean);
+  };
 
   for (let i = run.currentIndex; i < run.nodes.length; i++) {
     run = getRun(dataDir, runId)!;
@@ -317,7 +331,14 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
             inputPrompt,
             run.nodes,
           )
-        : buildSharedContinuePrompt(run.workflowName, wfNode, i, run.nodes.length, run.nodes);
+        : buildSharedContinuePrompt(
+            run.workflowName,
+            wfNode,
+            i,
+            run.nodes.length,
+            run.nodes,
+            sharedContext,
+          );
 
     if (i === run.currentIndex) inputPrompt = "";
 
@@ -372,6 +393,7 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
           sharedContext,
           node,
           `[步骤失败] ${task.failureMessage || (task.result || "").slice(-500)}`,
+          { failed: true, nextStepTitles: nextTitlesAfter(i) },
         );
         run.sharedContext = sharedContext;
         run.currentIndex = i + 1;
@@ -414,7 +436,9 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
           persistRun(dataDir, opts.db, run);
           return;
         }
-        sharedContext = appendSharedContext(sharedContext, node, task.result);
+        sharedContext = appendSharedContext(sharedContext, node, task.result, {
+          nextStepTitles: nextTitlesAfter(i),
+        });
         run.sharedContext = sharedContext;
         run = updateRunNode(dataDir, run, i, { status: "done" });
         run.currentIndex = i + 1;
@@ -426,7 +450,9 @@ async function runShared(dataDir: string, opts: RunnerOptions, runId: string): P
       return;
     }
 
-    sharedContext = appendSharedContext(sharedContext, node, task.result);
+    sharedContext = appendSharedContext(sharedContext, node, task.result, {
+      nextStepTitles: nextTitlesAfter(i),
+    });
     run.sharedContext = sharedContext;
     run = updateRunNode(dataDir, run, i, { status: "done" });
     run.currentIndex = i + 1;
@@ -586,7 +612,7 @@ export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunIn
     parentTaskId: parentTask.id,
     status: "pending",
     currentIndex: 0,
-    sharedContext: "",
+    sharedContext: emptySharedContext({ goal: clipPrompt(input.inputPrompt ?? parentTask.prompt ?? "") }),
     awaitingTaskId: "",
     nodes: buildRunNodes(wf),
     createdAt: now,

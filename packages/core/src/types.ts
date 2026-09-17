@@ -449,7 +449,11 @@ export interface WorkflowRun {
   parentTaskId: string;
   status: WorkflowRunStatus;
   currentIndex: number;
-  sharedContext: string;
+  /**
+   * Structured shared context (v1). Older runs may still deserialize from a plain string
+   * via normalizeSharedContext().
+   */
+  sharedContext: import("./shared-context.js").SharedContextV1 | string;
   awaitingTaskId: string;
   nodes: WorkflowRunNode[];
   createdAt: number;
