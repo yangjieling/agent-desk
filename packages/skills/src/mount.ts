@@ -15,6 +15,7 @@ export function renderPromptBlock(skill: SkillDescriptor): string {
     `【编码运行时】agent-desk 已注入技能「${skill.name}」(${skill.id})。`,
     "请严格按照下列技能说明执行；不要改用无关流程。",
     "人机闸门请使用 ## 闸门「名称」 与 ## oh-choices；abort 回复（skip / 先不修）会终止任务。",
+    "用户明确结束时请单独成行输出 ## oh-task-end（勿再开闸门）。",
   ];
   if (skill.dir) {
     parts.push(`技能目录(可用 Read / Bash 访问): \`${skill.dir}\``);

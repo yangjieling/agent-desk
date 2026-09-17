@@ -668,6 +668,33 @@
               <span class="track"><span class="thumb"></span></span>
             </label>
           </div>
+          <div class="setting-row" data-key="freeTaskRequireRating">
+            <div class="setting-meta">
+              <p class="st">自由任务服务评价</p>
+              <p class="sd">无技能任务结束时由宿主合成评价闸门（默认关，直接 done）</p>
+            </div>
+            <label class="toggle" title="自由任务服务评价">
+              <input type="checkbox">
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="strictTaskEndMarker">
+            <div class="setting-meta">
+              <p class="st">强制收口标记</p>
+              <p class="sd">无 ## oh-task-end 时先催一次打标；仍缺则宿主强制 done</p>
+            </div>
+            <label class="toggle" title="强制收口标记">
+              <input type="checkbox">
+              <span class="track"><span class="thumb"></span></span>
+            </label>
+          </div>
+          <div class="setting-row" data-key="prematureNudgeMax" data-type="number">
+            <div class="setting-meta">
+              <p class="st">半截 turn 催促次数</p>
+              <p class="sd">预留：每任务自动催促上限（半截检测落地后生效）</p>
+            </div>
+            <input type="number" min="0" max="5" step="1" value="1">
+          </div>
           <div class="setting-row" data-key="defaultFixWorkflowId" data-type="select">
             <div class="setting-meta">
               <p class="st">缺陷 AI 修复流程</p>

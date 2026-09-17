@@ -58,6 +58,23 @@
       "maximum": 10,
       "description": "Maximum agent switches per task (not counting the original agent)"
     },
+    "freeTaskRequireRating": {
+      "type": "boolean",
+      "default": false,
+      "description": "Host synthesizes a service-rating gate when a free task would finish without one"
+    },
+    "strictTaskEndMarker": {
+      "type": "boolean",
+      "default": false,
+      "description": "Require ## oh-task-end before plain done; nudge once then force done"
+    },
+    "prematureNudgeMax": {
+      "type": "integer",
+      "default": 1,
+      "minimum": 0,
+      "maximum": 5,
+      "description": "Max auto-nudges for premature half-turns (reserved)"
+    },
     "queueWhenWorkspaceBusy": {
       "type": "boolean",
       "default": true,

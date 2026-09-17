@@ -411,6 +411,16 @@ function isAbortChoice(label, value) {
   return /先不修|暂不修|skip|cancel|不处理|不修了/i.test(s);
 }
 
+function isEndChoice(label, value) {
+  const s = `${label || ""} ${value || ""}`.trim();
+  return /^(结束|end|done|finish)$/i.test(s) || /结束本次|结束任务/.test(s);
+}
+
+function isRatingChoice(label, value) {
+  const s = `${label || ""} ${value || ""}`.trim();
+  return /^(好|还可以|差|good|ok|okay|bad|poor)$/i.test(s);
+}
+
 function prettyJson(obj) {
   try {
     return JSON.stringify(obj, null, 2);
@@ -1128,15 +1138,24 @@ function renderLogGateCard(gate, awaiting) {
     return;
   }
   card.hidden = false;
+  const hasEnd = (gate.choices || []).some((c) => isEndChoice(c.label, c.value));
+  const hasRating = (gate.choices || []).some((c) => isRatingChoice(c.label, c.value));
+  let hint = "请选择一项以继续；也可在下方输入自定义回复。";
+  if (hasEnd) {
+    hint = "选择「结束」后，模型应输出 ## oh-task-end 收口，勿再开新闸门。";
+  } else if (hasRating) {
+    hint = "评价后模型应输出 ## oh-task-end 收口，勿再开后续操作闸门。";
+  }
   const choices = gate.choices
     .map((c) => {
       const danger = isAbortChoice(c.label, c.value) ? " danger" : "";
-      return `<button type="button" class="lg-choice${danger}" data-value="${esc(c.value)}">${esc(c.label || c.value)}</button>`;
+      const endCls = isEndChoice(c.label, c.value) ? " is-end" : "";
+      return `<button type="button" class="lg-choice${danger}${endCls}" data-value="${esc(c.value)}">${esc(c.label || c.value)}</button>`;
     })
     .join("");
   card.innerHTML =
     `<p class="lg-title">${esc(gate.heading || "需要确认")}</p>` +
-    `<p class="lg-hint">请选择一项以继续；也可在下方输入自定义回复。</p>` +
+    `<p class="lg-hint">${esc(hint)}</p>` +
     `<div class="lg-choices">${choices}</div>`;
   card.querySelectorAll(".lg-choice").forEach((btn) => {
     btn.onclick = () => sendReply(btn.dataset.value);
