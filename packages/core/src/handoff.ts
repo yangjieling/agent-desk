@@ -15,6 +15,8 @@ export function buildHandoffBriefing(input: {
   task: Task;
   fromLabel: string;
   toLabel: string;
+  /** Optional structured Shared Context (workflow) injected into the briefing. */
+  sharedContextText?: string;
 }): string {
   const { task, fromLabel, toLabel } = input;
   const openGate = extractGateName(task.result || "");
@@ -37,6 +39,11 @@ export function buildHandoffBriefing(input: {
   const prompt = clip(String(task.prompt || ""), 800);
   if (prompt) {
     lines.push("", "【原始目标】", prompt);
+  }
+
+  const shared = clip(String(input.sharedContextText || "").trim(), 1600);
+  if (shared) {
+    lines.push("", "【共享上下文】", shared);
   }
 
   const resultTail = clip(String(task.result || "").slice(-2000), 600);

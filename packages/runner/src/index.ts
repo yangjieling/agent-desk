@@ -964,6 +964,8 @@ export async function resumeTask(
 export type SwitchExecutorInput = {
   codingAgent?: string;
   agentProfileId?: string;
+  /** Optional workflow Shared Context text for the handoff briefing. */
+  sharedContextText?: string;
 };
 
 export type SwitchExecutorResult =
@@ -1039,6 +1041,7 @@ export function switchExecutor(
     task,
     fromLabel,
     toLabel,
+    sharedContextText: input.sharedContextText,
   });
 
   const patch: Partial<Task> = {

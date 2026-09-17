@@ -123,6 +123,27 @@ export function extractChangedFilesHint(result: string): string[] {
   return [...files];
 }
 
+/** Short conclusion bullets from a step result (for Shared Context UI / prompts). */
+export function extractConclusionsHint(result: string, max = 3): string[] {
+  const summary = summarizeStepResult(result);
+  if (!summary) return [];
+  const lines = summary
+    .split(/\r?\n/)
+    .map((ln) => ln.replace(/^[-*•\d.）)\s]+/, "").trim())
+    .filter((ln) => ln.length >= 8 && ln.length <= 200);
+  const picked: string[] = [];
+  for (const ln of lines) {
+    if (/^(runtime|prompt|cli|workspace|handoff)\b/i.test(ln)) continue;
+    if (picked.some((p) => p === ln)) continue;
+    picked.push(ln);
+    if (picked.length >= max) break;
+  }
+  if (picked.length) return picked;
+  // Fallback: first sentence of the cleaned summary.
+  const sentence = summary.split(/[。.!?\n]/).map((s) => s.trim()).find((s) => s.length >= 8);
+  return sentence ? [sentence.slice(0, 160)] : [];
+}
+
 export function appendStepToSharedContext(
   raw: SharedContextInput,
   input: {
@@ -149,6 +170,13 @@ export function appendStepToSharedContext(
   } else if (summary) {
     // Keep a short rolling "current state" from the latest success.
     ctx.currentState = summary.slice(0, 400);
+    for (const c of extractConclusionsHint(input.result)) {
+      if (!ctx.conclusions.includes(c)) ctx.conclusions.push(c);
+    }
+    // Cap growth so prompts stay readable.
+    if (ctx.conclusions.length > 12) {
+      ctx.conclusions = ctx.conclusions.slice(-12);
+    }
   }
   for (const f of extractChangedFilesHint(input.result)) {
     if (!ctx.changedFiles.includes(f)) ctx.changedFiles.push(f);
