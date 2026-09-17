@@ -10,11 +10,15 @@ import {
   clearGateClaimState,
   clipPrompt,
   clipTitle,
+  containsTaskEndMarker,
   dangerousCommandId,
+  enrichResumePromptBody,
   extractPendingDangerousCommand,
   formatDangerousCommandGate,
+  formatStatusReasonLog,
   isAbortReply,
   isDangerousCommandApproval,
+  isFreeSkill,
   agentPromptBodyForRun,
   matchDangerousCommand,
   newGateId,
@@ -25,6 +29,9 @@ import {
   prependHandoffBriefing,
   resolveAgentConfig,
   resolveTaskStatusAfterRun,
+  strictTaskEndNudgePrompt,
+  synthesizeServiceRatingGate,
+  taskEndRules,
   type Settings,
   type Task,
   type TaskFailureCode,
@@ -56,6 +63,9 @@ import {
   scheduleDelayedStart,
 } from "./queue.js";
 import { requestExecutorWake } from "./executor.js";
+
+/** Counts strictTaskEndMarker nudges per task (in-memory; resets on process restart). */
+const strictEndNudgeCount = new Map<string, number>();
 
 function resolveBackendSessionId(
   backend: import("@agent-desk/provider-agent").AgentBackend,
@@ -600,13 +610,18 @@ export async function startTask(
     const profile = task.agentProfileId ? opts.db.getAgent(task.agentProfileId) : null;
     const skillMount = mountSkills(task.skill || "default", profile?.skills || [], { cwd });
     const runPrompt = agentPromptBodyForRun(task.prompt, Boolean(task.sessionId));
-    let promptBody = task.sessionId
-      ? runPrompt
-      : skillMount.promptPrefix
+    let promptBody: string;
+    if (task.sessionId) {
+      // Resume: last user reply + protocol rules (re-teach end marker every turn).
+      promptBody = enrichResumePromptBody(runPrompt);
+    } else {
+      promptBody = skillMount.promptPrefix
         ? `${skillMount.promptPrefix}\n${task.prompt}`
         : task.prompt;
-    if (!task.sessionId && profile) {
-      promptBody = prependAgentInstructions(promptBody, profile.instructions || "");
+      if (profile) {
+        promptBody = prependAgentInstructions(promptBody, profile.instructions || "");
+      }
+      promptBody = `${promptBody}${taskEndRules()}`;
     }
     const handoffBriefing = (task.pendingHandoffBriefing || "").trim();
     let consumeHandoff = false;
@@ -774,7 +789,68 @@ export async function startTask(
         ? String(controller.signal.reason ?? "aborted")
         : "";
       const idleAbort = abortReason === "idle_timeout";
-      const status = resolveTaskStatusAfterRun(output, code ?? 1, controller.signal.aborted);
+      let resolution = resolveTaskStatusAfterRun(output, code ?? 1, controller.signal.aborted);
+      let status = resolution.status;
+
+      // A2: free-task host-owned rating gate.
+      if (
+        !idleAbort &&
+        status === "done" &&
+        resolution.reason === "plain_done" &&
+        settings.freeTaskRequireRating &&
+        isFreeSkill(task?.skill) &&
+        !containsTaskEndMarker(output)
+      ) {
+        output += synthesizeServiceRatingGate();
+        status = "awaiting";
+        resolution = { status: "awaiting", reason: "open_gate" };
+        output += `\n[awaiting] 宿主已合成服务评价闸门（freeTaskRequireRating）。\n`;
+      }
+
+      // A2: strict end marker — nudge once, then force done.
+      if (
+        !idleAbort &&
+        status === "done" &&
+        resolution.reason === "plain_done" &&
+        settings.strictTaskEndMarker &&
+        !containsTaskEndMarker(output)
+      ) {
+        const nudges = strictEndNudgeCount.get(taskId) || 0;
+        if (nudges < 1) {
+          strictEndNudgeCount.set(taskId, nudges + 1);
+          output += `\n[awaiting] strictTaskEndMarker：请输出收口标记后再结束。\n`;
+          status = "awaiting";
+          resolution = { status: "awaiting", reason: "question" };
+          // Append a synthetic gate so the UI shows a clear continue path.
+          output += [
+            "",
+            "## 闸门「收口标记」",
+            strictTaskEndNudgePrompt(),
+            "",
+            "## oh-choices",
+            "- 继续并打标|继续",
+            "- 结束|结束",
+            "",
+          ].join("\n");
+        } else {
+          strictEndNudgeCount.delete(taskId);
+          output += `\n[done] strictTaskEndMarker：二次未打标，宿主强制收口。\n`;
+          status = "done";
+          resolution = { status: "done", reason: "plain_done" };
+        }
+      } else if (status === "done" || status === "stopped" || status === "failed") {
+        strictEndNudgeCount.delete(taskId);
+      }
+
+      if (!idleAbort && resolution.reason !== "open_gate") {
+        // open_gate / synthesized rating already logged above when needed
+        const reasonLog = formatStatusReasonLog(resolution);
+        if (reasonLog && !output.includes(reasonLog.trim())) {
+          output += reasonLog;
+        }
+      } else if (!idleAbort && resolution.reason === "open_gate" && !output.includes("[awaiting]")) {
+        output += formatStatusReasonLog(resolution);
+      }
 
       const patch: Partial<Task> = {
         status,

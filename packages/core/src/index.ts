@@ -7,3 +7,4 @@ export * from "./failover.js";
 export * from "./dangerous-command.js";
 export * from "./agent.js";
 export * from "./usage.js";
+export * from "./task-protocol.js";

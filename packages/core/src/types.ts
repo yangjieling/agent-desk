@@ -272,6 +272,18 @@ export interface Settings {
   failoverAgentIds: string[];
   /** Max agent switches per task (not counting the original agent). */
   maxFailovers: number;
+  /**
+   * When a free (no-skill) task would go done without a gate, host synthesizes
+   * a service-rating gate instead (design A2 option B).
+   */
+  freeTaskRequireRating: boolean;
+  /**
+   * When true, refuse plain_done without ## oh-task-end once (nudge), then
+   * force done on the second miss.
+   */
+  strictTaskEndMarker: boolean;
+  /** Reserved: max auto-nudges for premature/half turns (not yet wired). */
+  prematureNudgeMax: number;
   /** When workspace is busy, queue the task instead of failing immediately. */
   queueWhenWorkspaceBusy: boolean;
   /**
@@ -398,6 +410,9 @@ export const DEFAULT_SETTINGS: Settings = {
   failoverOnFailureEnabled: true,
   failoverAgentIds: [],
   maxFailovers: 2,
+  freeTaskRequireRating: false,
+  strictTaskEndMarker: false,
+  prematureNudgeMax: 1,
   queueWhenWorkspaceBusy: true,
   worktreeParallelEnabled: true,
   executorMaxConcurrent: 4,

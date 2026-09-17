@@ -1,11 +1,14 @@
 import type { GateChoice, ParsedGate, TaskStatus } from "./types.js";
+import { LEGACY_TASK_END_MARKER, PREFERRED_TASK_END_MARKER } from "./task-protocol.js";
 
 const GATE_HEADING_RE = /(?:##\s*|【)闸门[「"']([^」"']+)[」"']/g;
 const CLOSED_GATE_STATUS_RE = /已(确认|通过|收口|记录)/;
 const OH_CHOICES_MARKER = "## oh-choices";
 const LEGACY_HB_CHOICES_MARKER = "## hb-choices";
 const CHOICES_MARKERS = [OH_CHOICES_MARKER, LEGACY_HB_CHOICES_MARKER];
-const TASK_END_MARKERS = ["## oh-task-end", "## hb-task-end"];
+const TASK_END_MARKERS = [PREFERRED_TASK_END_MARKER, LEGACY_TASK_END_MARKER];
+/** Prefer line-anchored match; fall back to substring (hb-cli compatible). */
+const TASK_END_LINE_RE = /^\s*##\s*(?:oh|hb)-task-end\s*$/im;
 
 const NOT_QUESTION_HINTS = [
   "等待编排器",
@@ -184,26 +187,65 @@ export function looksLikeQuestion(text: string): boolean {
 
 export function containsTaskEndMarker(text: string): boolean {
   const body = text || "";
-  return TASK_END_MARKERS.some((m) => body.includes(m));
+  if (!body.trim()) return false;
+  if (TASK_END_LINE_RE.test(body)) return true;
+  const lower = body.toLowerCase();
+  return TASK_END_MARKERS.some((m) => lower.includes(m.toLowerCase()));
 }
+
+export type TaskStatusReason =
+  | "aborted"
+  | "user_abort"
+  | "exit_nonzero"
+  | "task_end"
+  | "open_gate"
+  | "question"
+  | "plain_done";
+
+export type TaskStatusResolution = {
+  status: TaskStatus;
+  reason: TaskStatusReason;
+};
 
 export function resolveTaskStatusAfterRun(
   output: string,
   exitCode: number,
   aborted: boolean,
-): TaskStatus {
-  if (aborted) return "stopped";
-  if (looksLikeUserAbort(output)) return "stopped";
-  if (exitCode !== 0) return "failed";
+): TaskStatusResolution {
+  if (aborted) return { status: "stopped", reason: "aborted" };
+  if (looksLikeUserAbort(output)) return { status: "stopped", reason: "user_abort" };
+  if (exitCode !== 0) return { status: "failed", reason: "exit_nonzero" };
 
   const segment = extractLastRunSegment(output);
-  // Explicit end marker wins over open-gate / question heuristics (A0).
+  // Explicit end marker wins over open-gate / question heuristics (A0/A1).
   if (containsTaskEndMarker(segment) || containsTaskEndMarker(output)) {
-    return "done";
+    return { status: "done", reason: "task_end" };
   }
-  if (containsOpenGate(segment)) return "awaiting";
-  if (looksLikeQuestion(output)) return "awaiting";
-  return "done";
+  if (containsOpenGate(segment)) return { status: "awaiting", reason: "open_gate" };
+  if (looksLikeQuestion(output)) return { status: "awaiting", reason: "question" };
+  return { status: "done", reason: "plain_done" };
+}
+
+/** Human-readable status log line for the task result. */
+export function formatStatusReasonLog(resolution: TaskStatusResolution): string {
+  switch (resolution.reason) {
+    case "task_end":
+      return `\n[done] 检测到 ${PREFERRED_TASK_END_MARKER}，任务已收口。\n`;
+    case "open_gate":
+      return `\n[awaiting] 检测到未关闭闸门，等待确认。\n`;
+    case "question":
+      return `\n[awaiting] 检测到待确认提问。\n`;
+    case "plain_done":
+      return `\n[done] 本轮结束（无闸门）。\n`;
+    case "user_abort":
+      return `\n[stopped] 用户放弃修复，任务已终止。\n`;
+    case "aborted":
+      return `\n[stopped] 任务已中止。\n`;
+    case "exit_nonzero":
+      return `\n[failed] 进程异常退出。\n`;
+    default:
+      return "";
+  }
 }
 
 export function parseOhChoices(text: string): GateChoice[] {
