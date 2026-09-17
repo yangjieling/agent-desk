@@ -12,14 +12,18 @@ import {
 } from "@agent-desk/core";
 import type { AgentDeskDb } from "@agent-desk/db";
 import {
+  checkTaskSchedule,
   createTask,
   enqueueStartTask,
   isTaskRunning,
   onTaskComplete,
+  prepareWorktree,
+  requestExecutorWake,
   resolveTaskAgent,
   startTask,
   stopTask,
   type RunnerOptions,
+  type ScheduleMode,
 } from "@agent-desk/runner";
 import { getWorkflow } from "./loader.js";
 import {
@@ -522,6 +526,34 @@ export interface StartRunInput {
   parentTaskId?: string;
   title?: string;
   agentProfileId?: string;
+  /** When false, persist parent+run without launching the worker (UI schedule dialog). */
+  autoStart?: boolean;
+  schedule?: ScheduleMode;
+}
+
+function applyParallelWorktree(opts: RunnerOptions, task: Task): Task {
+  const sourceDir = (task.workspaceRoot || task.projectDir || "").trim();
+  const prep = prepareWorktree({
+    taskId: task.id,
+    sourceDir,
+    existingPath: task.worktreePath,
+    existingBranch: task.worktreeBranch,
+    existingRoot: task.workspaceRoot,
+  });
+  if (!prep.ok) {
+    throw new Error(prep.error || "创建并行 worktree 失败");
+  }
+  const stamp = `\n\n[worktree] 并行：${prep.path}（${prep.branch}）`;
+  const prev = (task.result || "").trim();
+  return (
+    opts.db.updateTask(task.id, {
+      projectDir: prep.path,
+      workspaceRoot: prep.workspaceRoot || sourceDir,
+      worktreePath: prep.path,
+      worktreeBranch: prep.branch,
+      result: prev ? `${prev}${stamp}` : stamp.trimStart(),
+    }) ?? { ...task, projectDir: prep.path }
+  );
 }
 
 export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunInput): WorkflowRun {
@@ -562,6 +594,13 @@ export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunIn
   };
 
   writeRun(dataDir, run);
+  if (input.schedule === "parallel") {
+    parentTask = applyParallelWorktree(opts, parentTask);
+    run.projectDir = parentTask.projectDir;
+    persistRun(dataDir, opts.db, run);
+  }
+
+  const autoStart = input.autoStart !== false;
   opts.db.updateTask(parentTask.id, {
     taskType: "workflow",
     workflowId: wf.id,
@@ -569,11 +608,116 @@ export function startRun(dataDir: string, opts: RunnerOptions, input: StartRunIn
     workflowName: wf.name,
     workflowMode: wf.mode,
     workflowStepTotal: wf.nodes.length,
-    status: "running",
+    projectDir: parentTask.projectDir,
+    workspaceRoot: parentTask.workspaceRoot,
+    worktreePath: parentTask.worktreePath,
+    worktreeBranch: parentTask.worktreeBranch,
+    status: autoStart ? "running" : "created",
   });
 
-  launchWorker(dataDir, opts, run.id);
+  if (autoStart) launchWorker(dataDir, opts, run.id);
   return getRun(dataDir, run.id)!;
+}
+
+/** Launch a pending (or crashed) workflow run after the UI schedule dialog. */
+export function startPendingRun(
+  dataDir: string,
+  opts: RunnerOptions,
+  runId: string,
+  schedule?: ScheduleMode,
+): WorkflowRun {
+  const run = getRun(dataDir, runId);
+  if (!run) throw new Error(`Workflow run not found: ${runId}`);
+  if (activeWorkers.has(runId)) return run;
+  if (run.status === "done") throw new Error("Workflow already finished");
+
+  const parentId = (run.parentTaskId || "").trim();
+  const parent = parentId ? opts.db.getTask(parentId) : null;
+
+  if (schedule === "queue") {
+    if (parent) {
+      opts.db.updateTask(parent.id, {
+        status: "queued",
+        failureCode: "workspace_busy",
+        failureMessage: "用户选择排队等待",
+        nextRetryAt: 0,
+        claimToken: "",
+        claimedBy: "",
+        claimedAt: 0,
+        heartbeatAt: 0,
+      });
+    }
+    run.status = "pending";
+    persistRun(dataDir, opts.db, run);
+    requestExecutorWake();
+    return getRun(dataDir, runId)!;
+  }
+
+  if (schedule === "parallel" && parent) {
+    const settings = opts.db.getSettings();
+    if (settings.worktreeParallelEnabled === false) {
+      throw new Error("未开启 worktree 并行");
+    }
+    const next = applyParallelWorktree(opts, parent);
+    run.projectDir = next.projectDir;
+    persistRun(dataDir, opts.db, run);
+  }
+
+  if (parent) {
+    const fresh = opts.db.getTask(parent.id) ?? parent;
+    opts.db.updateTask(parent.id, {
+      status: "running",
+      failureCode: "",
+      failureMessage: "",
+      nextRetryAt: 0,
+      claimToken: "",
+      claimedBy: "",
+      claimedAt: 0,
+      heartbeatAt: 0,
+      projectDir: fresh.projectDir,
+      workspaceRoot: fresh.workspaceRoot,
+      worktreePath: fresh.worktreePath,
+      worktreeBranch: fresh.worktreeBranch,
+    });
+  }
+
+  launchWorker(dataDir, opts, runId);
+  return getRun(dataDir, runId)!;
+}
+
+/**
+ * Start queued workflow parents whose workspace is free.
+ * Skill tasks are claimed by the executor; workflow roots are handled here.
+ */
+export function dispatchQueuedWorkflowRuns(dataDir: string, opts: RunnerOptions): string[] {
+  const settings = opts.db.getSettings();
+  const started: string[] = [];
+  for (const task of opts.db.listTasks(500)) {
+    if (task.status !== "queued") continue;
+    if (task.taskType !== "workflow") continue;
+    if ((task.parentTaskId || "").trim()) continue;
+    const runId = (task.workflowRunId || "").trim();
+    if (!runId) continue;
+    if (activeWorkers.has(runId)) continue;
+    if (task.nextRetryAt > Date.now()) continue;
+
+    const check = checkTaskSchedule(opts.db, task, {
+      workspaceLockEnabled: settings.workspaceLockEnabled !== false,
+      worktreeParallelEnabled: settings.worktreeParallelEnabled !== false,
+    });
+    if (check.needSchedule) continue;
+
+    try {
+      startPendingRun(dataDir, opts, runId, "auto");
+      started.push(task.id);
+    } catch (err) {
+      console.warn(
+        `[workflow] dispatch queued ${task.id}:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+  return started;
 }
 
 export function continueRun(dataDir: string, opts: RunnerOptions, runId: string): WorkflowRun {

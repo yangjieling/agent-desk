@@ -62,14 +62,15 @@ export function listWorkspaceBlockers(
     }));
 }
 
-export function checkTaskSchedule(
+export function checkWorkspaceSchedule(
   db: AgentDeskDb,
-  task: Task,
+  projectDir: string,
+  exceptId?: string,
   opts?: { workspaceLockEnabled?: boolean; worktreeParallelEnabled?: boolean },
 ): ScheduleCheckResult {
   const lockOn = opts?.workspaceLockEnabled !== false;
-  const dir = (task.projectDir || "").trim();
-  const workspaceKey = resolveWorkspaceKey(dir, task.workspaceRoot);
+  const dir = (projectDir || "").trim();
+  const workspaceKey = resolveWorkspaceKey(dir);
   const parallelOk =
     opts?.worktreeParallelEnabled !== false && Boolean(gitToplevel(dir || workspaceKey));
   if (!lockOn || !workspaceKey) {
@@ -82,7 +83,7 @@ export function checkTaskSchedule(
       workspaceKey,
     };
   }
-  const blockers = listWorkspaceBlockers(db, dir || workspaceKey, task.id);
+  const blockers = listWorkspaceBlockers(db, dir || workspaceKey, exceptId);
   if (!blockers.length) {
     return {
       ok: true,
@@ -101,4 +102,13 @@ export function checkTaskSchedule(
     parallelOk,
     workspaceKey,
   };
+}
+
+export function checkTaskSchedule(
+  db: AgentDeskDb,
+  task: Task,
+  opts?: { workspaceLockEnabled?: boolean; worktreeParallelEnabled?: boolean },
+): ScheduleCheckResult {
+  const dir = (task.workspaceRoot || task.projectDir || "").trim();
+  return checkWorkspaceSchedule(db, dir, task.id, opts);
 }

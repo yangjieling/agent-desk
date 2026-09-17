@@ -92,6 +92,7 @@ export {
 } from "./worktree.js";
 export {
   checkTaskSchedule,
+  checkWorkspaceSchedule,
   listWorkspaceBlockers,
   resolveWorkspaceKey,
   type ScheduleBlocker,
